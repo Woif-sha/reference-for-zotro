@@ -16,5 +16,7 @@ arrow keys to compare:
 - C — reading-queue cards
 
 The data-state selector exercises ready/loading/error/no-MD states. Switch to
-Citations to exercise the 10/30/50 control. Click the highlighted PDF sentence
-to show translation, and Ctrl+click a row to simulate landing-page navigation.
+Citations to exercise the 10/30/50 control. In variant A, a blue bold title
+means a paper landing page was resolved. Click any paper title for its detail
+card; only resolved titles respond to Ctrl+click. Card text is selectable and
+contains no action copy. Click the highlighted PDF sentence to show translation.

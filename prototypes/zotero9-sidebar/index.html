@@ -262,16 +262,20 @@
     .paper-row.loading .row-status { color: var(--muted); }
     .paper-row.error .row-status { color: var(--danger); }
     .title { color: #29292d; font-weight: 600; line-height: 1.35; }
+    .paper-row.resolved .title {
+      color: #1f63d8;
+      font-weight: 700;
+      cursor: pointer;
+    }
     .meta { color: var(--muted); line-height: 1.35; }
     .row-status { margin-top: 5px; color: #2b7149; font-size: 10px; }
     .row-status::before { content: "●"; margin-right: 4px; }
 
     /* A: dense bibliography-first rows */
-    .variant-a .paper-row { display: grid; grid-template-columns: 27px 1fr 24px; gap: 5px; padding: 10px 8px; }
+    .variant-a .paper-row { display: grid; grid-template-columns: 27px 1fr; gap: 5px; padding: 10px 8px; }
     .variant-a .index { color: #8b8b91; text-align: right; font-size: 11px; }
     .variant-a .title { font-size: 12px; }
     .variant-a .meta { margin-top: 3px; font-size: 10px; }
-    .variant-a .info-button { align-self: start; opacity: .55; }
 
     /* B: author/date scan with a fixed preview dock */
     .variant-b .content { display: grid; grid-template-rows: minmax(0, 1fr) 155px; overflow: hidden; }
@@ -327,50 +331,74 @@
       cursor: pointer;
     }
 
-    .info-button {
-      display: inline-grid;
-      width: 22px;
-      height: 22px;
-      place-items: center;
-      border: 0;
-      border-radius: 4px;
-      background: transparent;
-      color: #5d626b;
-      cursor: pointer;
-      font-weight: 700;
-    }
-    .info-button:hover { background: #d7e2f5; opacity: 1; }
-
     .hover-card {
       position: absolute;
       z-index: 10;
-      top: 96px;
+      top: 74px;
       right: calc(var(--sidebar) - 1px);
-      width: 390px;
+      width: min(760px, calc(100vw - var(--sidebar) - 250px));
+      max-height: calc(100vh - 120px);
       border: 1px solid #aaaeb5;
       border-radius: 8px 0 0 8px;
       background: #fff;
       box-shadow: -8px 12px 28px #0003;
-      overflow: hidden;
+      overflow: auto;
+      user-select: text;
     }
     .hover-card[hidden] { display: none; }
-    .card-cover { height: 5px; background: var(--accent); }
-    .card-body { padding: 15px 16px 13px; }
-    .card-kicker { color: #687183; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-    .card-title { margin: 5px 0 7px; font-family: Georgia, serif; font-size: 17px; line-height: 1.25; }
-    .card-meta { color: var(--muted); font-size: 11px; }
-    .card-summary { margin: 12px 0; color: #46464b; font-size: 12px; line-height: 1.45; }
-    .card-footer { display: flex; gap: 7px; align-items: center; }
-    .card-footer button {
-      border: 1px solid #bfc0c4;
-      border-radius: 5px;
-      background: #fff;
-      padding: 5px 8px;
-      font-size: 11px;
-      cursor: pointer;
+    .card-body { position: relative; padding: 16px 18px 18px; }
+    .card-dots {
+      display: flex;
+      justify-content: center;
+      gap: 9px;
+      margin: 0 0 8px;
     }
-    .card-footer .primary { border-color: #2760bd; background: var(--accent); color: #fff; }
-    .card-close { margin-left: auto; }
+    .card-dots i {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #f28ca9;
+    }
+    .card-title {
+      max-width: calc(100% - 30px);
+      color: #1f63d8;
+      font-size: 18px;
+      font-weight: 750;
+      line-height: 1.25;
+    }
+    .card-title.unresolved { color: #29292d; }
+    .card-badges { display: flex; flex-wrap: wrap; gap: 9px; margin: 11px 0 9px; }
+    .card-badge {
+      border-radius: 999px;
+      background: #76c3c5;
+      color: #fff;
+      padding: 2px 11px;
+      font-size: 11px;
+      line-height: 1.2;
+    }
+    .card-badge.connected { background: #2d9fa1; }
+    .card-badge.doi { background: #f5aa17; }
+    .card-meta { color: #6e6e74; font-size: 12px; line-height: 1.5; }
+    .card-background {
+      margin: 8px 0 0;
+      color: #34343a;
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-line;
+    }
+    .card-close {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      width: 24px;
+      height: 24px;
+      border: 0;
+      border-radius: 50%;
+      background: #f0f0f2;
+      color: #65656b;
+      cursor: pointer;
+      user-select: none;
+    }
 
     .toast {
       position: fixed;
@@ -512,17 +540,19 @@
         </div>
         <section class="content" id="content"></section>
         <aside class="hover-card" id="hoverCard" hidden>
-          <div class="card-cover"></div>
           <div class="card-body">
-            <div class="card-kicker" id="cardKicker">Resolved reference · 2017</div>
+            <button class="card-close" id="cardClose" aria-label="Close">×</button>
+            <div class="card-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div class="card-title" id="cardTitle"></div>
-            <div class="card-meta" id="cardMeta"></div>
-            <p class="card-summary" id="cardSummary"></p>
-            <div class="card-footer">
-              <button class="primary" id="openPage">打开论文落地页</button>
-              <button id="copyTitle">复制标题</button>
-              <button class="card-close" id="cardClose" aria-label="Close">×</button>
+            <div class="card-badges" id="cardBadges">
+              <span class="card-badge" id="cardCitations"></span>
+              <span class="card-badge" id="cardReferences"></span>
+              <span class="card-badge connected">connected papers</span>
+              <span class="card-badge doi">DOI</span>
             </div>
+            <div class="card-meta" id="cardAuthors"></div>
+            <div class="card-meta" id="cardVenue"></div>
+            <p class="card-background" id="cardBackground"></p>
           </div>
         </aside>
       </aside>
@@ -551,8 +581,12 @@
         venue: "ICLR",
         year: "2015",
         status: "resolved",
-        statusText: "已匹配论文落地页",
-        summary: "Introduces an attention mechanism that learns to align and translate jointly, replacing fixed-length encoder representations."
+        statusText: "",
+        citations: 18743,
+        referenceCount: 26,
+        doi: "10.48550/arXiv.1409.0473",
+        summary: "Introduces an attention mechanism that learns to align and translate jointly, replacing fixed-length encoder representations.",
+        background: "Background: Neural machine translation systems traditionally encoded an entire source sentence into one fixed-length vector, creating a bottleneck for long and structurally complex inputs. This paper introduces a mechanism that learns a soft alignment between each generated target word and the most relevant source positions while translation is taking place.\n\nThe encoder uses a bidirectional recurrent network to build annotations for the source sentence. At each decoding step, the model assigns attention weights to those annotations and forms a context vector tailored to the word being generated. This lets the decoder concentrate on different parts of the source instead of depending on one compressed representation. Experiments on English–French translation showed that the approach improved performance, especially for longer sentences, and produced alignments that could be inspected directly. The work established the central attention pattern later generalized by the Transformer."
       },
       {
         title: "Effective Approaches to Attention-based Neural Machine Translation",
@@ -560,8 +594,12 @@
         venue: "EMNLP",
         year: "2015",
         status: "resolved",
-        statusText: "已匹配论文落地页",
-        summary: "Compares global and local attention mechanisms for neural machine translation and evaluates alternative alignment functions."
+        statusText: "",
+        citations: 12431,
+        referenceCount: 35,
+        doi: "10.18653/v1/D15-1166",
+        summary: "Compares global and local attention mechanisms for neural machine translation and evaluates alternative alignment functions.",
+        background: "Background: This study develops two practical attention families for neural machine translation. Global attention considers every source position for each generated target word, while local attention predicts a smaller source window and concentrates computation within it.\n\nThe authors compare several scoring functions for measuring compatibility between decoder states and encoder representations, and add an input-feeding path that informs later decisions about earlier alignment choices. Evaluations on English–German translation show consistent gains over non-attentional encoder–decoder systems, with the local-p attention model providing a useful balance between translation quality and computation. The paper also visualizes learned alignments, making clear how attention can serve both as a modeling mechanism and as an interpretable view of translation behavior."
       },
       {
         title: "Generating Sequences With Recurrent Neural Networks",
@@ -578,7 +616,7 @@
         venue: "ICLR",
         year: "2017",
         status: "unresolved",
-        statusText: "未找到 · Ctrl+左键搜索",
+        statusText: "未找到",
         summary: "Explores self-attention for producing interpretable sentence embeddings."
       },
       {
@@ -665,26 +703,26 @@
 
     function rowMarkup(item, index) {
       const selected = state.selected === index ? " selected" : "";
+      const status = item.status !== "resolved" && item.statusText ? `<div class="row-status">${item.statusText}</div>` : "";
       if (state.variant === "A") {
         return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
           <span class="index">${index + 1}.</span>
-          <div><div class="title">${item.title}</div><div class="meta">${item.authors} · ${item.venue} ${item.year}</div><div class="row-status">${item.statusText}</div></div>
-          <button class="info-button" data-info="${index}" aria-label="Show paper details">ⓘ</button>
+          <div><div class="title" data-paper-title="${index}">${item.title}</div><div class="meta">${item.authors} · ${item.venue} ${item.year}</div>${status}</div>
         </li>`;
       }
       if (state.variant === "B") {
         return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
           <span class="year">${item.year}</span>
-          <div class="title">${item.title}</div>
+          <div class="title" data-paper-title="${index}">${item.title}</div>
           <div class="meta">${item.authors} · ${item.venue}</div>
-          <div class="row-status">${item.statusText}</div>
+          ${status}
         </li>`;
       }
       return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
         <div class="eyebrow"><span>${state.tab === "references" ? `Reference ${index + 1}` : `Citing paper ${index + 1}`}</span><span>${item.year}</span></div>
-        <div class="title">${item.title}</div>
+        <div class="title" data-paper-title="${index}">${item.title}</div>
         <div class="meta">${item.authors} · ${item.venue}</div>
-        <div class="row-status">${item.statusText}</div>
+        ${status}
         <div class="row-actions"><button data-info="${index}">查看介绍</button><button data-jump="${index}">Ctrl+打开</button></div>
       </li>`;
     }
@@ -739,23 +777,24 @@ last: ${state.lastAction}`;
       const item = activeData()[index];
       state.selected = index;
       state.cardOpen = true;
-      state.lastAction = `展开 ${state.tab === "references" ? "resolved reference" : "citing paper"} 信息卡`;
-      document.querySelector("#cardKicker").textContent =
-        `${state.tab === "references" ? "Resolved reference" : "Citing paper"} · ${item.year}`;
+      state.lastAction = `点击论文标题 → 展开完整信息卡`;
       document.querySelector("#cardTitle").textContent = item.title;
-      document.querySelector("#cardMeta").textContent = `${item.authors} · ${item.venue} · ${item.statusText}`;
-      document.querySelector("#cardSummary").textContent = item.summary;
+      document.querySelector("#cardTitle").classList.toggle("unresolved", item.status !== "resolved");
+      document.querySelector("#cardCitations").textContent = `${item.citations ?? "—"} citations`;
+      document.querySelector("#cardReferences").textContent = `${item.referenceCount ?? "—"} references`;
+      document.querySelector("#cardBadges").hidden = item.status !== "resolved";
+      document.querySelector("#cardAuthors").textContent = item.authors;
+      document.querySelector("#cardVenue").textContent = `${item.venue} · ${item.year}${item.doi ? ` · ${item.doi}` : ""}`;
+      document.querySelector("#cardBackground").textContent = item.background ?? `Background: ${item.summary}`;
       render();
     }
 
-    function attemptJump(index, forced = false) {
+    function attemptJump(index) {
       const item = activeData()[index];
-      if (!forced) return;
-      const target = item.status === "resolved"
-        ? "论文落地页（原型不执行外部跳转）"
-        : `Google 搜索 “${item.title}”`;
+      if (item.status !== "resolved") return;
+      const target = `论文落地页 · ${item.doi ?? item.title}`;
       state.lastAction = `Ctrl+左键 → ${target}`;
-      showToast(target);
+      showToast(`${target}（原型不执行外部跳转）`);
       renderMonitor();
     }
 
@@ -805,38 +844,21 @@ last: ${state.lastAction}`;
     content.addEventListener("click", event => {
       const info = event.target.closest("[data-info]");
       const jump = event.target.closest("[data-jump]");
+      const title = event.target.closest("[data-paper-title]");
       const row = event.target.closest("[data-index]");
       if (info) return showCard(Number(info.dataset.info));
-      if (jump) return attemptJump(Number(jump.dataset.jump), true);
+      if (jump) return attemptJump(Number(jump.dataset.jump));
       if (!row) return;
       const index = Number(row.dataset.index);
-      if (event.ctrlKey || event.metaKey) return attemptJump(index, true);
+      if (title && (event.ctrlKey || event.metaKey)) return attemptJump(index);
+      if (title && !window.getSelection().toString()) return showCard(index);
       selectItem(index, false);
-    });
-
-    content.addEventListener("dblclick", event => {
-      const row = event.target.closest("[data-index]");
-      if (row) showCard(Number(row.dataset.index));
-    });
-
-    content.addEventListener("mouseover", event => {
-      const row = event.target.closest("[data-index]");
-      if (row && state.variant !== "C") {
-        clearTimeout(content.hoverTimer);
-        content.hoverTimer = setTimeout(() => showCard(Number(row.dataset.index)), 450);
-      }
     });
 
     document.querySelector("#cardClose").addEventListener("click", () => {
       state.cardOpen = false;
       state.lastAction = "关闭信息卡";
       render();
-    });
-    document.querySelector("#openPage").addEventListener("click", () => attemptJump(state.selected, true));
-    document.querySelector("#copyTitle").addEventListener("click", () => {
-      state.lastAction = "复制标题（原型仅模拟）";
-      showToast("已复制标题（原型）");
-      renderMonitor();
     });
 
     document.querySelector("#selection").addEventListener("click", () => {

@@ -73,3 +73,13 @@ test("registration metadata authority wins, then completeness breaks equal-autho
     "complete",
   );
 });
+
+test("Primary result requires a non-empty title and stable identity", () => {
+  assert.equal(
+    selectPrimaryResult([
+      option("crossref", "empty-title", { title: "" }),
+      option("datacite", "no-identifier", { identifiers: {} }),
+    ]),
+    undefined,
+  );
+});

@@ -1,5 +1,6 @@
 import { matchScholarlyCandidates, type MatchablePaper } from "./matching";
 import {
+  hasRequiredResolutionMetadata,
   selectPrimaryResult,
   type PrimaryResultCandidate,
 } from "./primary-result";
@@ -77,8 +78,10 @@ export type ReferenceResolution =
     }>
   | Readonly<{
       status: "unresolved";
-      reason: "no-candidate" | "unreachable-landing-page";
+      reason:
+        "no-candidate" | "incomplete-metadata" | "unreachable-landing-page";
       outcomes: readonly ProviderOutcome[];
+      candidates?: readonly ScholarlyCandidate[];
     }>
   | Readonly<{
       status: "failed";
@@ -187,8 +190,13 @@ export function createRelatedLiteratureGateway(
     if (!primaryResult?.landingURL) {
       return {
         status: "unresolved",
-        reason: "unreachable-landing-page",
+        reason: reachableCandidates.some(({ candidate }) =>
+          hasRequiredResolutionMetadata(candidate),
+        )
+          ? "unreachable-landing-page"
+          : "incomplete-metadata",
         outcomes,
+        candidates: reachableCandidates.map(({ candidate }) => candidate),
       };
     }
     const verifiedPrimaryResult: VerifiedScholarlyCandidate = {

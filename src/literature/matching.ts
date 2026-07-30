@@ -42,10 +42,13 @@ export function matchScholarlyCandidates(
         !hasConflictingIdentifier(paper.identifiers, candidate.identifiers),
     );
     if (exact.length > 0) {
+      const matched = exact.map((candidate) =>
+        withMatchedFields(candidate, [key]),
+      );
       return {
         status: "confirmed",
-        candidate: exact[0],
-        candidates: exact,
+        candidate: matched[0],
+        candidates: matched,
         matchedBy: key,
         score: 1,
       };
@@ -81,18 +84,45 @@ export function matchScholarlyCandidates(
     );
 
   if (eligible.length === 0) return { status: "no-candidate" };
+  const matched = eligible.map(({ candidate }) =>
+    withMatchedFields(candidate, metadataMatchedFields(paper, candidate)),
+  );
   if (eligible.length > 1 && eligible[0].total - eligible[1].total < 0.08) {
     return {
       status: "ambiguous",
-      candidates: eligible.map(({ candidate }) => candidate),
+      candidates: matched,
     };
   }
   return {
     status: "confirmed",
-    candidate: eligible[0].candidate,
-    candidates: [eligible[0].candidate],
+    candidate: matched[0],
+    candidates: [matched[0]],
     matchedBy: "metadata",
     score: eligible[0].total,
+  };
+}
+
+function metadataMatchedFields(
+  paper: MatchablePaper,
+  candidate: ScholarlyCandidate,
+): readonly string[] {
+  return [
+    "title",
+    "first-author",
+    "authors",
+    ...(paper.year !== null && candidate.publicationYear !== null
+      ? ["year"]
+      : []),
+  ];
+}
+
+function withMatchedFields(
+  candidate: ScholarlyCandidate,
+  fields: readonly string[],
+): ScholarlyCandidate {
+  return {
+    ...candidate,
+    matchedFields: [...new Set([...candidate.matchedFields, ...fields])],
   };
 }
 
@@ -161,12 +191,40 @@ function scoreMetadata(
 }
 
 function normalizeText(value: string): string {
-  return value
+  return decodeHTMLEntities(value)
     .normalize("NFKC")
     .toLocaleLowerCase("en")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
+}
+
+function decodeHTMLEntities(value: string): string {
+  const named: Readonly<Record<string, string>> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    quot: '"',
+  };
+  return value.replace(
+    /&(?:#(\d+)|#x([\da-f]+)|([a-z]+));/giu,
+    (entity, decimal: string, hexadecimal: string, name: string) => {
+      const codePoint = decimal
+        ? Number(decimal)
+        : hexadecimal
+          ? Number.parseInt(hexadecimal, 16)
+          : undefined;
+      if (codePoint !== undefined) {
+        return Number.isInteger(codePoint) &&
+          codePoint >= 0 &&
+          codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : entity;
+      }
+      return named[name.toLowerCase()] ?? entity;
+    },
+  );
 }
 
 function wordBigrams(value: string): Set<string> {

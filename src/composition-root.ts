@@ -10,6 +10,7 @@ import { loadMineruReferences } from "./mineru/mineru-adapter";
 import {
   createRelatedLiteratureGateway,
   type RelatedLiteratureGateway,
+  type ProviderOutcome,
   type ReferenceResolution,
   type VerifiedScholarlyCandidate,
 } from "./literature/gateway";
@@ -19,7 +20,10 @@ import {
   resolveDeterministicLandingPage,
 } from "./literature/identifiers";
 import { parseReferenceQuery } from "./literature/reference-query";
-import type { FetchPort } from "./literature/providers/types";
+import type {
+  FetchPort,
+  ScholarlyCandidate,
+} from "./literature/providers/types";
 import type { ReferenceMatchBasis } from "./domain/literature";
 import {
   createPaperTranslateBridge,
@@ -32,6 +36,9 @@ import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 const PROVIDER_SCHEMA_VERSION = 2;
+const PROVIDER_QUERY_VERSION = 1;
+const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
+const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
 type CachedPaperEnvelope = {
   expiresAt: string;
@@ -120,7 +127,8 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
         },
         async writeCachedResults(paper, results) {
           const hasFailure = results.references.some(
-            ({ status }) => status === "failed",
+            ({ status, providerFailures }) =>
+              status === "failed" || Boolean(providerFailures?.length),
           );
           const hasUnconfirmed = results.references.some(
             ({ status }) => status !== "resolved",
@@ -227,6 +235,7 @@ function resolutionToReaderPaper(
       resolution.primaryResult,
       ordinal,
       resolution.matchedBy,
+      resolution.outcomes,
     );
   }
   if (resolution.status === "ambiguous") {
@@ -243,8 +252,15 @@ function resolutionToReaderPaper(
       lookupText,
       resolution.reason === "no-candidate"
         ? "No confirmed candidate"
-        : "Paper landing page is unreachable",
-      resolution.reason === "no-candidate" ? "unresolved" : "unreachable",
+        : resolution.reason === "incomplete-metadata"
+          ? "Confirmed candidate metadata is incomplete"
+          : "Paper landing page is unreachable",
+      resolution.reason === "unreachable-landing-page"
+        ? "unreachable"
+        : "unresolved",
+      resolution.candidates?.length
+        ? formatCandidateDiagnostics(resolution.candidates)
+        : undefined,
     );
   }
   const codes = resolution.outcomes
@@ -259,10 +275,11 @@ function resolutionToReaderPaper(
   );
 }
 
-function candidateToReaderPaper(
+export function candidateToReaderPaper(
   candidate: VerifiedScholarlyCandidate,
   ordinal = 0,
   matchedBy?: ReferenceMatchBasis,
+  outcomes: readonly ProviderOutcome[] = [],
 ): ReaderPaper {
   if (!candidate.landingURL) {
     throw new Error("Resolved paper has no verified Paper landing page");
@@ -291,7 +308,14 @@ function candidateToReaderPaper(
     citationCount: candidate.citationCount ?? undefined,
     referenceCount: candidate.referenceCount ?? undefined,
     source: candidate.source,
-    connectedPaperInfo: `Metadata source: ${candidate.source}`,
+    sourceRecordID: candidate.sourceRecordID,
+    retrievedAt: candidate.retrievedAt,
+    matchedFields: candidate.matchedFields,
+    metadataIncomplete:
+      candidate.authors.length === 0 ||
+      (!candidate.publicationDate && candidate.publicationYear === null) ||
+      !candidate.venue,
+    providerFailures: formatProviderFailures(outcomes),
   };
 }
 
@@ -305,6 +329,7 @@ function unresolvedPaper(
     | "invalid-identifier"
     | "unreachable"
     | "failed",
+  connectedPaperInfo?: string,
 ): ReaderPaper {
   return {
     id: `reference:${ordinal}`,
@@ -312,7 +337,32 @@ function unresolvedPaper(
     title,
     status,
     statusText,
+    connectedPaperInfo,
   };
+}
+
+function formatProviderFailures(
+  outcomes: readonly ProviderOutcome[],
+): readonly string[] {
+  return outcomes
+    .filter(({ status }) => status === "failed")
+    .map(
+      ({ source, errorCode }) =>
+        `${source}: ${errorCode ?? "provider-failure"}`,
+    );
+}
+
+function formatCandidateDiagnostics(
+  candidates: readonly ScholarlyCandidate[],
+): string {
+  return candidates
+    .map(
+      ({ source, sourceRecordID, retrievedAt, matchedFields }) =>
+        `${source}:${sourceRecordID} retrieved ${retrievedAt}; matched by ${
+          matchedFields.join(", ") || "none"
+        }`,
+    )
+    .join(" | ");
 }
 
 function currentPaperIdentifiers(context: ResolutionContext): {
@@ -350,6 +400,9 @@ function cacheIdentity(paper: LoadedPaper) {
     attachmentKey: paper.identity.attachmentKey,
     sourceFingerprint: paper.sourceFingerprint,
     providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
+    provider: GATEWAY_CACHE_PROVIDER,
+    providerQueryVersion: PROVIDER_QUERY_VERSION,
+    normalizedRequestKey: GATEWAY_REQUEST_KEY,
   };
 }
 

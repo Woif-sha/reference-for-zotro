@@ -63,11 +63,16 @@ export async function searchCrossref(
     ports,
     input.signal,
   );
-  const items = asArray(asRecord(asRecord(body)?.message)?.items);
-  return items
-    .map(asRecord)
-    .filter((work): work is Record<string, unknown> => work !== undefined)
-    .map((work) => parseCrossrefWork(work, ports));
+  const message = asRecord(asRecord(body)?.message);
+  if (!message || !Array.isArray(message.items)) {
+    throw contractError("Crossref search has no items array");
+  }
+  const items = message.items;
+  return items.map((item) => {
+    const work = asRecord(item);
+    if (!work) throw contractError("Crossref search item is not an object");
+    return parseCrossrefWork(work, ports);
+  });
 }
 
 function parseCrossrefWork(

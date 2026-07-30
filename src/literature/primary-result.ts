@@ -1,4 +1,8 @@
-import type { ProviderName, ScholarlyCandidate } from "./providers/types";
+import {
+  hasStableIdentifier,
+  type ProviderName,
+  type ScholarlyCandidate,
+} from "./providers/types";
 
 export type PrimaryResultCandidate = Readonly<{
   candidate: ScholarlyCandidate;
@@ -21,7 +25,7 @@ export function selectPrimaryResult(
       ({ candidate, confirmed, reachability }) =>
         confirmed &&
         reachability === "reachable" &&
-        candidate.title !== null &&
+        hasRequiredResolutionMetadata(candidate) &&
         candidate.landingURL !== null &&
         candidate.landingURL.startsWith("https://"),
     )
@@ -34,6 +38,12 @@ export function selectPrimaryResult(
           right.candidate.sourceRecordID,
         ),
     )[0]?.candidate;
+}
+
+export function hasRequiredResolutionMetadata(
+  candidate: ScholarlyCandidate,
+): boolean {
+  return Boolean(candidate.title) && hasStableIdentifier(candidate.identifiers);
 }
 
 function completeness(candidate: ScholarlyCandidate): number {

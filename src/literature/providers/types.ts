@@ -9,6 +9,12 @@ export type ScholarlyIdentifiers = Readonly<{
   omid?: string;
 }>;
 
+export function hasStableIdentifier(
+  identifiers: ScholarlyIdentifiers,
+): boolean {
+  return Object.values(identifiers).some(Boolean);
+}
+
 export type ScholarlyAuthor = Readonly<{
   family: string;
   given?: string;

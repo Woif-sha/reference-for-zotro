@@ -100,6 +100,10 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
         abstract: index === 0 ? "A useful abstract." : undefined,
         citationCount: index === 0 ? 12 : undefined,
         referenceCount: index === 0 ? 34 : undefined,
+        source: index === 0 ? "crossref" : undefined,
+        sourceRecordID: index === 0 ? "10.1000/example" : undefined,
+        retrievedAt: index === 0 ? "2026-07-30T00:00:00.000Z" : undefined,
+        matchedFields: index === 0 ? ["doi"] : undefined,
       };
       return index === 1
         ? { ...paper, status: "unresolved" }
@@ -178,9 +182,13 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
       "34 references",
       "DOI: 10.1000/example",
       "Matched by: title, author, and year",
+      "Source: crossref",
+      "Record: 10.1000/example",
+      "Retrieved: 2026-07-30T00:00:00.000Z",
     ],
   );
   assert.match(detailCard.textContent ?? "", /A useful abstract\./);
+  assert.match(detailCard.textContent ?? "", /Matched by: doi/);
 
   dom.window.document
     .querySelector('[data-paper-id="citing-1"] [data-paper-title]')

@@ -28,6 +28,9 @@ test("versioned cache returns only the exact MinerU and provider identity", asyn
     attachmentKey: "ABCDEFGH",
     sourceFingerprint: "sha256-a",
     providerSchemaVersion: 2,
+    provider: "crossref",
+    providerQueryVersion: 1,
+    normalizedRequestKey: "doi:10.1000/example",
   };
 
   await cache.write(identity, { title: "Paper" });
@@ -52,6 +55,9 @@ test("persistent write failure is exposed instead of becoming memory success", a
         attachmentKey: "ABCDEFGH",
         sourceFingerprint: "sha256-a",
         providerSchemaVersion: 2,
+        provider: "crossref",
+        providerQueryVersion: 1,
+        normalizedRequestKey: "doi:10.1000/example",
       },
       { title: "Paper" },
     ),

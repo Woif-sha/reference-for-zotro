@@ -102,3 +102,100 @@ test("source-scoped empty Citations uses a one-hour negative TTL", async () => {
   await gateway.getCitingPapers(query, 10);
   assert.equal(requests, 2);
 });
+
+test("a malformed successful search envelope is a provider contract failure, not no candidate", async () => {
+  const gateway = createRelatedLiteratureGateway({
+    fetch: async () => Response.json({ message: {} }),
+    clock: { now: () => new Date("2026-07-30T00:00:00.000Z") },
+    scheduler: { sleep: async () => {} },
+  });
+
+  const result = await gateway.resolveReference({
+    identifiers: {},
+    title: "A Journal Paper",
+    authors: ["Smith"],
+    year: 2024,
+    channel: "journal",
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.outcomes[0].errorCode, "provider-contract-error");
+});
+
+test("a confirmed reachable record with required metadata missing stays incomplete", async () => {
+  const gateway = createRelatedLiteratureGateway({
+    fetch: async (input) => {
+      const url = String(input);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({
+          message: {
+            DOI: "10.1000/incomplete",
+            title: [],
+            URL: "https://doi.org/10.1000/incomplete",
+          },
+        });
+      }
+      if (url.includes("api.datacite.org")) {
+        return new Response(null, { status: 404 });
+      }
+      if (url === "https://doi.org/10.1000/incomplete") {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "https://publisher.example/incomplete" },
+        });
+      }
+      if (url === "https://publisher.example/incomplete") {
+        return new Response("<html></html>", {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    },
+    clock: { now: () => new Date("2026-07-30T00:00:00.000Z") },
+    scheduler: { sleep: async () => {} },
+  });
+
+  const result = await gateway.resolveReference({
+    identifiers: { doi: "10.1000/incomplete" },
+    title: "Expected title",
+    authors: ["Smith"],
+    year: 2024,
+    channel: "journal",
+  });
+
+  assert.equal(result.status, "unresolved");
+  assert.equal(result.reason, "incomplete-metadata");
+  assert.equal(result.candidates?.length, 1);
+  assert.deepEqual(result.outcomes, [
+    { source: "crossref", status: "success" },
+    {
+      source: "datacite",
+      status: "no-candidate",
+      errorCode: "no-candidate",
+    },
+  ]);
+});
+
+test("malformed search rows fail the whole provider response instead of becoming partial success", async () => {
+  for (const channel of ["journal", "dataset"] as const) {
+    const gateway = createRelatedLiteratureGateway({
+      fetch: async (input) =>
+        String(input).includes("crossref")
+          ? Response.json({ message: { items: [null] } })
+          : Response.json({ data: [null] }),
+      clock: { now: () => new Date("2026-07-30T00:00:00.000Z") },
+      scheduler: { sleep: async () => {} },
+    });
+
+    const result = await gateway.resolveReference({
+      identifiers: {},
+      title: "Malformed row",
+      authors: ["Smith"],
+      year: 2024,
+      channel,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(result.outcomes[0].errorCode, "provider-contract-error");
+  }
+});

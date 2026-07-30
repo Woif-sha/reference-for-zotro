@@ -23,6 +23,11 @@ type ReaderPaperBase = {
   citationCount?: number;
   referenceCount?: number;
   source?: string;
+  sourceRecordID?: string;
+  retrievedAt?: string;
+  matchedFields?: readonly string[];
+  metadataIncomplete?: boolean;
+  providerFailures?: readonly string[];
   connectedPaperInfo?: string;
 };
 
@@ -309,6 +314,9 @@ function renderDetailCard(
       ? `Matched by: ${matchedByLabel(paper.matchedBy)}`
       : undefined,
     paper.source ? `Source: ${paper.source}` : undefined,
+    paper.sourceRecordID ? `Record: ${paper.sourceRecordID}` : undefined,
+    paper.retrievedAt ? `Retrieved: ${paper.retrievedAt}` : undefined,
+    paper.metadataIncomplete ? "Metadata incomplete" : undefined,
   ].filter((value): value is string => Boolean(value));
   return `<aside class="rfz-detail-card" data-detail-card>
     <strong>${escapeHTML(paper.title)}</strong>
@@ -322,6 +330,16 @@ function renderDetailCard(
     ${
       paper.abstract
         ? `<div class="rfz-abstract"><b>Abstract</b> ${escapeHTML(paper.abstract)}</div>`
+        : ""
+    }
+    ${
+      paper.matchedFields?.length
+        ? `<div>${escapeHTML(`Matched by: ${paper.matchedFields.join(", ")}`)}</div>`
+        : ""
+    }
+    ${
+      paper.providerFailures?.length
+        ? `<div>${escapeHTML(`Provider failures: ${paper.providerFailures.join("; ")}`)}</div>`
         : ""
     }
     ${

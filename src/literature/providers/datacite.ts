@@ -63,10 +63,15 @@ export async function searchDataCite(
     ports,
     input.signal,
   );
-  return asArray(asRecord(body)?.data)
-    .map(asRecord)
-    .filter((work): work is Record<string, unknown> => work !== undefined)
-    .map((work) => parseDataCiteWork(work, ports));
+  const data = asRecord(body)?.data;
+  if (!Array.isArray(data)) {
+    throw contractError("DataCite search has no data array");
+  }
+  return data.map((item) => {
+    const work = asRecord(item);
+    if (!work) throw contractError("DataCite search item is not an object");
+    return parseDataCiteWork(work, ports);
+  });
 }
 
 function parseDataCiteWork(

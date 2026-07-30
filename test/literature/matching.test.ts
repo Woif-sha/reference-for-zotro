@@ -51,6 +51,8 @@ test("exact stable identifier agreement wins over attractive text ordering", () 
   assert.equal(result.status, "confirmed");
   assert.equal(result.candidate.sourceRecordID, "right");
   assert.equal(result.matchedBy, "doi");
+  assert.deepEqual(result.candidate.matchedFields, ["doi"]);
+  assert.deepEqual(result.candidates[0].matchedFields, ["doi"]);
 });
 
 test("combined title author and year evidence confirms a unique candidate", () => {
@@ -84,6 +86,12 @@ test("combined title author and year evidence confirms a unique candidate", () =
   assert.equal(result.status, "confirmed");
   assert.equal(result.candidate.sourceRecordID, "resnet");
   assert.equal(result.matchedBy, "metadata");
+  assert.deepEqual(result.candidate.matchedFields, [
+    "title",
+    "first-author",
+    "authors",
+    "year",
+  ]);
 });
 
 test("close metadata candidates remain ambiguous instead of selecting provider order", () => {
@@ -111,6 +119,15 @@ test("close metadata candidates remain ambiguous instead of selecting provider o
   ]);
 
   assert.equal(result.status, "ambiguous");
+  assert.ok(
+    result.candidates.every(
+      ({ matchedFields }) =>
+        matchedFields.includes("title") &&
+        matchedFields.includes("first-author") &&
+        matchedFields.includes("authors") &&
+        matchedFields.includes("year"),
+    ),
+  );
 });
 
 test("same exact DOI from multiple registrars remains one confirmed identity with all provenances", () => {
@@ -139,4 +156,24 @@ test("same exact DOI from multiple registrars remains one confirmed identity wit
     result.candidates.map(({ source }) => source),
     ["crossref", "datacite"],
   );
+});
+
+test("HTML entities are decoded before title evidence is scored", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title: "Research & Development",
+      authors: ["Smith"],
+      year: 2024,
+    },
+    [
+      candidate({
+        title: "Research &amp; Development",
+        authors: [{ family: "Smith" }],
+        publicationYear: 2024,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "confirmed");
 });

@@ -1,0 +1,9 @@
+Reference for Zotero
+Copyright (C) 2026 Woif-sha and contributors
+
+This project is licensed under AGPL-3.0-or-later.
+
+The bootstrapped Zotero plugin lifecycle and scaffold configuration follow the
+public patterns used by Zotero's Make It Red example and
+Woif-sha/paper-translate-for-zotero. Changes include the plugin identity,
+Zotero 9 compatibility boundary, Reader section lifecycle, and XPI contents.

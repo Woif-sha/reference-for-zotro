@@ -1,0 +1,41 @@
+{
+  "name": "reference-for-zotero",
+  "version": "0.1.0-test.1",
+  "description": "References and citing papers in the Zotero 9 Reader.",
+  "config": {
+    "addonName": "Reference for Zotero",
+    "addonID": "referenceforzotero@woif-sha.github.io",
+    "addonRef": "referenceforzotero",
+    "addonInstance": "ReferenceForZotero"
+  },
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "zotero-plugin serve",
+    "test": "node --test --test-concurrency=1 --test-timeout=60000 --import tsx test/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && zotero-plugin build",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json}\" README.md package.json tsconfig.json zotero-plugin.config.ts",
+    "lint": "eslint src test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Woif-sha/reference-for-zotro.git"
+  },
+  "author": "Woif-sha and contributors",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/Woif-sha/reference-for-zotro",
+  "dependencies": {
+    "zotero-plugin-toolkit": "^5.1.0-beta.8"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.16.5",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.7.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "^4.1.0-beta.3"
+  }
+}

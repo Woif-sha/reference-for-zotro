@@ -1,5 +1,6 @@
 import type {
   DeterministicMatch,
+  StableIdentifierKind,
   StableIdentifiers,
 } from "../domain/literature";
 
@@ -21,9 +22,37 @@ export function extractStableIdentifiers(text: string): StableIdentifiers {
   if (arxiv) result.arxiv = arxiv.toLowerCase();
   if (ieeeArticleNumber) result.ieeeArticleNumber = ieeeArticleNumber;
   if (trustedSourceUrl) {
-    result.trustedSourceUrl = trimTrailingPunctuation(trustedSourceUrl);
+    result.trustedSourceUrl = normalizeTrustedSourceUrl(
+      trimTrailingPunctuation(trustedSourceUrl),
+    );
   }
   return result;
+}
+
+export function findMalformedStableIdentifier(
+  text: string,
+  identifiers = extractStableIdentifiers(text),
+): StableIdentifierKind | undefined {
+  if (Object.keys(identifiers).length > 0) return undefined;
+  if (/(?:\bdoi\s*:|https:\/\/doi\.org\/)/iu.test(text)) return "doi";
+  if (/(?:\barxiv\s*:|https:\/\/arxiv\.org\/(?:abs|pdf)\/)/iu.test(text)) {
+    return "arxiv";
+  }
+  if (
+    /(?:https:\/\/ieeexplore\.ieee\.org\/(?:document|abstract\/document)\/|(?:article|document)\s*(?:number|no\.?)?\s*[:#])/iu.test(
+      text,
+    )
+  ) {
+    return "ieee-article-number";
+  }
+  if (
+    /https?:\/\/(?:dl\.acm\.org|ieeexplore\.ieee\.org|doi\.org|arxiv\.org)\//iu.test(
+      text,
+    )
+  ) {
+    return "trusted-source-url";
+  }
+  return undefined;
 }
 
 export function resolveDeterministicLandingPage(
@@ -66,6 +95,13 @@ function trimTrailingPunctuation(value: string): string {
     result = result.slice(0, -1);
   }
   return result;
+}
+
+function normalizeTrustedSourceUrl(value: string): string {
+  const url = new URL(value);
+  url.hash = "";
+  url.search = "";
+  return url.toString();
 }
 
 function hasUnmatchedClosingDelimiter(value: string): boolean {

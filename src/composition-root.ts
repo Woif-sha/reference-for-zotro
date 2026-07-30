@@ -11,16 +11,16 @@ import {
   createRelatedLiteratureGateway,
   type RelatedLiteratureGateway,
   type ReferenceResolution,
+  type VerifiedScholarlyCandidate,
 } from "./literature/gateway";
 import {
   extractStableIdentifiers,
+  findMalformedStableIdentifier,
   resolveDeterministicLandingPage,
 } from "./literature/identifiers";
 import { parseReferenceQuery } from "./literature/reference-query";
-import type {
-  FetchPort,
-  ScholarlyCandidate,
-} from "./literature/providers/types";
+import type { FetchPort } from "./literature/providers/types";
+import type { ReferenceMatchBasis } from "./domain/literature";
 import {
   createPaperTranslateBridge,
   createProviderPorts,
@@ -31,7 +31,7 @@ import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
-const PROVIDER_SCHEMA_VERSION = 1;
+const PROVIDER_SCHEMA_VERSION = 2;
 
 type CachedPaperEnvelope = {
   expiresAt: string;
@@ -104,7 +104,9 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
               "OpenCitations returned no citation edges for this source; this is not proof that the paper has no Citing papers.",
             );
           }
-          return result.papers.map(candidateToReaderPaper);
+          return result.papers.map((candidate, index) =>
+            candidateToReaderPaper(candidate, index),
+          );
         },
         async readCachedResults(paper) {
           const envelope = await cache.read(cacheIdentity(paper));
@@ -170,6 +172,15 @@ async function resolveReferenceEntry(
   context: ResolutionContext,
 ): Promise<ReaderPaper> {
   const stable = extractStableIdentifiers(lookupText);
+  const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
+  if (malformedIdentifier) {
+    return unresolvedPaper(
+      ordinal,
+      lookupText,
+      `Invalid ${malformedIdentifier} format`,
+      "invalid-identifier",
+    );
+  }
   const deterministic = resolveDeterministicLandingPage(stable);
   const query = parseReferenceQuery(lookupText);
 
@@ -186,6 +197,7 @@ async function resolveReferenceEntry(
         title: lookupText,
         status: "resolved",
         primaryResultURL: landingURL,
+        matchedBy: deterministic.matchedBy,
         doi: stable.doi,
       };
     }
@@ -193,7 +205,7 @@ async function resolveReferenceEntry(
       ordinal,
       lookupText,
       "Landing page is unreachable",
-      "failed",
+      "unreachable",
     );
   }
 
@@ -211,7 +223,11 @@ function resolutionToReaderPaper(
   resolution: ReferenceResolution,
 ): ReaderPaper {
   if (resolution.status === "resolved") {
-    return candidateToReaderPaper(resolution.primaryResult, ordinal);
+    return candidateToReaderPaper(
+      resolution.primaryResult,
+      ordinal,
+      resolution.matchedBy,
+    );
   }
   if (resolution.status === "ambiguous") {
     return unresolvedPaper(
@@ -228,7 +244,7 @@ function resolutionToReaderPaper(
       resolution.reason === "no-candidate"
         ? "No confirmed candidate"
         : "Paper landing page is unreachable",
-      "unresolved",
+      resolution.reason === "no-candidate" ? "unresolved" : "unreachable",
     );
   }
   const codes = resolution.outcomes
@@ -244,9 +260,13 @@ function resolutionToReaderPaper(
 }
 
 function candidateToReaderPaper(
-  candidate: ScholarlyCandidate,
+  candidate: VerifiedScholarlyCandidate,
   ordinal = 0,
+  matchedBy?: ReferenceMatchBasis,
 ): ReaderPaper {
+  if (!candidate.landingURL) {
+    throw new Error("Resolved paper has no verified Paper landing page");
+  }
   return {
     id:
       candidate.identifiers.doi ??
@@ -264,7 +284,8 @@ function candidateToReaderPaper(
     venue: candidate.venue ?? undefined,
     year: candidate.publicationYear?.toString(),
     status: "resolved",
-    primaryResultURL: candidate.landingURL ?? undefined,
+    primaryResultURL: candidate.landingURL,
+    matchedBy,
     doi: candidate.identifiers.doi,
     abstract: stripMarkup(candidate.abstract),
     citationCount: candidate.citationCount ?? undefined,
@@ -278,7 +299,12 @@ function unresolvedPaper(
   ordinal: number,
   title: string,
   statusText: string,
-  status: "unresolved" | "ambiguous" | "failed",
+  status:
+    | "unresolved"
+    | "ambiguous"
+    | "invalid-identifier"
+    | "unreachable"
+    | "failed",
 ): ReaderPaper {
   return {
     id: `reference:${ordinal}`,

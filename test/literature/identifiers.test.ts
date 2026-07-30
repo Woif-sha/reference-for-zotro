@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   resolveDeterministicLandingPage,
   extractStableIdentifiers,
+  findMalformedStableIdentifier,
 } from "../../src/literature/identifiers";
 
 test("DOI evidence produces a canonical confirmed landing page", () => {
@@ -32,11 +33,24 @@ test("arXiv evidence is normalized without treating the version as a new paper",
 });
 
 test("invalid identifier-like text remains non-navigable", () => {
-  const identifiers = extractStableIdentifiers("doi: not-a-doi");
+  const text = "doi: not-a-doi";
+  const identifiers = extractStableIdentifiers(text);
 
   assert.deepEqual(identifiers, {});
+  assert.equal(findMalformedStableIdentifier(text, identifiers), "doi");
   assert.deepEqual(resolveDeterministicLandingPage(identifiers), {
     status: "unresolved",
     reason: "no-stable-identifier",
   });
+});
+
+test("trusted scholarly URLs discard request-specific query and fragment data", () => {
+  const identifiers = extractStableIdentifiers(
+    "https://dl.acm.org/doi/abs/10.1145/example?download=true#section",
+  );
+
+  assert.equal(
+    identifiers.trustedSourceUrl,
+    "https://dl.acm.org/doi/abs/10.1145/example",
+  );
 });

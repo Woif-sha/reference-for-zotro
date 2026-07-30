@@ -1,24 +1,49 @@
+import type { ReferenceMatchBasis } from "../domain/literature";
+
 export type ReaderTab = "references" | "citations";
 export type ReaderStatus = "loading" | "ready" | "error" | "no-md";
 export type PaperStatus =
-  "matching" | "resolved" | "unresolved" | "ambiguous" | "failed";
-
-export interface ReaderPaper {
+  | "matching"
+  | "resolved"
+  | "unresolved"
+  | "ambiguous"
+  | "invalid-identifier"
+  | "unreachable"
+  | "failed";
+type ReaderPaperBase = {
   id: string;
   ordinal: number;
   title: string;
   authors?: string;
   venue?: string;
   year?: string;
-  status: PaperStatus;
   statusText?: string;
-  primaryResultURL?: string;
   doi?: string;
   abstract?: string;
   citationCount?: number;
   referenceCount?: number;
   source?: string;
   connectedPaperInfo?: string;
+};
+
+export type ReaderPaper = ReaderPaperBase &
+  (
+    | {
+        status: "resolved";
+        primaryResultURL: string;
+        matchedBy?: ReferenceMatchBasis;
+      }
+    | {
+        status: Exclude<PaperStatus, "resolved">;
+        primaryResultURL?: never;
+        matchedBy?: never;
+      }
+  );
+
+export function canOpenPrimaryResult(
+  paper: ReaderPaper | undefined,
+): paper is ReaderPaper & { status: "resolved" } {
+  return paper?.status === "resolved" && paper.primaryResultURL.length > 0;
 }
 
 export interface ReaderSectionState {
@@ -127,7 +152,11 @@ export function mountReaderSection(options: {
     );
     const mouseEvent = event as MouseEvent;
     if (mouseEvent.ctrlKey || mouseEvent.metaKey) {
-      if (paper?.status === "resolved" && paper.primaryResultURL) {
+      if (
+        mouseEvent.ctrlKey &&
+        mouseEvent.button === 0 &&
+        canOpenPrimaryResult(paper)
+      ) {
         controller.openPrimaryResult(paperID);
       }
       return;
@@ -276,6 +305,9 @@ function renderDetailCard(
       ? undefined
       : `${paper.referenceCount} references`,
     paper.doi ? `DOI: ${paper.doi}` : undefined,
+    paper.matchedBy
+      ? `Matched by: ${matchedByLabel(paper.matchedBy)}`
+      : undefined,
     paper.source ? `Source: ${paper.source}` : undefined,
   ].filter((value): value is string => Boolean(value));
   return `<aside class="rfz-detail-card" data-detail-card>
@@ -305,8 +337,23 @@ function statusLabel(status: Exclude<PaperStatus, "resolved">): string {
     matching: "Matching",
     unresolved: "Unresolved",
     ambiguous: "Ambiguous",
+    "invalid-identifier": "Invalid identifier",
+    unreachable: "Landing page unreachable",
     failed: "Failed",
   }[status];
+}
+
+function matchedByLabel(matchedBy: ReferenceMatchBasis): string {
+  return {
+    doi: "DOI",
+    arxiv: "arXiv",
+    "ieee-article-number": "IEEE article number",
+    "trusted-source-url": "trusted source URL",
+    pmid: "PMID",
+    pmcid: "PMCID",
+    omid: "OMID",
+    metadata: "title, author, and year",
+  }[matchedBy];
 }
 
 function showTranslation(

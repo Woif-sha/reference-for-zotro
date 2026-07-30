@@ -20,6 +20,10 @@ import {
   type ScholarlyCandidate,
   type ScholarlyIdentifiers,
 } from "./providers/types";
+import type { ReferenceMatchBasis } from "../domain/literature";
+
+export type VerifiedScholarlyCandidate = ScholarlyCandidate &
+  Readonly<{ landingURL: string }>;
 
 export type RelatedLiteraturePorts = ProviderPorts;
 
@@ -61,8 +65,9 @@ export type ProviderOutcome = Readonly<{
 export type ReferenceResolution =
   | Readonly<{
       status: "resolved";
-      primaryResult: ScholarlyCandidate;
+      primaryResult: VerifiedScholarlyCandidate;
       candidates: readonly ScholarlyCandidate[];
+      matchedBy: ReferenceMatchBasis;
       outcomes: readonly ProviderOutcome[];
     }>
   | Readonly<{
@@ -91,7 +96,7 @@ export type CitingPapersLimit = 10 | 30 | 50;
 export type CitingPapersResult =
   | Readonly<{
       status: "ready";
-      papers: readonly ScholarlyCandidate[];
+      papers: readonly VerifiedScholarlyCandidate[];
       limit: CitingPapersLimit;
       availableCount: number;
     }>
@@ -126,7 +131,7 @@ type ProviderRun = Readonly<{
 
 type CitingPapersSession = {
   edges: readonly CitationEdge[];
-  hydrated: Map<string, ScholarlyCandidate>;
+  hydrated: Map<string, VerifiedScholarlyCandidate>;
   expiresAt: number;
 };
 
@@ -179,17 +184,22 @@ export function createRelatedLiteratureGateway(
       }),
     );
     const primaryResult = selectPrimaryResult(options);
-    if (!primaryResult) {
+    if (!primaryResult?.landingURL) {
       return {
         status: "unresolved",
         reason: "unreachable-landing-page",
         outcomes,
       };
     }
+    const verifiedPrimaryResult: VerifiedScholarlyCandidate = {
+      ...primaryResult,
+      landingURL: primaryResult.landingURL,
+    };
     return {
       status: "resolved",
-      primaryResult,
+      primaryResult: verifiedPrimaryResult,
       candidates: reachableCandidates.map(({ candidate }) => candidate),
+      matchedBy: match.matchedBy,
       outcomes,
     };
   }
@@ -324,7 +334,7 @@ export function createRelatedLiteratureGateway(
       papers: requestedEdges
         .map((edge) => session!.hydrated.get(edgeKey(edge)))
         .filter(
-          (candidate): candidate is ScholarlyCandidate =>
+          (candidate): candidate is VerifiedScholarlyCandidate =>
             candidate !== undefined,
         ),
       limit,
@@ -446,7 +456,10 @@ async function withVerifiedLanding(
   reachability: Map<string, ReturnType<typeof verifyDoiLandingPage>>,
   scope: string,
   signal?: AbortSignal,
-): Promise<Readonly<{ candidate: ScholarlyCandidate; reachable: boolean }>> {
+): Promise<
+  | Readonly<{ candidate: VerifiedScholarlyCandidate; reachable: true }>
+  | Readonly<{ candidate: ScholarlyCandidate; reachable: false }>
+> {
   const doi = candidate.identifiers.doi;
   if (!doi) return { candidate, reachable: false };
   const key = `${scope}|${doi}`;

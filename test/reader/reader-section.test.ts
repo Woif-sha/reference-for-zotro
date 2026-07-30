@@ -4,6 +4,7 @@ import { JSDOM } from "jsdom";
 
 import {
   mountReaderSection,
+  type ReaderPaper,
   type ReaderSectionController,
   type ReaderSectionState,
 } from "../../src/reader/mountReaderSection";
@@ -21,6 +22,7 @@ function readyState(): ReaderSectionState {
         year: "2024",
         status: "resolved",
         primaryResultURL: "https://example.test/first",
+        matchedBy: "doi",
       },
       {
         id: "ref-2",
@@ -86,21 +88,28 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   let state: ReaderSectionState = {
     ...readyState(),
     activeTab: "citations",
-    citingPapers: Array.from({ length: 35 }, (_, index) => ({
-      id: `citing-${index + 1}`,
-      ordinal: index,
-      title: `Citing paper ${index + 1}`,
-      authors: `Author ${index + 1}`,
-      venue: "Journal",
-      year: String(2026 - Math.floor(index / 5)),
-      status: index === 1 ? "unresolved" : "resolved",
-      primaryResultURL:
-        index === 1 ? undefined : `https://example.test/citing-${index + 1}`,
-      doi: index === 0 ? "10.1000/example" : undefined,
-      abstract: index === 0 ? "A useful abstract." : undefined,
-      citationCount: index === 0 ? 12 : undefined,
-      referenceCount: index === 0 ? 34 : undefined,
-    })),
+    citingPapers: Array.from({ length: 35 }, (_, index): ReaderPaper => {
+      const paper = {
+        id: `citing-${index + 1}`,
+        ordinal: index,
+        title: `Citing paper ${index + 1}`,
+        authors: `Author ${index + 1}`,
+        venue: "Journal",
+        year: String(2026 - Math.floor(index / 5)),
+        doi: index === 0 ? "10.1000/example" : undefined,
+        abstract: index === 0 ? "A useful abstract." : undefined,
+        citationCount: index === 0 ? 12 : undefined,
+        referenceCount: index === 0 ? 34 : undefined,
+      };
+      return index === 1
+        ? { ...paper, status: "unresolved" }
+        : {
+            ...paper,
+            status: "resolved",
+            primaryResultURL: `https://example.test/citing-${index + 1}`,
+            matchedBy: "metadata",
+          };
+    }),
     citingPapersLoaded: 30,
   };
   const actions: string[] = [];
@@ -164,7 +173,12 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     [...detailCard.querySelectorAll(".rfz-badges span")].map(
       (badge) => badge.textContent,
     ),
-    ["12 citations", "34 references", "DOI: 10.1000/example"],
+    [
+      "12 citations",
+      "34 references",
+      "DOI: 10.1000/example",
+      "Matched by: title, author, and year",
+    ],
   );
   assert.match(detailCard.textContent ?? "", /A useful abstract\./);
 
@@ -193,6 +207,126 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     "refresh",
   ]);
 
+  mounted.destroy();
+});
+
+test("Reader section opens only a confirmed reachable title on Ctrl+left-click", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const actions: string[] = [];
+  const state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      {
+        id: "reachable",
+        ordinal: 0,
+        title: "Reachable paper",
+        status: "resolved",
+        primaryResultURL: "https://publisher.example/reachable",
+        matchedBy: "doi",
+      },
+      {
+        id: "unverified",
+        ordinal: 1,
+        title: "Unverified paper",
+        status: "unreachable",
+        primaryResultURL: "https://publisher.example/unverified",
+        matchedBy: "doi",
+      } as unknown as ReaderPaper,
+    ],
+  };
+  const controller: ReaderSectionController = {
+    getState: () => state,
+    subscribe: () => () => {},
+    selectTab() {},
+    setCitationLimit() {},
+    selectPaper: (paperID) => actions.push(`select:${paperID}`),
+    refresh() {},
+    openPrimaryResult: (paperID) => actions.push(`open:${paperID}`),
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller,
+  });
+  const reachable = dom.window.document.querySelector(
+    '[data-paper-id="reachable"] [data-paper-title]',
+  );
+  const unverified = dom.window.document.querySelector(
+    '[data-paper-id="unverified"] [data-paper-title]',
+  );
+  assert.ok(reachable);
+  assert.ok(unverified);
+
+  reachable.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      ctrlKey: true,
+      button: 0,
+    }),
+  );
+  reachable.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      metaKey: true,
+      button: 0,
+    }),
+  );
+  reachable.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      ctrlKey: true,
+      button: 1,
+    }),
+  );
+  unverified.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      ctrlKey: true,
+      button: 0,
+    }),
+  );
+
+  assert.deepEqual(actions, ["open:reachable"]);
+  mounted.destroy();
+});
+
+test("Reader section distinguishes invalid identifiers from unreachable landing pages", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      {
+        id: "invalid",
+        ordinal: 0,
+        title: "doi: not-a-doi",
+        status: "invalid-identifier",
+      },
+      {
+        id: "unreachable",
+        ordinal: 1,
+        title: "Known paper",
+        status: "unreachable",
+      },
+    ],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPrimaryResult() {},
+    },
+  });
+
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll(".rfz-paper-status")].map(
+      (status) => status.textContent,
+    ),
+    ["Invalid identifier", "Landing page unreachable"],
+  );
   mounted.destroy();
 });
 

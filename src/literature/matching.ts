@@ -2,6 +2,7 @@ import type {
   ScholarlyCandidate,
   ScholarlyIdentifiers,
 } from "./providers/types";
+import type { ReferenceMatchBasis } from "../domain/literature";
 
 export type MatchablePaper = Readonly<{
   identifiers: ScholarlyIdentifiers;
@@ -15,7 +16,7 @@ export type CandidateMatch =
       status: "confirmed";
       candidate: ScholarlyCandidate;
       candidates: readonly ScholarlyCandidate[];
-      matchedBy: keyof ScholarlyIdentifiers | "metadata";
+      matchedBy: ReferenceMatchBasis;
       score: number;
     }>
   | Readonly<{

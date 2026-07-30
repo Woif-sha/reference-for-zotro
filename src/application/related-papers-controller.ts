@@ -6,6 +6,7 @@ import type {
   ReaderSectionState,
   ReaderTab,
 } from "../reader/mountReaderSection";
+import { canOpenPrimaryResult } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 
 export type LoadedPaper = {
@@ -218,7 +219,7 @@ export class RelatedPapersController implements ReaderSectionController {
     const paper = [...this.state.references, ...this.state.citingPapers].find(
       (candidate) => candidate.id === paperID,
     );
-    if (paper?.status !== "resolved" || !paper.primaryResultURL) return;
+    if (!canOpenPrimaryResult(paper)) return;
     this.ports.openURL(paper.primaryResultURL);
   }
 

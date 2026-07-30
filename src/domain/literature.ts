@@ -5,10 +5,16 @@ export type StableIdentifiers = {
   trustedSourceUrl?: string;
 };
 
+export type StableIdentifierKind =
+  "doi" | "arxiv" | "ieee-article-number" | "trusted-source-url";
+
+export type ReferenceMatchBasis =
+  StableIdentifierKind | "pmid" | "pmcid" | "omid" | "metadata";
+
 export type DeterministicMatch =
   | {
       status: "confirmed";
-      matchedBy: "doi" | "arxiv" | "ieee-article-number" | "trusted-source-url";
+      matchedBy: StableIdentifierKind;
       url: string;
     }
   | {

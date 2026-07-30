@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidateToReaderPaper } from "../../src/composition-root";
+import {
+  candidateToReaderPaper,
+  resolutionToReaderPaper,
+} from "../../src/composition-root";
 
 test("resolved paper presentation retains provider record, retrieval time and match evidence", () => {
   const paper = candidateToReaderPaper(
@@ -89,4 +92,42 @@ test("a successful Primary result retains failures from its other planned provid
   );
 
   assert.deepEqual(paper.providerFailures, ["crossref: rate-limited"]);
+});
+
+test("ambiguous presentation retains candidate provenance and provider failures", () => {
+  const paper = resolutionToReaderPaper(0, "Ambiguous reference", {
+    status: "ambiguous",
+    candidates: [
+      {
+        source: "datacite",
+        sourceRecordID: "10.1000/candidate",
+        retrievedAt: "2026-07-30T00:00:00.000Z",
+        identifiers: { doi: "10.1000/candidate" },
+        title: "Candidate",
+        authors: [{ family: "Smith" }],
+        publicationDate: "2024",
+        publicationYear: 2024,
+        venue: "Repository",
+        abstract: null,
+        referenceCount: null,
+        citationCount: null,
+        canonicalURL: "https://doi.org/10.1000/candidate",
+        landingURL: null,
+        matchedFields: ["title", "author", "year"],
+        rawProvenance: ["datacite:10.1000/candidate"],
+      },
+    ],
+    outcomes: [
+      {
+        source: "crossref",
+        status: "failed",
+        errorCode: "source-unavailable",
+      },
+      { source: "datacite", status: "success" },
+    ],
+  });
+
+  assert.equal(paper.status, "ambiguous");
+  assert.match(paper.connectedPaperInfo ?? "", /datacite:10\.1000\/candidate/);
+  assert.deepEqual(paper.providerFailures, ["crossref: source-unavailable"]);
 });

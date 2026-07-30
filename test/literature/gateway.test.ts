@@ -206,6 +206,7 @@ test("citation sessions are isolated by paper generation and can be disposed", a
     libraryID: 1,
     attachmentKey: "ATTACHMENT",
     sourceFingerprint: "fingerprint",
+    requestedAt: "2026-07-30T00:00:00.000Z",
   };
 
   await gateway.getCitingPapers(

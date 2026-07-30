@@ -225,7 +225,7 @@ async function resolveReferenceEntry(
   return resolutionToReaderPaper(ordinal, lookupText, resolution);
 }
 
-function resolutionToReaderPaper(
+export function resolutionToReaderPaper(
   ordinal: number,
   lookupText: string,
   resolution: ReferenceResolution,
@@ -244,6 +244,8 @@ function resolutionToReaderPaper(
       lookupText,
       "Multiple candidates have indistinguishable evidence",
       "ambiguous",
+      formatCandidateDiagnostics(resolution.candidates),
+      formatProviderFailures(resolution.outcomes),
     );
   }
   if (resolution.status === "unresolved") {
@@ -261,6 +263,7 @@ function resolutionToReaderPaper(
       resolution.candidates?.length
         ? formatCandidateDiagnostics(resolution.candidates)
         : undefined,
+      formatProviderFailures(resolution.outcomes),
     );
   }
   const codes = resolution.outcomes
@@ -330,6 +333,7 @@ function unresolvedPaper(
     | "unreachable"
     | "failed",
   connectedPaperInfo?: string,
+  providerFailures: readonly string[] = [],
 ): ReaderPaper {
   return {
     id: `reference:${ordinal}`,
@@ -338,6 +342,7 @@ function unresolvedPaper(
     status,
     statusText,
     connectedPaperInfo,
+    providerFailures,
   };
 }
 
@@ -390,6 +395,7 @@ function gatewayContext(context: ResolutionContext) {
     attachmentKey: context.token.attachmentKey,
     sourceFingerprint: context.token.sourceFingerprint,
     generation: context.token.generation,
+    requestedAt: new Date().toISOString(),
   };
 }
 

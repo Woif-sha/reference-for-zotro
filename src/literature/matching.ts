@@ -2,6 +2,8 @@ import type {
   ScholarlyCandidate,
   ScholarlyIdentifiers,
 } from "./providers/types";
+import { decodeHTML } from "entities";
+
 import type { ReferenceMatchBasis } from "../domain/literature";
 
 export type MatchablePaper = Readonly<{
@@ -191,40 +193,12 @@ function scoreMetadata(
 }
 
 function normalizeText(value: string): string {
-  return decodeHTMLEntities(value)
+  return decodeHTML(value)
     .normalize("NFKC")
     .toLocaleLowerCase("en")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
-}
-
-function decodeHTMLEntities(value: string): string {
-  const named: Readonly<Record<string, string>> = {
-    amp: "&",
-    apos: "'",
-    gt: ">",
-    lt: "<",
-    quot: '"',
-  };
-  return value.replace(
-    /&(?:#(\d+)|#x([\da-f]+)|([a-z]+));/giu,
-    (entity, decimal: string, hexadecimal: string, name: string) => {
-      const codePoint = decimal
-        ? Number(decimal)
-        : hexadecimal
-          ? Number.parseInt(hexadecimal, 16)
-          : undefined;
-      if (codePoint !== undefined) {
-        return Number.isInteger(codePoint) &&
-          codePoint >= 0 &&
-          codePoint <= 0x10ffff
-          ? String.fromCodePoint(codePoint)
-          : entity;
-      }
-      return named[name.toLowerCase()] ?? entity;
-    },
-  );
 }
 
 function wordBigrams(value: string): Set<string> {

@@ -177,3 +177,24 @@ test("HTML entities are decoded before title evidence is scored", () => {
 
   assert.equal(result.status, "confirmed");
 });
+
+test("named scholarly HTML entities are decoded before title evidence is scored", () => {
+  const namedEntityCandidate = candidate({
+    title: "Alpha–beta methods",
+    authors: [{ family: "Smith" }],
+    publicationYear: 2024,
+  });
+
+  assert.equal(
+    matchScholarlyCandidates(
+      {
+        title: "Alpha&ndash;beta methods",
+        authors: ["Smith"],
+        year: 2024,
+        identifiers: {},
+      },
+      [namedEntityCandidate],
+    ).status,
+    "confirmed",
+  );
+});

@@ -46,6 +46,7 @@ export type GatewayQueryContext = Readonly<{
   attachmentKey: string;
   sourceFingerprint: string;
   generation: number;
+  requestedAt: string;
   refresh?: boolean;
 }>;
 

@@ -247,8 +247,12 @@ export class RelatedPapersController implements ReaderSectionController {
       const citingPapers = await this.ports.loadCitingPapers(limit, context);
       if (!this.sessions.canCommit(context.token)) return;
       assertStablePrefix(this.state.citingPapers, citingPapers);
+      const cumulativePapers =
+        citingPapers.length >= this.state.citingPapers.length
+          ? citingPapers
+          : this.state.citingPapers;
       this.update({
-        citingPapers: [...citingPapers],
+        citingPapers: [...cumulativePapers],
         citingPapersLoaded: Math.max(
           this.state.citingPapersLoaded,
           citingPapers.length,
@@ -312,7 +316,8 @@ function assertStablePrefix(
   existing: readonly ReaderPaper[],
   next: readonly ReaderPaper[],
 ): void {
-  for (let index = 0; index < existing.length; index += 1) {
+  const sharedLength = Math.min(existing.length, next.length);
+  for (let index = 0; index < sharedLength; index += 1) {
     if (existing[index]?.id !== next[index]?.id) {
       throw new Error("Citing paper provider changed the loaded result prefix");
     }

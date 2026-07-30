@@ -13,6 +13,7 @@ import {
   sortCitationEdges,
   type CitationEdge,
 } from "./providers/opencitations";
+import { normalizeDoi } from "./providers/parse";
 import {
   ProviderError,
   type ProviderErrorCode,
@@ -135,9 +136,17 @@ type ProviderRun = Readonly<{
 
 type CitingPapersSession = {
   edges: readonly CitationEdge[];
+  metadata: Map<string, ScholarlyCandidate>;
   hydrated: Map<string, VerifiedScholarlyCandidate>;
+  hydrationFailures: Map<string, ProviderErrorCode>;
+  attempted: Set<string>;
   expiresAt: number;
 };
+
+type SortedCitingPapers = Readonly<{
+  edges: readonly CitationEdge[];
+  metadata: Map<string, ScholarlyCandidate>;
+}>;
 
 export function createRelatedLiteratureGateway(
   ports: RelatedLiteraturePorts,
@@ -252,19 +261,13 @@ export function createRelatedLiteratureGateway(
       session = undefined;
     }
     if (!session) {
-      let edges: readonly CitationEdge[];
+      let sorted: SortedCitingPapers;
       try {
-        edges = (
-          await sortCitingPaperEdges(
-            await fetchOpenCitationEdges(
-              query.identifiers,
-              ports,
-              query.signal,
-            ),
-            ports,
-            query.signal,
-          )
-        ).slice(0, 50);
+        sorted = await sortCitingPaperEdges(
+          await fetchOpenCitationEdges(query.identifiers, ports, query.signal),
+          ports,
+          query.signal,
+        );
       } catch (error) {
         const providerError = asProviderError(error, "opencitations-index");
         return {
@@ -275,6 +278,7 @@ export function createRelatedLiteratureGateway(
           limit,
         };
       }
+      const edges = sorted.edges.slice(0, 50);
       if (edges.length === 0) {
         citingPaperNegative.set(sessionKey, now + 60 * 60 * 1000);
         return {
@@ -287,7 +291,10 @@ export function createRelatedLiteratureGateway(
       }
       session = {
         edges,
+        metadata: sorted.metadata,
         hydrated: new Map(),
+        hydrationFailures: new Map(),
+        attempted: new Set(),
         expiresAt: now + 24 * 60 * 60 * 1000,
       };
       citingPaperSessions.set(sessionKey, session);
@@ -295,16 +302,21 @@ export function createRelatedLiteratureGateway(
 
     const requestedEdges = session.edges.slice(0, limit);
     const missingEdges = requestedEdges.filter(
-      (edge) => !session!.hydrated.has(edgeKey(edge)),
+      (edge) => !session!.attempted.has(edgeKey(edge)),
     );
     if (missingEdges.length > 0) {
-      let metadata: readonly ScholarlyCandidate[];
+      const unknownEdges = missingEdges.filter(
+        (edge) => !edgeKeys(edge).some((key) => session!.metadata.has(key)),
+      );
       try {
-        metadata = await fetchOpenCitationMetadata(
-          missingEdges,
-          ports,
-          query.signal,
-        );
+        if (unknownEdges.length > 0) {
+          const metadata = await fetchOpenCitationMetadata(
+            unknownEdges,
+            ports,
+            query.signal,
+          );
+          addCandidatesByIdentifier(session.metadata, metadata);
+        }
       } catch (error) {
         const providerError = asProviderError(error, "opencitations-meta");
         return {
@@ -315,37 +327,60 @@ export function createRelatedLiteratureGateway(
           limit,
         };
       }
-      const byIdentifier = new Map(
-        metadata.flatMap((candidate) =>
-          candidateKeys(candidate).map((key) => [key, candidate] as const),
-        ),
-      );
       for (const edge of missingEdges) {
+        const key = edgeKey(edge);
+        session.attempted.add(key);
         const candidate = edgeKeys(edge)
-          .map((key) => byIdentifier.get(key))
+          .map((identifier) => session!.metadata.get(identifier))
           .find((value) => value !== undefined);
-        if (!candidate?.title) continue;
+        if (!candidate || !hasRequiredResolutionMetadata(candidate)) {
+          session.hydrationFailures.set(key, "incomplete-metadata");
+          continue;
+        }
+        const candidateWithProvenance = {
+          ...candidate,
+          rawProvenance: [
+            ...new Set([...candidate.rawProvenance, ...edge.rawProvenance]),
+          ],
+        };
         const verified = await withVerifiedLanding(
-          candidate,
+          candidateWithProvenance,
           ports,
           reachability,
           contextKey(query.context),
           query.signal,
         );
         if (verified.reachable) {
-          session.hydrated.set(edgeKey(edge), verified.candidate);
+          session.hydrated.set(key, verified.candidate);
+        } else {
+          session.hydrationFailures.set(key, "unreachable-landing-page");
         }
       }
     }
 
+    const papers = requestedEdges
+      .map((edge) => session!.hydrated.get(edgeKey(edge)))
+      .filter(
+        (candidate): candidate is VerifiedScholarlyCandidate =>
+          candidate !== undefined,
+      );
+    if (papers.length === 0 && requestedEdges.length > 0) {
+      const failures = requestedEdges
+        .map((edge) => session!.hydrationFailures.get(edgeKey(edge)))
+        .filter((code): code is ProviderErrorCode => code !== undefined);
+      return {
+        status: "failed",
+        errorCode: failures.includes("incomplete-metadata")
+          ? "incomplete-metadata"
+          : "unreachable-landing-page",
+        source: "opencitations-meta",
+        papers: [],
+        limit,
+      };
+    }
     return {
       status: "ready",
-      papers: requestedEdges
-        .map((edge) => session!.hydrated.get(edgeKey(edge)))
-        .filter(
-          (candidate): candidate is VerifiedScholarlyCandidate =>
-            candidate !== undefined,
-        ),
+      papers,
       limit,
       availableCount: session.edges.length,
     };
@@ -366,35 +401,52 @@ async function sortCitingPaperEdges(
   edges: readonly CitationEdge[],
   ports: ProviderPorts,
   signal?: AbortSignal,
-): Promise<readonly CitationEdge[]> {
+): Promise<SortedCitingPapers> {
   const deduplicated = sortCitationEdges(edges);
   const missingCreation = deduplicated
     .filter(({ creation }) => !creation)
     .slice(0, 50);
-  if (missingCreation.length === 0) return deduplicated;
+  if (missingCreation.length === 0) {
+    return { edges: deduplicated, metadata: new Map() };
+  }
   const metadata = await fetchOpenCitationMetadata(
     missingCreation,
     ports,
     signal,
   );
-  const byIdentifier = new Map(
-    metadata.flatMap((candidate) =>
-      candidateKeys(candidate).map((key) => [key, candidate] as const),
+  const byIdentifier = new Map<string, ScholarlyCandidate>();
+  addCandidatesByIdentifier(byIdentifier, metadata);
+  return {
+    edges: sortCitationEdges(
+      deduplicated.map((edge) => {
+        if (edge.creation) return edge;
+        const candidate = edgeKeys(edge)
+          .map((key) => byIdentifier.get(key))
+          .find((value) => value !== undefined);
+        const fallback = sortablePublicationDate(candidate);
+        return fallback ? { ...edge, creation: fallback } : edge;
+      }),
     ),
-  );
-  return sortCitationEdges(
-    deduplicated.map((edge) => {
-      if (edge.creation) return edge;
-      const candidate = edgeKeys(edge)
-        .map((key) => byIdentifier.get(key))
-        .find((value) => value !== undefined);
-      const fallback =
-        candidate?.publicationDate ??
-        candidate?.publicationYear?.toString() ??
-        null;
-      return fallback ? { ...edge, creation: fallback } : edge;
-    }),
-  );
+    metadata: byIdentifier,
+  };
+}
+
+function sortablePublicationDate(
+  candidate: ScholarlyCandidate | undefined,
+): string | null {
+  const date = candidate?.publicationDate;
+  if (date && /^\d{4}(?:-\d{2}(?:-\d{2})?)?$/u.test(date)) return date;
+  const year = candidate?.publicationYear;
+  return year && year >= 1000 && year <= 9999 ? year.toString() : null;
+}
+
+function addCandidatesByIdentifier(
+  target: Map<string, ScholarlyCandidate>,
+  candidates: readonly ScholarlyCandidate[],
+): void {
+  for (const candidate of candidates) {
+    for (const key of candidateKeys(candidate)) target.set(key, candidate);
+  }
 }
 
 function referencePlans(
@@ -509,11 +561,9 @@ function isRepositoryChannel(channel: PublicationChannel): boolean {
 }
 
 function citingPaperKey(identifiers: ScholarlyIdentifiers): string | undefined {
-  return identifiers.doi
-    ? `doi:${identifiers.doi.toLowerCase()}`
-    : identifiers.pmid
-      ? `pmid:${identifiers.pmid}`
-      : undefined;
+  const doi = normalizeDoi(identifiers.doi);
+  const pmid = identifiers.pmid?.trim();
+  return doi ? `doi:${doi}` : pmid ? `pmid:${pmid}` : undefined;
 }
 
 function contextKey(context: GatewayQueryContext | undefined): string {

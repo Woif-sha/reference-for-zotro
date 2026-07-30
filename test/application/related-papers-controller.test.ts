@@ -248,6 +248,29 @@ test("unchanged MinerU identity reuses persisted results while manual refresh by
   assert.equal(resolveCalls, 1);
 });
 
+test("late smaller citation responses cannot discard a larger cumulative prefix", async () => {
+  const ten = deferred<readonly ReaderPaper[]>();
+  const thirty = deferred<readonly ReaderPaper[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: (limit) => (limit === 10 ? ten.promise : thirty.promise),
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  controller.selectTab("citations");
+  controller.setCitationLimit(30);
+  thirty.resolve(papers(30));
+  await waitFor(() => controller.getState().citingPapers.length === 30);
+  ten.resolve(papers(10));
+  await tick();
+
+  assert.equal(controller.getState().citingPapers.length, 30);
+  assert.equal(controller.getState().citingPapersLoaded, 30);
+  assert.equal(controller.getState().message, undefined);
+});
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((next) => {
@@ -266,4 +289,16 @@ async function waitFor(predicate: () => boolean): Promise<void> {
 
 function tick(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+type ReaderPaper = ReturnType<typeof papers>[number];
+
+function papers(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `citation:${index}`,
+    ordinal: index,
+    title: `Citing paper ${index}`,
+    status: "resolved" as const,
+    primaryResultURL: `https://example.com/${index}`,
+  }));
 }

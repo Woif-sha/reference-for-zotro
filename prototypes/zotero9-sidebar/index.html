@@ -715,7 +715,7 @@
       document.querySelector("#stateSelect").value = state.dataState;
       document.querySelector("#sourceLabel").textContent =
         state.dataState === "ready"
-          ? (state.tab === "references" ? "MinerU MD · 已同步" : `机构认证 · ${activeData().length}/500 · 日期倒序`)
+          ? (state.tab === "references" ? "MinerU MD · 已同步" : `机构认证 · ${activeData().length}/500`)
           : "数据不可用";
       document.querySelector("#variantLabel").textContent = `${state.variant} — ${variants[state.variant]}`;
 

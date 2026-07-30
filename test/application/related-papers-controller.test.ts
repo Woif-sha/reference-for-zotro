@@ -133,6 +133,43 @@ test("missing MinerU Markdown blocks both relationship paths with actionable tex
   assert.equal(citationCalls, 0);
 });
 
+test("unsupported References structure blocks both relationship paths with actionable text", async () => {
+  let resolveCalls = 0;
+  let citationCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => {
+      throw Object.assign(new Error("unsupported bibliography structure"), {
+        code: "references-entry-structure-unsupported",
+      });
+    },
+    resolveReferences: async () => {
+      resolveCalls += 1;
+      return [];
+    },
+    loadCitingPapers: async () => {
+      citationCalls += 1;
+      return [];
+    },
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  await tick();
+
+  assert.equal(controller.getState().status, "no-md");
+  assert.match(
+    controller.getState().message ?? "",
+    /llm-for-zotero.*MinerU API.*generate Markdown/i,
+  );
+  assert.match(
+    controller.getState().message ?? "",
+    /unsupported bibliography structure/i,
+  );
+  assert.equal(resolveCalls, 0);
+  assert.equal(citationCalls, 0);
+});
+
 test("only a resolved Primary result can open the browser", async () => {
   const opened: string[] = [];
   const controller = new RelatedPapersController(42, {

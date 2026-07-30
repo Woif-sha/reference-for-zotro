@@ -268,6 +268,30 @@ test("rechecks the live Reader identity after asynchronous hashing completes", a
   );
 });
 
+test("rejects a MinerU cache that changes while fingerprints are computed", async () => {
+  const files = validFiles("## References\n[1] First");
+  const base = createPorts(files);
+  let hashCalls = 0;
+  const ports: MinerUPorts = {
+    ...base,
+    sha256: async () => {
+      hashCalls += 1;
+      if (hashCalls === 1) {
+        files[`${CACHE_DIRECTORY}/manifest.json`] = {
+          ...files[`${CACHE_DIRECTORY}/manifest.json`]!,
+          revision: "manifest-v2",
+        };
+      }
+      return "known-full-md-sha256";
+    },
+  };
+
+  await assertRejectsWithCode(
+    loadMineruReferences(ATTACHMENT_ID, ports),
+    "md-cache-invalid",
+  );
+});
+
 test("never probes legacy Markdown or a fallback source", async () => {
   const fullMarkdown = "## References\n[1] First";
   const files = validFiles(fullMarkdown);

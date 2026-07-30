@@ -262,11 +262,10 @@ export class RelatedPapersController implements ReaderSectionController {
 
   private publishLoadFailure(error: unknown): void {
     const code = getErrorCode(error);
-    if (code.startsWith("md-")) {
+    if (isMinerUContractFailure(code)) {
       this.update({
         status: "no-md",
-        message:
-          "Configure the llm-for-zotero MinerU API and generate Markdown for this paper.",
+        message: `${conciseError(error)} Configure the llm-for-zotero MinerU API and generate Markdown for this paper.`,
       });
       return;
     }
@@ -329,6 +328,14 @@ function getErrorCode(error: unknown): string {
     return error.code;
   }
   return "";
+}
+
+function isMinerUContractFailure(code: string): boolean {
+  return (
+    code.startsWith("md-") ||
+    code.startsWith("references-") ||
+    code === "unsupported-reader-item"
+  );
 }
 
 function conciseError(error: unknown): string {

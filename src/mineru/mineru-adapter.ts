@@ -88,17 +88,6 @@ export async function loadMineruReferences(
 
   const firstRead = await readRequiredFiles(paths, ports);
   validateCache(firstRead, identity);
-  const secondRead = await readRequiredFiles(paths, ports);
-  if (
-    firstRead.some(
-      (file, index) =>
-        file.revision !== secondRead[index]!.revision ||
-        file.text !== secondRead[index]!.text,
-    )
-  ) {
-    throw invalidCache("The MinerU cache changed while it was being read");
-  }
-
   const fullMarkdown = firstRead[1]!.text;
   const entries = parseReferenceEntries(fullMarkdown);
   let fullMdSha256: string;
@@ -112,6 +101,16 @@ export async function loadMineruReferences(
     ]);
   } catch {
     throw invalidCache("The MinerU Markdown fingerprint could not be computed");
+  }
+  const secondRead = await readRequiredFiles(paths, ports);
+  if (
+    firstRead.some(
+      (file, index) =>
+        file.revision !== secondRead[index]!.revision ||
+        file.text !== secondRead[index]!.text,
+    )
+  ) {
+    throw invalidCache("The MinerU cache changed while it was being read");
   }
   const currentIdentity = resolveIdentity(attachmentID, ports.items);
   if (!sameIdentity(identity, currentIdentity)) {

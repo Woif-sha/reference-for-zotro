@@ -1,0 +1,860 @@
+<!doctype html>
+<!--
+  THROWAWAY PROTOTYPE — do not ship.
+  Question: which Zotero 9 sidebar structure best supports a dense paper list,
+  selection, a card expanding over the PDF, result limits, explicit states,
+  translation, and Ctrl+click navigation?
+  Three variants are switchable with ?variant=A|B|C.
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zotero 9 References / Citations Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --chrome: #f6f6f7;
+      --chrome-strong: #e9e9eb;
+      --line: #d6d6d9;
+      --ink: #242428;
+      --muted: #69696f;
+      --accent: #2d6cdf;
+      --accent-soft: #e8f0ff;
+      --danger: #ba3b32;
+      --paper: #fff;
+      --sidebar: 350px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 980px; color: var(--ink); background: #d7d7d9; }
+    button, select { font: inherit; }
+    button { color: inherit; }
+
+    .app {
+      display: grid;
+      grid-template-rows: 44px 1fr;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 14px;
+      border-bottom: 1px solid #c9c9cc;
+      background: linear-gradient(#fafafa, #eeeeef);
+      font-size: 13px;
+    }
+
+    .traffic { display: flex; gap: 6px; margin-right: 4px; }
+    .traffic i { width: 10px; height: 10px; border-radius: 50%; background: #b9b9bd; }
+    .crumb { color: var(--muted); }
+    .paper-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .toolbar-spacer { flex: 1; }
+    .toolbar-action {
+      border: 1px solid #c8c8cb;
+      border-radius: 5px;
+      background: #fff;
+      padding: 4px 8px;
+    }
+
+    .workspace { display: grid; grid-template-columns: 208px minmax(520px, 1fr) var(--sidebar); min-height: 0; }
+    .library {
+      padding: 12px 9px;
+      border-right: 1px solid #c4c4c7;
+      background: #f1f1f2;
+      font-size: 12px;
+    }
+    .library h3 { margin: 4px 8px 10px; color: #77777c; font-size: 11px; text-transform: uppercase; }
+    .tree-row { padding: 6px 8px; border-radius: 5px; }
+    .tree-row.active { background: #dfe8f7; color: #1b55a4; font-weight: 600; }
+    .tree-indent { padding-left: 24px; }
+
+    .reader {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      background: #bfc0c3;
+    }
+    .reader-strip {
+      display: flex;
+      align-items: center;
+      height: 37px;
+      padding: 0 12px;
+      gap: 12px;
+      border-bottom: 1px solid #aaa;
+      background: #efeff0;
+      color: #5b5b60;
+      font-size: 12px;
+    }
+    .page-number { margin-left: auto; }
+    .pdf-scroll {
+      height: calc(100vh - 81px);
+      overflow: auto;
+      padding: 22px 34px 100px;
+    }
+    .pdf-page {
+      width: min(720px, 92%);
+      min-height: 920px;
+      margin: 0 auto;
+      padding: 64px 74px;
+      background: var(--paper);
+      box-shadow: 0 2px 12px #7778;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .pdf-page h1 { margin: 0 0 10px; font-size: 25px; line-height: 1.2; text-align: center; }
+    .authors { margin-bottom: 30px; color: #555; text-align: center; font-size: 12px; }
+    .pdf-page h2 { margin-top: 26px; font-size: 16px; }
+    .pdf-page p { text-align: justify; }
+    mark.selection {
+      position: relative;
+      cursor: text;
+      background: #ffe789;
+      box-shadow: 0 0 0 1px #e0bd3a;
+    }
+    .selection-hint {
+      display: inline-block;
+      margin-left: 5px;
+      color: #8b6b00;
+      font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .translation-popover {
+      position: absolute;
+      z-index: 8;
+      left: 50%;
+      top: 335px;
+      width: 360px;
+      transform: translateX(-50%);
+      border: 1px solid #b7b7ba;
+      border-radius: 7px;
+      background: #fffffff5;
+      box-shadow: 0 8px 28px #0003;
+      padding: 11px 13px;
+      font-size: 12px;
+    }
+    .translation-popover[hidden] { display: none; }
+    .translation-popover strong { display: block; margin-bottom: 5px; }
+    .translation-source { margin-top: 7px; color: var(--muted); font-size: 11px; }
+
+    .sidebar {
+      position: relative;
+      min-width: 0;
+      border-left: 1px solid #c2c2c5;
+      background: #fbfbfc;
+      box-shadow: -2px 0 6px #0000000d;
+    }
+
+    .sidebar-header {
+      display: flex;
+      align-items: center;
+      height: 42px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--chrome);
+    }
+    .sidebar-header strong { font-size: 13px; }
+    .sidebar-header small { margin-left: auto; color: var(--muted); }
+
+    .tabs { display: flex; border-bottom: 1px solid var(--line); background: #fff; }
+    .tab {
+      position: relative;
+      flex: 1;
+      border: 0;
+      background: transparent;
+      padding: 11px 8px 9px;
+      color: var(--muted);
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tab.active { color: var(--ink); }
+    .tab.active::after {
+      position: absolute;
+      right: 18px;
+      bottom: -1px;
+      left: 18px;
+      height: 2px;
+      background: var(--accent);
+      content: "";
+    }
+    .badge {
+      display: inline-flex;
+      min-width: 18px;
+      height: 18px;
+      margin-left: 4px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9px;
+      background: #ececef;
+      color: #555;
+      font-size: 10px;
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 42px;
+      padding: 7px 10px;
+      border-bottom: 1px solid #e0e0e2;
+      background: #fafafa;
+      font-size: 11px;
+    }
+    .controls label { color: var(--muted); }
+    .controls select {
+      min-width: 94px;
+      border: 1px solid #c9c9cc;
+      border-radius: 5px;
+      background: #fff;
+      padding: 3px 5px;
+    }
+    .limit { display: none; margin-left: auto; }
+    .limit.visible { display: flex; }
+    .limit button {
+      min-width: 29px;
+      border: 1px solid #c5c5c8;
+      border-right: 0;
+      background: #fff;
+      padding: 3px 5px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .limit button:first-child { border-radius: 5px 0 0 5px; }
+    .limit button:last-child { border-right: 1px solid #c5c5c8; border-radius: 0 5px 5px 0; }
+    .limit button.active { background: #dce8fb; color: #154e9f; }
+
+    .content { height: calc(100vh - 168px); overflow: auto; }
+    .status-panel {
+      display: grid;
+      place-items: center;
+      min-height: 250px;
+      padding: 32px;
+      color: var(--muted);
+      text-align: center;
+      font-size: 12px;
+    }
+    .spinner {
+      width: 24px;
+      height: 24px;
+      margin: 0 auto 12px;
+      border: 3px solid #d8d8dc;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-icon { margin-bottom: 8px; color: var(--danger); font-size: 25px; }
+
+    .list { margin: 0; padding: 0; list-style: none; }
+    .paper-row {
+      position: relative;
+      border-bottom: 1px solid #ececef;
+      cursor: default;
+    }
+    .paper-row.selected { background: var(--accent-soft); }
+    .paper-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+    .paper-row.unresolved .row-status { color: #8a5d0b; }
+    .paper-row.loading .row-status { color: var(--muted); }
+    .paper-row.error .row-status { color: var(--danger); }
+    .title { color: #29292d; font-weight: 600; line-height: 1.35; }
+    .meta { color: var(--muted); line-height: 1.35; }
+    .row-status { margin-top: 5px; color: #2b7149; font-size: 10px; }
+    .row-status::before { content: "●"; margin-right: 4px; }
+
+    /* A: dense bibliography-first rows */
+    .variant-a .paper-row { display: grid; grid-template-columns: 27px 1fr 24px; gap: 5px; padding: 10px 8px; }
+    .variant-a .index { color: #8b8b91; text-align: right; font-size: 11px; }
+    .variant-a .title { font-size: 12px; }
+    .variant-a .meta { margin-top: 3px; font-size: 10px; }
+    .variant-a .info-button { align-self: start; opacity: .55; }
+
+    /* B: author/date scan with a fixed preview dock */
+    .variant-b .content { display: grid; grid-template-rows: minmax(0, 1fr) 155px; overflow: hidden; }
+    .variant-b .list { overflow: auto; }
+    .variant-b .paper-row { display: grid; grid-template-columns: 42px 1fr; gap: 9px; padding: 11px; }
+    .variant-b .year {
+      grid-row: 1 / 4;
+      color: #5d6b7c;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .variant-b .title { font-size: 12px; }
+    .variant-b .meta { font-size: 10px; }
+    .preview-dock {
+      padding: 11px 13px;
+      border-top: 1px solid #cfd0d4;
+      background: #f1f4f8;
+      font-size: 11px;
+      overflow: auto;
+    }
+    .preview-dock strong { display: block; margin-bottom: 5px; font-size: 12px; }
+    .preview-dock p { margin: 0 0 7px; color: #555a62; line-height: 1.35; }
+
+    /* C: spacious reading queue */
+    .variant-c .content { padding: 9px; background: #f2f2f4; }
+    .variant-c .paper-row {
+      margin-bottom: 8px;
+      padding: 12px 12px 11px;
+      border: 1px solid #dedee2;
+      border-radius: 7px;
+      background: #fff;
+      box-shadow: 0 1px 1px #00000008;
+    }
+    .variant-c .paper-row.selected { border-color: #83a9e6; background: #f4f8ff; }
+    .variant-c .eyebrow {
+      display: flex;
+      margin-bottom: 7px;
+      color: #707078;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .variant-c .eyebrow span:last-child { margin-left: auto; }
+    .variant-c .title { font-size: 12px; }
+    .variant-c .meta { margin-top: 5px; font-size: 10px; }
+    .variant-c .row-actions { display: flex; gap: 6px; margin-top: 9px; }
+    .variant-c .row-actions button {
+      border: 1px solid #c8c8cc;
+      border-radius: 5px;
+      background: #fff;
+      padding: 4px 7px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .info-button {
+      display: inline-grid;
+      width: 22px;
+      height: 22px;
+      place-items: center;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: #5d626b;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .info-button:hover { background: #d7e2f5; opacity: 1; }
+
+    .hover-card {
+      position: absolute;
+      z-index: 10;
+      top: 96px;
+      right: calc(var(--sidebar) - 1px);
+      width: 390px;
+      border: 1px solid #aaaeb5;
+      border-radius: 8px 0 0 8px;
+      background: #fff;
+      box-shadow: -8px 12px 28px #0003;
+      overflow: hidden;
+    }
+    .hover-card[hidden] { display: none; }
+    .card-cover { height: 5px; background: var(--accent); }
+    .card-body { padding: 15px 16px 13px; }
+    .card-kicker { color: #687183; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .card-title { margin: 5px 0 7px; font-family: Georgia, serif; font-size: 17px; line-height: 1.25; }
+    .card-meta { color: var(--muted); font-size: 11px; }
+    .card-summary { margin: 12px 0; color: #46464b; font-size: 12px; line-height: 1.45; }
+    .card-footer { display: flex; gap: 7px; align-items: center; }
+    .card-footer button {
+      border: 1px solid #bfc0c4;
+      border-radius: 5px;
+      background: #fff;
+      padding: 5px 8px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .card-footer .primary { border-color: #2760bd; background: var(--accent); color: #fff; }
+    .card-close { margin-left: auto; }
+
+    .toast {
+      position: fixed;
+      z-index: 40;
+      left: 50%;
+      bottom: 75px;
+      max-width: 520px;
+      transform: translateX(-50%);
+      border-radius: 6px;
+      background: #26262bec;
+      color: #fff;
+      padding: 9px 13px;
+      box-shadow: 0 5px 16px #0004;
+      font-size: 11px;
+      pointer-events: none;
+    }
+    .toast[hidden] { display: none; }
+
+    .state-monitor {
+      position: fixed;
+      z-index: 20;
+      left: 12px;
+      bottom: 12px;
+      width: 184px;
+      border: 1px solid #0002;
+      border-radius: 7px;
+      background: #fffffff0;
+      box-shadow: 0 3px 12px #0002;
+      padding: 8px 10px;
+      color: #53535a;
+      font: 10px ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-line;
+    }
+    .state-monitor strong { display: block; margin-bottom: 4px; color: #24242a; }
+
+    .switcher {
+      position: fixed;
+      z-index: 50;
+      bottom: 12px;
+      left: 50%;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transform: translateX(-50%);
+      border: 1px solid #000;
+      border-radius: 999px;
+      background: #1d1d21;
+      color: #fff;
+      box-shadow: 0 7px 20px #0005;
+      padding: 5px;
+    }
+    .switcher button {
+      width: 28px;
+      height: 28px;
+      border: 0;
+      border-radius: 50%;
+      background: #35353b;
+      color: #fff;
+      cursor: pointer;
+    }
+    .switcher-label { min-width: 205px; text-align: center; font-size: 11px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="toolbar">
+      <span class="traffic"><i></i><i></i><i></i></span>
+      <span class="crumb">My Library / Machine Learning</span>
+      <span class="paper-title">Attention Is All You Need</span>
+      <span class="toolbar-spacer"></span>
+      <button class="toolbar-action">−</button>
+      <span>112%</span>
+      <button class="toolbar-action">＋</button>
+    </header>
+
+    <main class="workspace">
+      <aside class="library" aria-label="Zotero library">
+        <h3>Library</h3>
+        <div class="tree-row">▾ My Library</div>
+        <div class="tree-row tree-indent active">Machine Learning</div>
+        <div class="tree-row tree-indent">NLP</div>
+        <div class="tree-row tree-indent">Graph Learning</div>
+        <h3 style="margin-top:22px">Tags</h3>
+        <div class="tree-row">● transformer</div>
+        <div class="tree-row">● survey</div>
+      </aside>
+
+      <section class="reader">
+        <div class="reader-strip">
+          <span>☰</span><span>↖</span><span>✋</span><span>▣</span>
+          <span class="page-number">1 / 15</span>
+        </div>
+        <div class="pdf-scroll">
+          <article class="pdf-page">
+            <h1>Attention Is All You Need</h1>
+            <div class="authors">Ashish Vaswani · Noam Shazeer · Niki Parmar · et al.</div>
+            <h2>Abstract</h2>
+            <p>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.</p>
+            <h2>1 Introduction</h2>
+            <p>Recurrent neural networks have been firmly established as state of the art approaches in sequence modeling. The best performing models also connect the encoder and decoder through an attention mechanism.</p>
+            <p>
+              <mark class="selection" id="selection">The Transformer allows for significantly more parallelization and can reach a new state of the art in translation quality.</mark>
+              <span class="selection-hint">单击选中文本查看翻译</span>
+            </p>
+            <p>In this work we propose the Transformer, a model architecture eschewing recurrence and instead relying entirely on an attention mechanism to draw global dependencies between input and output.</p>
+            <h2>2 Background</h2>
+            <p>The goal of reducing sequential computation also forms the foundation of the Extended Neural GPU, ByteNet and ConvS2S, all of which use convolutional neural networks as basic building blocks.</p>
+          </article>
+        </div>
+        <aside class="translation-popover" id="translation" hidden>
+          <strong>划词翻译</strong>
+          Transformer 支持显著提高并行化程度，并能在翻译质量上达到新的最佳水平。
+          <div class="translation-source">Paper Translate · 此处为只读原型结果</div>
+        </aside>
+      </section>
+
+      <aside class="sidebar" id="sidebar">
+        <header class="sidebar-header">
+          <strong>Related Papers</strong>
+          <small id="sourceLabel">MinerU MD · 已同步</small>
+        </header>
+        <nav class="tabs" aria-label="Paper relationship">
+          <button class="tab active" data-tab="references">References <span class="badge">42</span></button>
+          <button class="tab" data-tab="citations">Citations <span class="badge">86</span></button>
+        </nav>
+        <div class="controls">
+          <label for="stateSelect">数据状态</label>
+          <select id="stateSelect">
+            <option value="ready">已就绪</option>
+            <option value="loading">加载中</option>
+            <option value="error">加载失败</option>
+            <option value="no-md">无 MD 文本</option>
+          </select>
+          <div class="limit" id="limit">
+            <button class="active" data-limit="10">10</button>
+            <button data-limit="30">30</button>
+            <button data-limit="50">50</button>
+          </div>
+        </div>
+        <section class="content" id="content"></section>
+        <aside class="hover-card" id="hoverCard" hidden>
+          <div class="card-cover"></div>
+          <div class="card-body">
+            <div class="card-kicker" id="cardKicker">Resolved reference · 2017</div>
+            <div class="card-title" id="cardTitle"></div>
+            <div class="card-meta" id="cardMeta"></div>
+            <p class="card-summary" id="cardSummary"></p>
+            <div class="card-footer">
+              <button class="primary" id="openPage">打开论文落地页</button>
+              <button id="copyTitle">复制标题</button>
+              <button class="card-close" id="cardClose" aria-label="Close">×</button>
+            </div>
+          </div>
+        </aside>
+      </aside>
+    </main>
+  </div>
+
+  <aside class="state-monitor" id="monitor"><strong>PROTOTYPE STATE</strong></aside>
+  <div class="toast" id="toast" hidden></div>
+  <div class="switcher" aria-label="Prototype variant switcher">
+    <button id="previous" aria-label="Previous variant">←</button>
+    <span class="switcher-label" id="variantLabel"></span>
+    <button id="next" aria-label="Next variant">→</button>
+  </div>
+
+  <script>
+    const variants = {
+      A: "紧凑书目列表",
+      B: "时间扫描＋预览坞",
+      C: "阅读队列卡片"
+    };
+
+    const references = [
+      {
+        title: "Neural Machine Translation by Jointly Learning to Align and Translate",
+        authors: "Bahdanau, Cho & Bengio",
+        venue: "ICLR",
+        year: "2015",
+        status: "resolved",
+        statusText: "已匹配论文落地页",
+        summary: "Introduces an attention mechanism that learns to align and translate jointly, replacing fixed-length encoder representations."
+      },
+      {
+        title: "Effective Approaches to Attention-based Neural Machine Translation",
+        authors: "Luong, Pham & Manning",
+        venue: "EMNLP",
+        year: "2015",
+        status: "resolved",
+        statusText: "已匹配论文落地页",
+        summary: "Compares global and local attention mechanisms for neural machine translation and evaluates alternative alignment functions."
+      },
+      {
+        title: "Generating Sequences With Recurrent Neural Networks",
+        authors: "Alex Graves",
+        venue: "arXiv",
+        year: "2013",
+        status: "loading",
+        statusText: "后台匹配中",
+        summary: "A foundational treatment of recurrent neural networks for generating complex sequences."
+      },
+      {
+        title: "A Structured Self-attentive Sentence Embedding",
+        authors: "Lin et al.",
+        venue: "ICLR",
+        year: "2017",
+        status: "unresolved",
+        statusText: "未找到 · Ctrl+左键搜索",
+        summary: "Explores self-attention for producing interpretable sentence embeddings."
+      },
+      {
+        title: "Convolutional Sequence to Sequence Learning",
+        authors: "Gehring et al.",
+        venue: "ICML",
+        year: "2017",
+        status: "error",
+        statusText: "匹配服务失败",
+        summary: "Uses convolutional networks for sequence-to-sequence learning with parallel computation."
+      }
+    ];
+
+    const citations = [
+      {
+        title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+        authors: "Devlin et al.",
+        venue: "NAACL",
+        year: "2019",
+        status: "resolved",
+        statusText: "机构认证结果",
+        summary: "Pre-trains deep bidirectional Transformer representations using masked language modeling."
+      },
+      {
+        title: "Language Models are Few-Shot Learners",
+        authors: "Brown et al.",
+        venue: "NeurIPS",
+        year: "2020",
+        status: "resolved",
+        statusText: "机构认证结果",
+        summary: "Studies in-context few-shot learning in large autoregressive language models."
+      },
+      {
+        title: "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
+        authors: "Dosovitskiy et al.",
+        venue: "ICLR",
+        year: "2021",
+        status: "resolved",
+        statusText: "机构认证结果",
+        summary: "Applies a pure Transformer directly to sequences of image patches."
+      },
+      {
+        title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness",
+        authors: "Dao et al.",
+        venue: "NeurIPS",
+        year: "2022",
+        status: "resolved",
+        statusText: "机构认证结果",
+        summary: "Computes exact attention with fewer memory reads and writes."
+      }
+    ];
+
+    const state = {
+      variant: new URLSearchParams(location.search).get("variant")?.toUpperCase() || "A",
+      tab: "references",
+      dataState: "ready",
+      limit: 10,
+      selected: 0,
+      cardOpen: false,
+      translationOpen: false,
+      lastAction: "原型已载入"
+    };
+    if (!variants[state.variant]) state.variant = "A";
+
+    const content = document.querySelector("#content");
+    const sidebar = document.querySelector("#sidebar");
+    const hoverCard = document.querySelector("#hoverCard");
+    const monitor = document.querySelector("#monitor");
+    const toast = document.querySelector("#toast");
+
+    function activeData() {
+      return state.tab === "references" ? references : citations;
+    }
+
+    function statusMarkup() {
+      if (state.dataState === "loading") {
+        return '<div class="status-panel"><div><div class="spinner"></div><strong>正在读取关系数据</strong><p>列表会按原顺序显示，匹配结果随后补充。</p></div></div>';
+      }
+      if (state.dataState === "error") {
+        return '<div class="status-panel"><div><div class="error-icon">!</div><strong>加载失败</strong><p>无法读取当前论文的关系数据。不会静默回退到其他来源。</p></div></div>';
+      }
+      return '<div class="status-panel"><div><div class="error-icon" style="color:#777">MD</div><strong>无 MD 文本</strong><p>当前论文没有可用的 MinerU Markdown。</p></div></div>';
+    }
+
+    function rowMarkup(item, index) {
+      const selected = state.selected === index ? " selected" : "";
+      if (state.variant === "A") {
+        return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
+          <span class="index">${index + 1}.</span>
+          <div><div class="title">${item.title}</div><div class="meta">${item.authors} · ${item.venue} ${item.year}</div><div class="row-status">${item.statusText}</div></div>
+          <button class="info-button" data-info="${index}" aria-label="Show paper details">ⓘ</button>
+        </li>`;
+      }
+      if (state.variant === "B") {
+        return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
+          <span class="year">${item.year}</span>
+          <div class="title">${item.title}</div>
+          <div class="meta">${item.authors} · ${item.venue}</div>
+          <div class="row-status">${item.statusText}</div>
+        </li>`;
+      }
+      return `<li class="paper-row ${item.status}${selected}" data-index="${index}" tabindex="0">
+        <div class="eyebrow"><span>${state.tab === "references" ? `Reference ${index + 1}` : `Citing paper ${index + 1}`}</span><span>${item.year}</span></div>
+        <div class="title">${item.title}</div>
+        <div class="meta">${item.authors} · ${item.venue}</div>
+        <div class="row-status">${item.statusText}</div>
+        <div class="row-actions"><button data-info="${index}">查看介绍</button><button data-jump="${index}">Ctrl+打开</button></div>
+      </li>`;
+    }
+
+    function render() {
+      sidebar.className = `sidebar variant-${state.variant.toLowerCase()}`;
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === state.tab));
+      document.querySelector("#limit").classList.toggle("visible", state.tab === "citations");
+      document.querySelectorAll("[data-limit]").forEach(button => button.classList.toggle("active", Number(button.dataset.limit) === state.limit));
+      document.querySelector("#stateSelect").value = state.dataState;
+      document.querySelector("#sourceLabel").textContent =
+        state.dataState === "ready" ? (state.tab === "references" ? "MinerU MD · 已同步" : "机构认证 · 日期倒序") : "数据不可用";
+      document.querySelector("#variantLabel").textContent = `${state.variant} — ${variants[state.variant]}`;
+
+      if (state.dataState !== "ready") {
+        content.innerHTML = statusMarkup();
+        state.cardOpen = false;
+      } else {
+        const rows = activeData().map(rowMarkup).join("");
+        if (state.variant === "B") {
+          const item = activeData()[state.selected];
+          content.innerHTML = `<ol class="list">${rows}</ol><aside class="preview-dock"><strong>${item.title}</strong><p>${item.summary}</p><span>单击选中 · 悬停或双击向 PDF 区展开完整信息卡 · Ctrl+左键打开落地页</span></aside>`;
+        } else {
+          content.innerHTML = `<ol class="list">${rows}</ol>`;
+        }
+      }
+
+      hoverCard.hidden = !state.cardOpen;
+      document.querySelector("#translation").hidden = !state.translationOpen;
+      renderMonitor();
+    }
+
+    function renderMonitor() {
+      monitor.innerHTML = `<strong>PROTOTYPE STATE</strong>variant: ${state.variant} (${variants[state.variant]})
+tab: ${state.tab}
+data: ${state.dataState}
+limit: ${state.limit}
+selected: ${state.selected + 1}
+card: ${state.cardOpen ? "open over PDF" : "closed"}
+translation: ${state.translationOpen ? "visible" : "hidden"}
+last: ${state.lastAction}`;
+    }
+
+    function selectItem(index, openCard = false) {
+      state.selected = index;
+      state.lastAction = `选中第 ${index + 1} 条`;
+      if (openCard) showCard(index);
+      else render();
+    }
+
+    function showCard(index) {
+      const item = activeData()[index];
+      state.selected = index;
+      state.cardOpen = true;
+      state.lastAction = `展开 ${state.tab === "references" ? "resolved reference" : "citing paper"} 信息卡`;
+      document.querySelector("#cardKicker").textContent =
+        `${state.tab === "references" ? "Resolved reference" : "Citing paper"} · ${item.year}`;
+      document.querySelector("#cardTitle").textContent = item.title;
+      document.querySelector("#cardMeta").textContent = `${item.authors} · ${item.venue} · ${item.statusText}`;
+      document.querySelector("#cardSummary").textContent = item.summary;
+      render();
+    }
+
+    function attemptJump(index, forced = false) {
+      const item = activeData()[index];
+      if (!forced) return;
+      const target = item.status === "resolved"
+        ? "论文落地页（原型不执行外部跳转）"
+        : `Google 搜索 “${item.title}”`;
+      state.lastAction = `Ctrl+左键 → ${target}`;
+      showToast(target);
+      renderMonitor();
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.hidden = false;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => { toast.hidden = true; }, 2400);
+    }
+
+    function changeVariant(direction) {
+      const keys = Object.keys(variants);
+      const nextIndex = (keys.indexOf(state.variant) + direction + keys.length) % keys.length;
+      state.variant = keys[nextIndex];
+      state.cardOpen = false;
+      state.lastAction = `切换到方案 ${state.variant}`;
+      const params = new URLSearchParams(location.search);
+      params.set("variant", state.variant);
+      history.replaceState(null, "", `?${params.toString()}`);
+      render();
+    }
+
+    document.querySelector(".tabs").addEventListener("click", event => {
+      const tab = event.target.closest("[data-tab]");
+      if (!tab) return;
+      state.tab = tab.dataset.tab;
+      state.selected = 0;
+      state.cardOpen = false;
+      state.lastAction = `切换到 ${state.tab}`;
+      render();
+    });
+
+    document.querySelector("#stateSelect").addEventListener("change", event => {
+      state.dataState = event.target.value;
+      state.lastAction = `数据状态 → ${state.dataState}`;
+      render();
+    });
+
+    document.querySelector("#limit").addEventListener("click", event => {
+      const button = event.target.closest("[data-limit]");
+      if (!button) return;
+      state.limit = Number(button.dataset.limit);
+      state.lastAction = `Citations 数量档位 → ${state.limit}`;
+      render();
+    });
+
+    content.addEventListener("click", event => {
+      const info = event.target.closest("[data-info]");
+      const jump = event.target.closest("[data-jump]");
+      const row = event.target.closest("[data-index]");
+      if (info) return showCard(Number(info.dataset.info));
+      if (jump) return attemptJump(Number(jump.dataset.jump), true);
+      if (!row) return;
+      const index = Number(row.dataset.index);
+      if (event.ctrlKey || event.metaKey) return attemptJump(index, true);
+      selectItem(index, false);
+    });
+
+    content.addEventListener("dblclick", event => {
+      const row = event.target.closest("[data-index]");
+      if (row) showCard(Number(row.dataset.index));
+    });
+
+    content.addEventListener("mouseover", event => {
+      const row = event.target.closest("[data-index]");
+      if (row && state.variant !== "C") {
+        clearTimeout(content.hoverTimer);
+        content.hoverTimer = setTimeout(() => showCard(Number(row.dataset.index)), 450);
+      }
+    });
+
+    document.querySelector("#cardClose").addEventListener("click", () => {
+      state.cardOpen = false;
+      state.lastAction = "关闭信息卡";
+      render();
+    });
+    document.querySelector("#openPage").addEventListener("click", () => attemptJump(state.selected, true));
+    document.querySelector("#copyTitle").addEventListener("click", () => {
+      state.lastAction = "复制标题（原型仅模拟）";
+      showToast("已复制标题（原型）");
+      renderMonitor();
+    });
+
+    document.querySelector("#selection").addEventListener("click", () => {
+      state.translationOpen = !state.translationOpen;
+      state.lastAction = state.translationOpen ? "显示划词翻译" : "关闭划词翻译";
+      render();
+    });
+
+    document.querySelector("#previous").addEventListener("click", () => changeVariant(-1));
+    document.querySelector("#next").addEventListener("click", () => changeVariant(1));
+    window.addEventListener("keydown", event => {
+      const tag = document.activeElement?.tagName;
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(tag) || document.activeElement?.isContentEditable) return;
+      if (event.key === "ArrowLeft") changeVariant(-1);
+      if (event.key === "ArrowRight") changeVariant(1);
+    });
+
+    render();
+  </script>
+</body>
+</html>

@@ -62,7 +62,7 @@ GET https://api.crossref.org/v1/works
 - 不发送已废弃的 `query.title`。
 - 不使用 API 返回顺序确认论文；只把最多 5 条结果交给本地 matcher。
 
-Crossref 官方说明 `query.bibliographic` 覆盖题名、作者、ISSN 和出版年份，field query 之间为 AND；查询默认按 relevance 返回，但本项目不把 relevance order 当身份依据。[Crossref REST API source documentation](https://github.com/CrossRef/rest-api-doc)
+Crossref 的正式 REST API/OpenAPI 暴露 `query.bibliographic`、`query.author`、`query.container-title` 等字段查询参数；查询默认按 relevance 返回，但本项目不把 relevance order 当身份依据。旧的 `CrossRef/rest-api-doc` 仓库已经标记 deprecated，不作为首发契约依据。[Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)；[Crossref REST API OpenAPI](https://api.crossref.org/swagger-ui/index.html)
 
 DataCite 搜索合同：
 
@@ -86,6 +86,15 @@ GET https://api.opencitations.net/index/v2/citations/{scheme}:{value}
 ```
 
 OpenCitations v2 的 `citations/{id}` 正式支持 DOI、PMID、OMID，返回 `oci`、`citing`、`cited`、`creation` 等字段；`creation` 是 citing entity 的 publication date。[OpenCitations Index API v2](https://api.opencitations.net/index/v2)
+
+Index v2 的 `oci`、`citing`、`cited`、`creation` 等字段可能带 `[index name] =>` 前缀；同一 citation 被多个 OpenCitations indexes 收录时，一个字段还可能包含以 `;` 分隔的多段来源值。首发解析必须：
+
+- 逐段解析并去掉 transport prefix 后再规范化 DOI、PMID、OMID 和日期；
+- 将每个 index name 与原始段写入 `rawProvenance`，不得只保留最后一段；
+- 多段稳定标识符相互冲突时返回 `provider_contract_error`，不得任选一段；
+- 相同 citation 的多 index 记录按稳定标识符合并，但保留所有 index provenance。
+
+这是 OpenCitations v2 的正式响应合同，不是可选的展示格式。[OpenCitations Index API v2 fields](https://api.opencitations.net/index/v2)
 
 OpenCitations Index v2 没有文档化的 limit/cursor 分页。首发因此每个 current paper 只取一次完整 edge 响应，在本地去重、排序，最多水合前 50 个唯一 citing works。响应超过 10 MiB、解析超时或 schema 不符时显式失败为 `provider_response_too_large` 或 `provider_contract_error`，不得截断后伪装成完整成功。
 
@@ -273,11 +282,13 @@ OpenCitations 定义 `creation` 为 citing entity publication date，因此在�
 
 | Provider | 首发客户端限制 | 官方依据 |
 | --- | --- | --- |
-| Crossref single | public 5 req/s，concurrency 1 | [Crossref 2025 rate-limit change](https://www.crossref.org/blog/announcing-changes-to-rest-api-rate-limits/) |
-| Crossref list | public 1 req/s，concurrency 1 | 同上 |
+| Crossref single | public 5 req/s，concurrency 1 | [Crossref 2025-12 implemented rate limits](https://community.crossref.org/t/updates-to-rest-api-rate-limits/14872) |
+| Crossref list | 项目保守 1 req/s，concurrency 1；低于当前 public pool 的 5 req/s | 同上 |
 | DataCite | 80 req/min，concurrency 2；低于官方 anonymous 500/5 min | [DataCite rate limits](https://support.datacite.org/docs/rate-limit) |
 | OpenCitations Index + Meta | 合并 120 req/min，concurrency 2；低于官方 180/min/IP | [OpenCitations Index API](https://api.opencitations.net/index/v2) |
 | DOI Proxy reachability | 2 req/s，concurrency 2 | 本项目保守限制 |
+
+Crossref 2025 年 11 月最初公告过按 single/list 区分的限额，但 2025 年 12 月实际部署时改为 public pool 统一 5 req/s、concurrency 1，polite pool 统一 10 req/s、concurrency 5。上表仍把 list 主动压到 1 req/s，是项目的保守预算，不是对当前官方上限的陈述。
 
 若正式构建提供一个能接收邮件的项目联系地址，可通过 User-Agent/mailto 使用 Crossref/DataCite identified 或 polite pool；联系地址不是用户 API key。没有真实维护地址时不得填假邮箱，应使用上述 public/unidentified 限制。Crossref 和 DataCite 都要求以实时 rate-limit headers 为准。[Crossref access](https://www.crossref.org/documentation/retrieve-metadata/rest-api/access-and-authentication/)；[DataCite API guide](https://support.datacite.org/docs/api)
 
@@ -341,6 +352,18 @@ manual refresh：
 - 旧 generation 即使晚到也不得写 UI 或 cache 当前指针。
 
 任何提交必须同时满足 `libraryID + attachmentKey + sourceFingerprint + generation` 仍匹配。MinerU Markdown 或 provenance 改变后，旧 results 因 sourceFingerprint 变化自然失效。gateway/provider schema 改变时必须递增相应 version。
+
+## Zotero 9 首发集成边界
+
+Gateway 是网络与决策边界，不是第二个“当前条目”状态源。Zotero 9 首发固定以下集成契约：
+
+- Reader/controller 显式传入 `libraryID`、`attachmentKey`、`sourceFingerprint`、`generation` 和 `AbortSignal`；gateway 不得从全局 Reader 或选择状态推断当前论文。
+- Reader 关闭、切换附件、MinerU 来源改变或 manual refresh 时立即 abort 旧 generation；晚到响应只能保留作诊断，不得更新当前 UI 或当前 cache pointer。
+- 缓存只写 Zotero data directory 下本插件自己的版本化命名空间；不得写 Zotero item fields、attachment files 或 `llm-for-zotero-mineru`。
+- 每个展示结果都带实际产生它的 provider/source record 和 retrieval time；Zotero 条目元数据可以是 query input，但不得改标成 provider provenance。
+- 首发不提供用户 credential UI。后续若引入必须使用用户或项目 key 的 provider，应另作契约决策，不得以隐藏配置或静默 fallback 加入。
+
+这些规则把 Zotero 9 Reader 生命周期与 cache commit 收束到同一个 identity invariant，避免旧论文结果显示到新激活的 Reader。
 
 ## 首发验收边界
 

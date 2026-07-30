@@ -142,12 +142,8 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             expiresAt: new Date(Date.now() + ttlMilliseconds).toISOString(),
             results: {
               ...results,
-              references: results.references.map(
-                ({ abstract: _copyrightedAbstract, ...reference }) => reference,
-              ),
-              citingPapers: results.citingPapers.map(
-                ({ abstract: _abstract, ...citation }) => citation,
-              ),
+              references: results.references.map(withoutAbstract),
+              citingPapers: results.citingPapers.map(withoutAbstract),
             },
           });
         },
@@ -463,8 +459,15 @@ async function verifyDirectLandingPage(
       `Landing page reachability check failed: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      { cause: error },
     );
   }
+}
+
+function withoutAbstract(paper: ReaderPaper): ReaderPaper {
+  const sanitized = { ...paper };
+  delete sanitized.abstract;
+  return sanitized;
 }
 
 function stripMarkup(value: string | null): string | undefined {

@@ -30,9 +30,18 @@ export class PaperTranslateBridge {
   capability(): TranslationCapability {
     const plugin = this.getPlugin();
     if (!plugin) return { available: false, reason: "not-installed" };
+    if (typeof plugin.api?.getVersion !== "function") {
+      return { available: false, reason: "incompatible-version" };
+    }
+    let version: string;
+    try {
+      version = plugin.api.getVersion();
+    } catch {
+      return { available: false, reason: "incompatible-version" };
+    }
     if (
-      typeof plugin.api?.getVersion !== "function" ||
-      !versionAtLeast(plugin.api.getVersion(), MINIMUM_VERSION)
+      typeof version !== "string" ||
+      !versionAtLeast(version, MINIMUM_VERSION)
     ) {
       return { available: false, reason: "incompatible-version" };
     }

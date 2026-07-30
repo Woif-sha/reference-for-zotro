@@ -180,15 +180,17 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     [
       "12 citations",
       "34 references",
+      "connected papers",
       "DOI: 10.1000/example",
-      "Matched by: title, author, and year",
-      "Source: crossref",
-      "Record: 10.1000/example",
-      "Retrieved: 2026-07-30T00:00:00.000Z",
     ],
   );
+  assert.match(detailCard.textContent ?? "", /Author 1/);
+  assert.match(detailCard.textContent ?? "", /Journal · 2026/);
   assert.match(detailCard.textContent ?? "", /A useful abstract\./);
-  assert.match(detailCard.textContent ?? "", /Matched by: doi/);
+  assert.doesNotMatch(
+    detailCard.textContent ?? "",
+    /Background|Open|Matched by|Source:|Record:|Retrieved:|Provider failures:/,
+  );
 
   dom.window.document
     .querySelector('[data-paper-id="citing-1"] [data-paper-title]')
@@ -297,6 +299,41 @@ test("Reader section opens only a confirmed reachable title on Ctrl+left-click",
   mounted.destroy();
 });
 
+test("only Resolved references and Citing papers open a detail card", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        state = { ...state, selectedPaperID: paperID };
+        listener?.(state);
+      },
+      refresh() {},
+      openPrimaryResult() {},
+    },
+  });
+
+  (
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-2"] [data-paper-title]',
+    ) as HTMLButtonElement
+  ).click();
+
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  mounted.destroy();
+});
+
 test("Reader section distinguishes invalid identifiers from unreachable landing pages", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const state: ReaderSectionState = {
@@ -360,15 +397,21 @@ test("Reader section translates only text selected inside the extension UI", asy
     body: dom.window.document.body,
     controller,
   });
+  const sectionHeading =
+    dom.window.document.querySelector(".rfz-header strong");
+  assert.ok(sectionHeading);
+  selectNodeContents(dom, sectionHeading);
+  sectionHeading.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, []);
+
   const title = dom.window.document.querySelector(
     '[data-paper-id="ref-1"] [data-paper-title]',
   );
   assert.ok(title?.firstChild);
-  const range = dom.window.document.createRange();
-  range.selectNodeContents(title);
-  const selection = dom.window.getSelection();
-  selection?.removeAllRanges();
-  selection?.addRange(range);
+  selectNodeContents(dom, title);
 
   title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -380,3 +423,73 @@ test("Reader section translates only text selected inside the extension UI", asy
   );
   mounted.destroy();
 });
+
+test("a translation failure disables only UI translation for the mounted section", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPrimaryResult() {},
+      async translateSelection() {
+        translationCalls += 1;
+        throw new Error("Paper Translate service unavailable");
+      },
+    },
+  });
+  const firstTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const secondTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-paper-title]',
+  );
+  assert.ok(firstTitle);
+  assert.ok(secondTitle);
+
+  selectNodeContents(dom, firstTitle);
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 1);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "Paper Translate service unavailable",
+  );
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll("[data-paper-id]")].map(
+      (element) => element.querySelector("[data-paper-title]")?.textContent,
+    ),
+    ["First reference", "Second reference"],
+  );
+
+  selectNodeContents(dom, secondTitle);
+  secondTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 1);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "UI translation disabled",
+  );
+  mounted.destroy();
+});
+
+function selectNodeContents(dom: JSDOM, node: Node): void {
+  const range = dom.window.document.createRange();
+  range.selectNodeContents(node);
+  const selection = dom.window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}

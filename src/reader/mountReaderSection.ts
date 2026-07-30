@@ -87,6 +87,7 @@ export function mountReaderSection(options: {
   body.replaceChildren(root);
   let destroyed = false;
   let translationRequest = 0;
+  let translationEnabled = Boolean(controller.translateSelection);
 
   function render(state: ReaderSectionState): void {
     const papers =
@@ -121,7 +122,7 @@ export function mountReaderSection(options: {
             </div>`
           : ""
       }
-      <main class="rfz-content">
+      <main class="rfz-content" data-translation-scope>
         ${renderContent(state, papers)}
       </main>
       ${renderDetailCard(state, papers)}`;
@@ -182,13 +183,14 @@ export function mountReaderSection(options: {
     if (!(commonElement instanceof body.ownerDocument.defaultView!.Element)) {
       return;
     }
-    if (!root.contains(commonElement)) return;
+    const translationScope = commonElement.closest("[data-translation-scope]");
+    if (!translationScope || !root.contains(translationScope)) return;
     const request = ++translationRequest;
-    showTranslation(root, text, "Translating…");
-    if (!controller.translateSelection) {
-      showTranslation(root, text, "UI translation unavailable");
+    if (!translationEnabled || !controller.translateSelection) {
+      showTranslation(root, text, "UI translation disabled");
       return;
     }
+    showTranslation(root, text, "Translating…");
     void controller
       .translateSelection(text)
       .then((result) => {
@@ -197,6 +199,7 @@ export function mountReaderSection(options: {
       })
       .catch((error: unknown) => {
         if (destroyed || request !== translationRequest) return;
+        translationEnabled = false;
         showTranslation(
           root,
           text,
@@ -301,7 +304,7 @@ function renderDetailCard(
   const paper = papers.find(
     (candidate) => candidate.id === state.selectedPaperID,
   );
-  if (!paper) return "";
+  if (!paper || paper.status !== "resolved") return "";
   const badges = [
     paper.citationCount === undefined
       ? undefined
@@ -309,16 +312,10 @@ function renderDetailCard(
     paper.referenceCount === undefined
       ? undefined
       : `${paper.referenceCount} references`,
+    "connected papers",
     paper.doi ? `DOI: ${paper.doi}` : undefined,
-    paper.matchedBy
-      ? `Matched by: ${matchedByLabel(paper.matchedBy)}`
-      : undefined,
-    paper.source ? `Source: ${paper.source}` : undefined,
-    paper.sourceRecordID ? `Record: ${paper.sourceRecordID}` : undefined,
-    paper.retrievedAt ? `Retrieved: ${paper.retrievedAt}` : undefined,
-    paper.metadataIncomplete ? "Metadata incomplete" : undefined,
   ].filter((value): value is string => Boolean(value));
-  return `<aside class="rfz-detail-card" data-detail-card>
+  return `<aside class="rfz-detail-card" data-detail-card data-translation-scope>
     <strong>${escapeHTML(paper.title)}</strong>
     ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span>${escapeHTML(badge)}</span>`).join("")}</div>` : ""}
     ${paper.authors ? `<div>${escapeHTML(paper.authors)}</div>` : ""}
@@ -330,21 +327,6 @@ function renderDetailCard(
     ${
       paper.abstract
         ? `<div class="rfz-abstract"><b>Abstract</b> ${escapeHTML(paper.abstract)}</div>`
-        : ""
-    }
-    ${
-      paper.matchedFields?.length
-        ? `<div>${escapeHTML(`Matched by: ${paper.matchedFields.join(", ")}`)}</div>`
-        : ""
-    }
-    ${
-      paper.providerFailures?.length
-        ? `<div>${escapeHTML(`Provider failures: ${paper.providerFailures.join("; ")}`)}</div>`
-        : ""
-    }
-    ${
-      paper.connectedPaperInfo
-        ? `<div>${escapeHTML(paper.connectedPaperInfo)}</div>`
         : ""
     }
   </aside>`;
@@ -359,19 +341,6 @@ function statusLabel(status: Exclude<PaperStatus, "resolved">): string {
     unreachable: "Landing page unreachable",
     failed: "Failed",
   }[status];
-}
-
-function matchedByLabel(matchedBy: ReferenceMatchBasis): string {
-  return {
-    doi: "DOI",
-    arxiv: "arXiv",
-    "ieee-article-number": "IEEE article number",
-    "trusted-source-url": "trusted source URL",
-    pmid: "PMID",
-    pmcid: "PMCID",
-    omid: "OMID",
-    metadata: "title, author, and year",
-  }[matchedBy];
 }
 
 function showTranslation(

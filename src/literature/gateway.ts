@@ -242,6 +242,28 @@ export function createRelatedLiteratureGateway(
         limit,
       };
     }
+    const prepared = await getOrCreateCitingSession(query, limit, sessionKey);
+    if ("status" in prepared) return prepared;
+    const session = prepared;
+    const requestedEdges = session.edges.slice(0, limit);
+    const missingEdges = requestedEdges.filter(
+      (edge) => !session.attempted.has(edgeKey(edge)),
+    );
+    const hydrationFailure = await hydrateCitingEdges(
+      query,
+      limit,
+      session,
+      missingEdges,
+    );
+    if (hydrationFailure) return hydrationFailure;
+    return createCitingPapersResult(session, requestedEdges, limit);
+  }
+
+  async function getOrCreateCitingSession(
+    query: CitingPapersQuery,
+    limit: CitingPapersLimit,
+    sessionKey: string,
+  ): Promise<CitingPapersSession | CitingPapersResult> {
     if (query.context?.refresh) {
       citingPaperSessions.delete(sessionKey);
       citingPaperNegative.delete(sessionKey);
@@ -249,137 +271,135 @@ export function createRelatedLiteratureGateway(
     const now = ports.clock.now().getTime();
     const negativeUntil = citingPaperNegative.get(sessionKey);
     if (negativeUntil !== undefined && negativeUntil > now) {
-      return {
-        status: "no-results",
-        reason: "no-citations-from-source",
-        source: "opencitations-index",
-        papers: [],
-        limit,
-      };
+      return noCitingPapersResult(limit);
     }
     if (negativeUntil !== undefined) citingPaperNegative.delete(sessionKey);
-    let session = citingPaperSessions.get(sessionKey);
-    if (session && session.expiresAt <= now) {
-      citingPaperSessions.delete(sessionKey);
-      session = undefined;
-    }
-    if (!session) {
-      let sorted: SortedCitingPapers;
-      try {
-        sorted = await sortCitingPaperEdges(
-          await fetchOpenCitationEdges(query.identifiers, ports, query.signal),
-          ports,
-          query.signal,
-        );
-      } catch (error) {
-        const providerError = asProviderError(error, "opencitations-index");
-        return {
-          status: "failed",
-          errorCode: providerError.code,
-          source: "opencitations-index",
-          papers: [],
-          limit,
-        };
-      }
-      const edges = sorted.edges.slice(0, 50);
-      if (edges.length === 0) {
-        citingPaperNegative.set(sessionKey, now + 60 * 60 * 1000);
-        return {
-          status: "no-results",
-          reason: "no-citations-from-source",
-          source: "opencitations-index",
-          papers: [],
-          limit,
-        };
-      }
-      session = {
-        edges,
-        metadata: sorted.metadata,
-        hydrated: new Map(),
-        hydrationFailures: new Map(),
-        attempted: new Set(),
-        expiresAt: now + 24 * 60 * 60 * 1000,
-      };
-      citingPaperSessions.set(sessionKey, session);
-    }
 
-    const requestedEdges = session.edges.slice(0, limit);
-    const missingEdges = requestedEdges.filter(
-      (edge) => !session!.attempted.has(edgeKey(edge)),
-    );
-    if (missingEdges.length > 0) {
-      const unknownEdges = missingEdges.filter(
-        (edge) => !edgeKeys(edge).some((key) => session!.metadata.has(key)),
+    const existing = citingPaperSessions.get(sessionKey);
+    if (existing && existing.expiresAt > now) return existing;
+    if (existing) citingPaperSessions.delete(sessionKey);
+
+    let sorted: SortedCitingPapers;
+    try {
+      sorted = await sortCitingPaperEdges(
+        await fetchOpenCitationEdges(query.identifiers, ports, query.signal),
+        ports,
+        query.signal,
       );
-      try {
-        if (unknownEdges.length > 0) {
-          const metadata = await fetchOpenCitationMetadata(
-            unknownEdges,
-            ports,
-            query.signal,
-          );
-          addCandidatesByIdentifier(session.metadata, metadata);
-        }
-      } catch (error) {
-        const providerError = asProviderError(error, "opencitations-meta");
-        return {
-          status: "failed",
-          errorCode: providerError.code,
-          source: "opencitations-meta",
-          papers: [],
-          limit,
-        };
-      }
-      for (const edge of missingEdges) {
-        const key = edgeKey(edge);
-        session.attempted.add(key);
-        const candidate = edgeKeys(edge)
-          .map((identifier) => session!.metadata.get(identifier))
-          .find((value) => value !== undefined);
-        if (!candidate || !hasRequiredResolutionMetadata(candidate)) {
-          session.hydrationFailures.set(key, "incomplete-metadata");
-          continue;
-        }
-        const candidateWithProvenance = {
-          ...candidate,
-          rawProvenance: [
-            ...new Set([...candidate.rawProvenance, ...edge.rawProvenance]),
-          ],
-        };
-        const verified = await withVerifiedLanding(
-          candidateWithProvenance,
+    } catch (error) {
+      const providerError = asProviderError(error, "opencitations-index");
+      return failedCitingPapersResult(
+        providerError.code,
+        "opencitations-index",
+        limit,
+      );
+    }
+    const edges = sorted.edges.slice(0, 50);
+    if (edges.length === 0) {
+      citingPaperNegative.set(sessionKey, now + 60 * 60 * 1000);
+      return noCitingPapersResult(limit);
+    }
+    const session: CitingPapersSession = {
+      edges,
+      metadata: sorted.metadata,
+      hydrated: new Map(),
+      hydrationFailures: new Map(),
+      attempted: new Set(),
+      expiresAt: now + 24 * 60 * 60 * 1000,
+    };
+    citingPaperSessions.set(sessionKey, session);
+    return session;
+  }
+
+  async function hydrateCitingEdges(
+    query: CitingPapersQuery,
+    limit: CitingPapersLimit,
+    session: CitingPapersSession,
+    missingEdges: readonly CitationEdge[],
+  ): Promise<CitingPapersResult | undefined> {
+    if (missingEdges.length === 0) return undefined;
+    const unknownEdges = missingEdges.filter(
+      (edge) => !edgeKeys(edge).some((key) => session.metadata.has(key)),
+    );
+    try {
+      if (unknownEdges.length > 0) {
+        const metadata = await fetchOpenCitationMetadata(
+          unknownEdges,
           ports,
-          reachability,
-          contextKey(query.context),
           query.signal,
         );
-        if (verified.reachable) {
-          session.hydrated.set(key, verified.candidate);
-        } else {
-          session.hydrationFailures.set(key, "unreachable-landing-page");
-        }
+        addCandidatesByIdentifier(session.metadata, metadata);
       }
+    } catch (error) {
+      const providerError = asProviderError(error, "opencitations-meta");
+      return failedCitingPapersResult(
+        providerError.code,
+        "opencitations-meta",
+        limit,
+      );
     }
+    for (const edge of missingEdges) {
+      await hydrateCitingEdge(query, session, edge);
+    }
+    return undefined;
+  }
 
+  async function hydrateCitingEdge(
+    query: CitingPapersQuery,
+    session: CitingPapersSession,
+    edge: CitationEdge,
+  ): Promise<void> {
+    const key = edgeKey(edge);
+    session.attempted.add(key);
+    const candidate = edgeKeys(edge)
+      .map((identifier) => session.metadata.get(identifier))
+      .find((value) => value !== undefined);
+    if (!candidate || !hasRequiredResolutionMetadata(candidate)) {
+      session.hydrationFailures.set(key, "incomplete-metadata");
+      return;
+    }
+    const candidateWithProvenance = {
+      ...candidate,
+      rawProvenance: [
+        ...new Set([...candidate.rawProvenance, ...edge.rawProvenance]),
+      ],
+    };
+    const verified = await withVerifiedLanding(
+      candidateWithProvenance,
+      ports,
+      reachability,
+      contextKey(query.context),
+      query.signal,
+    );
+    if (verified.reachable) {
+      session.hydrated.set(key, verified.candidate);
+      return;
+    }
+    session.hydrationFailures.set(key, "unreachable-landing-page");
+  }
+
+  function createCitingPapersResult(
+    session: CitingPapersSession,
+    requestedEdges: readonly CitationEdge[],
+    limit: CitingPapersLimit,
+  ): CitingPapersResult {
     const papers = requestedEdges
-      .map((edge) => session!.hydrated.get(edgeKey(edge)))
+      .map((edge) => session.hydrated.get(edgeKey(edge)))
       .filter(
         (candidate): candidate is VerifiedScholarlyCandidate =>
           candidate !== undefined,
       );
     if (papers.length === 0 && requestedEdges.length > 0) {
       const failures = requestedEdges
-        .map((edge) => session!.hydrationFailures.get(edgeKey(edge)))
+        .map((edge) => session.hydrationFailures.get(edgeKey(edge)))
         .filter((code): code is ProviderErrorCode => code !== undefined);
-      return {
-        status: "failed",
-        errorCode: failures.includes("incomplete-metadata")
+      return failedCitingPapersResult(
+        failures.includes("incomplete-metadata")
           ? "incomplete-metadata"
           : "unreachable-landing-page",
-        source: "opencitations-meta",
-        papers: [],
+        "opencitations-meta",
         limit,
-      };
+      );
     }
     return {
       status: "ready",
@@ -397,6 +417,30 @@ export function createRelatedLiteratureGateway(
       citingPaperSessions.clear();
       citingPaperNegative.clear();
     },
+  };
+}
+
+function noCitingPapersResult(limit: CitingPapersLimit): CitingPapersResult {
+  return {
+    status: "no-results",
+    reason: "no-citations-from-source",
+    source: "opencitations-index",
+    papers: [],
+    limit,
+  };
+}
+
+function failedCitingPapersResult(
+  errorCode: ProviderErrorCode,
+  source: ProviderName,
+  limit: CitingPapersLimit,
+): CitingPapersResult {
+  return {
+    status: "failed",
+    errorCode,
+    source,
+    papers: [],
+    limit,
   };
 }
 

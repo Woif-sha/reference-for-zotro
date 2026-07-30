@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   candidateToReaderPaper,
-  preparePaperForCache,
   resolutionToReaderPaper,
-} from "../../src/composition-root";
+} from "../../src/application/reader-paper-presentation";
+import { preparePaperForCache } from "../../src/cache/related-papers-cache-policy";
 
 test("resolved paper presentation retains provider record, retrieval time and match evidence", () => {
   const paper = candidateToReaderPaper(

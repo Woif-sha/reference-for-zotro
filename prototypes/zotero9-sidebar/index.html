@@ -347,18 +347,6 @@
     }
     .hover-card[hidden] { display: none; }
     .card-body { position: relative; padding: 16px 18px 18px; }
-    .card-dots {
-      display: flex;
-      justify-content: center;
-      gap: 9px;
-      margin: 0 0 8px;
-    }
-    .card-dots i {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #f28ca9;
-    }
     .card-title {
       max-width: calc(100% - 30px);
       color: #1f63d8;
@@ -379,12 +367,11 @@
     .card-badge.connected { background: #2d9fa1; }
     .card-badge.doi { background: #f5aa17; }
     .card-meta { color: #6e6e74; font-size: 12px; line-height: 1.5; }
-    .card-background {
+    .card-abstract {
       margin: 8px 0 0;
       color: #34343a;
       font-size: 13px;
       line-height: 1.55;
-      white-space: pre-line;
     }
     .card-close {
       position: absolute;
@@ -522,7 +509,7 @@
         </header>
         <nav class="tabs" aria-label="Paper relationship">
           <button class="tab active" data-tab="references">References <span class="badge">42</span></button>
-          <button class="tab" data-tab="citations">Citations <span class="badge">86</span></button>
+          <button class="tab" data-tab="citations">Citations <span class="badge">500</span></button>
         </nav>
         <div class="controls">
           <label for="stateSelect">数据状态</label>
@@ -542,7 +529,6 @@
         <aside class="hover-card" id="hoverCard" hidden>
           <div class="card-body">
             <button class="card-close" id="cardClose" aria-label="Close">×</button>
-            <div class="card-dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
             <div class="card-title" id="cardTitle"></div>
             <div class="card-badges" id="cardBadges">
               <span class="card-badge" id="cardCitations"></span>
@@ -552,7 +538,7 @@
             </div>
             <div class="card-meta" id="cardAuthors"></div>
             <div class="card-meta" id="cardVenue"></div>
-            <p class="card-background" id="cardBackground"></p>
+            <p class="card-abstract" id="cardAbstract"></p>
           </div>
         </aside>
       </aside>
@@ -586,7 +572,7 @@
         referenceCount: 26,
         doi: "10.48550/arXiv.1409.0473",
         summary: "Introduces an attention mechanism that learns to align and translate jointly, replacing fixed-length encoder representations.",
-        background: "Background: Neural machine translation systems traditionally encoded an entire source sentence into one fixed-length vector, creating a bottleneck for long and structurally complex inputs. This paper introduces a mechanism that learns a soft alignment between each generated target word and the most relevant source positions while translation is taking place.\n\nThe encoder uses a bidirectional recurrent network to build annotations for the source sentence. At each decoding step, the model assigns attention weights to those annotations and forms a context vector tailored to the word being generated. This lets the decoder concentrate on different parts of the source instead of depending on one compressed representation. Experiments on English–French translation showed that the approach improved performance, especially for longer sentences, and produced alignments that could be inspected directly. The work established the central attention pattern later generalized by the Transformer."
+        abstract: "Neural machine translation systems traditionally encoded an entire source sentence into one fixed-length vector, creating a bottleneck for long inputs. This paper introduces a soft alignment mechanism that lets the decoder concentrate on the most relevant source positions for each generated word. Experiments on English–French translation show improved performance, especially on longer sentences, while the learned alignments remain directly inspectable."
       },
       {
         title: "Effective Approaches to Attention-based Neural Machine Translation",
@@ -599,7 +585,7 @@
         referenceCount: 35,
         doi: "10.18653/v1/D15-1166",
         summary: "Compares global and local attention mechanisms for neural machine translation and evaluates alternative alignment functions.",
-        background: "Background: This study develops two practical attention families for neural machine translation. Global attention considers every source position for each generated target word, while local attention predicts a smaller source window and concentrates computation within it.\n\nThe authors compare several scoring functions for measuring compatibility between decoder states and encoder representations, and add an input-feeding path that informs later decisions about earlier alignment choices. Evaluations on English–German translation show consistent gains over non-attentional encoder–decoder systems, with the local-p attention model providing a useful balance between translation quality and computation. The paper also visualizes learned alignments, making clear how attention can serve both as a modeling mechanism and as an interpretable view of translation behavior."
+        abstract: "This study develops global and local attention mechanisms for neural machine translation and compares several alignment functions. Global attention considers every source position, whereas local attention predicts a smaller source window. Evaluations on English–German translation show consistent gains over non-attentional systems, and the visualized alignments make the model's translation behavior easier to inspect."
       },
       {
         title: "Generating Sequences With Recurrent Neural Networks",
@@ -630,50 +616,43 @@
       }
     ];
 
-    const citations = [
-      {
-        title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
-        authors: "Devlin et al.",
-        venue: "NAACL",
-        year: "2019",
-        status: "resolved",
-        statusText: "机构认证结果",
-        summary: "Pre-trains deep bidirectional Transformer representations using masked language modeling."
-      },
-      {
-        title: "Language Models are Few-Shot Learners",
-        authors: "Brown et al.",
-        venue: "NeurIPS",
-        year: "2020",
-        status: "resolved",
-        statusText: "机构认证结果",
-        summary: "Studies in-context few-shot learning in large autoregressive language models."
-      },
-      {
-        title: "An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale",
-        authors: "Dosovitskiy et al.",
-        venue: "ICLR",
-        year: "2021",
-        status: "resolved",
-        statusText: "机构认证结果",
-        summary: "Applies a pure Transformer directly to sequences of image patches."
-      },
-      {
-        title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness",
-        authors: "Dao et al.",
-        venue: "NeurIPS",
-        year: "2022",
-        status: "resolved",
-        statusText: "机构认证结果",
-        summary: "Computes exact attention with fewer memory reads and writes."
-      }
+    const citationTopics = [
+      "Efficient Long-Context Transformers",
+      "Transformer Models for Multimodal Reasoning",
+      "Sparse Attention for Scientific Documents",
+      "Reliable Retrieval-Augmented Generation",
+      "Scaling Laws for Language Model Evaluation",
+      "Attention Mechanisms in Medical Imaging",
+      "Memory-Efficient Sequence Modeling",
+      "Interpretable Transformer Representations",
+      "Adaptive Computation for Large Models",
+      "Robust Alignment of Language Models"
     ];
+    const citationVenues = ["NeurIPS", "ICLR", "ACL", "ICML", "Nature Machine Intelligence"];
+    const citations = Array.from({ length: 50 }, (_, index) => {
+      const year = 2026 - Math.floor(index / 5);
+      const topic = citationTopics[index % citationTopics.length];
+      return {
+        title: `${topic}: Study ${String(index + 1).padStart(2, "0")}`,
+        authors: `Research Group ${String.fromCharCode(65 + (index % 8))} et al.`,
+        venue: citationVenues[index % citationVenues.length],
+        year: String(year),
+        status: "resolved",
+        statusText: "",
+        citations: Math.max(3, 940 - index * 17),
+        referenceCount: 28 + (index % 19),
+        doi: `10.1000/citing.${year}.${String(index + 1).padStart(3, "0")}`,
+        summary: `${topic} is investigated as a recent extension of attention-based sequence modeling.`,
+        abstract: `This citing paper studies ${topic.toLowerCase()} as an extension of attention-based sequence modeling. It evaluates the method on representative benchmarks and reports its effects on accuracy, efficiency, and model behavior.`
+      };
+    }).sort((a, b) => Number(b.year) - Number(a.year));
 
     const state = {
       variant: new URLSearchParams(location.search).get("variant")?.toUpperCase() || "A",
       tab: "references",
       dataState: "ready",
       limit: 10,
+      citationLoaded: 10,
       selected: 0,
       cardOpen: false,
       translationOpen: false,
@@ -688,7 +667,8 @@
     const toast = document.querySelector("#toast");
 
     function activeData() {
-      return state.tab === "references" ? references : citations;
+      if (state.tab === "references") return references;
+      return citations.slice(0, Math.min(state.limit, state.citationLoaded));
     }
 
     function statusMarkup() {
@@ -734,7 +714,9 @@
       document.querySelectorAll("[data-limit]").forEach(button => button.classList.toggle("active", Number(button.dataset.limit) === state.limit));
       document.querySelector("#stateSelect").value = state.dataState;
       document.querySelector("#sourceLabel").textContent =
-        state.dataState === "ready" ? (state.tab === "references" ? "MinerU MD · 已同步" : "机构认证 · 日期倒序") : "数据不可用";
+        state.dataState === "ready"
+          ? (state.tab === "references" ? "MinerU MD · 已同步" : `机构认证 · ${activeData().length}/500 · 日期倒序`)
+          : "数据不可用";
       document.querySelector("#variantLabel").textContent = `${state.variant} — ${variants[state.variant]}`;
 
       if (state.dataState !== "ready") {
@@ -760,6 +742,7 @@
 tab: ${state.tab}
 data: ${state.dataState}
 limit: ${state.limit}
+researched: ${state.citationLoaded}/500
 selected: ${state.selected + 1}
 card: ${state.cardOpen ? "open over PDF" : "closed"}
 translation: ${state.translationOpen ? "visible" : "hidden"}
@@ -785,7 +768,7 @@ last: ${state.lastAction}`;
       document.querySelector("#cardBadges").hidden = item.status !== "resolved";
       document.querySelector("#cardAuthors").textContent = item.authors;
       document.querySelector("#cardVenue").textContent = `${item.venue} · ${item.year}${item.doi ? ` · ${item.doi}` : ""}`;
-      document.querySelector("#cardBackground").textContent = item.background ?? `Background: ${item.summary}`;
+      document.querySelector("#cardAbstract").textContent = `Abstract: ${item.abstract ?? item.summary}`;
       render();
     }
 
@@ -836,8 +819,15 @@ last: ${state.lastAction}`;
     document.querySelector("#limit").addEventListener("click", event => {
       const button = event.target.closest("[data-limit]");
       if (!button) return;
-      state.limit = Number(button.dataset.limit);
-      state.lastAction = `Citations 数量档位 → ${state.limit}`;
+      const nextLimit = Number(button.dataset.limit);
+      const previousLoaded = state.citationLoaded;
+      state.limit = nextLimit;
+      state.citationLoaded = Math.max(state.citationLoaded, nextLimit);
+      state.selected = Math.min(state.selected, nextLimit - 1);
+      state.cardOpen = false;
+      state.lastAction = nextLimit > previousLoaded
+        ? `继续调研并追加第 ${previousLoaded + 1}–${nextLimit} 篇最新 citing papers`
+        : `显示最新 ${nextLimit} 篇 citing papers`;
       render();
     });
 

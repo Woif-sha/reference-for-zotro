@@ -16,7 +16,9 @@ arrow keys to compare:
 - C — reading-queue cards
 
 The data-state selector exercises ready/loading/error/no-MD states. Switch to
-Citations to exercise the 10/30/50 control. In variant A, a blue bold title
-means a paper landing page was resolved. Click any paper title for its detail
-card; only resolved titles respond to Ctrl+click. Card text is selectable and
-contains no action copy. Click the highlighted PDF sentence to show translation.
+Citations to exercise the 10/30/50 control: results are always ordered newest
+to oldest, start with the newest 10, and append entries 11–30 or 31–50 when the
+limit increases. In variant A, a blue bold title means a paper landing page was
+resolved. Click any paper title for its detail card; only resolved titles respond
+to Ctrl+click. The selectable detail card keeps the paper abstract and contains
+no action copy. Click the highlighted PDF sentence to show translation.

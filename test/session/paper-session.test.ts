@@ -42,6 +42,27 @@ test("manual refresh changes generation even when paper identity is unchanged", 
   assert.equal(sessions.canCommit(refreshed.token), true);
 });
 
+test("loading a replacement paper can cancel the current generation immediately", () => {
+  const sessions = new PaperSessionCoordinator();
+  const active = sessions.begin({
+    libraryID: 1,
+    attachmentID: 10,
+    attachmentKey: "AAAAAAAA",
+    parentItemKey: "BBBBBBBB",
+    sourceFingerprint: "same-md",
+  });
+
+  sessions.cancelActive();
+
+  assert.equal(active.signal.aborted, true);
+  assert.equal(sessions.canCommit(active.token), false);
+  const replacement = sessions.begin({
+    ...active.token,
+    sourceFingerprint: "new-md",
+  });
+  assert.equal(sessions.canCommit(replacement.token), true);
+});
+
 test("shutdown aborts active work and prevents every later commit", () => {
   const sessions = new PaperSessionCoordinator();
   const active = sessions.begin({

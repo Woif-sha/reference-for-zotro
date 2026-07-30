@@ -47,6 +47,7 @@ export interface RelatedPapersPorts {
   writeCachedResults?(
     paper: LoadedPaper,
     results: CachedRelatedPapers,
+    context: ResolutionContext,
   ): Promise<void>;
   translateSelection?(text: string, attachmentItemID: number): Promise<string>;
   openURL(url: string): void;
@@ -65,6 +66,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private readonly listeners = new Set<(state: ReaderSectionState) => void>();
   private readonly sessions = new PaperSessionCoordinator();
   private loadController?: AbortController;
+  private persistController?: AbortController;
   private loadGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
@@ -118,6 +120,8 @@ export class RelatedPapersController implements ReaderSectionController {
     const generation = ++this.loadGeneration;
     this.loadController?.abort();
     this.loadController = new AbortController();
+    this.persistController?.abort();
+    this.sessions.cancelActive();
     this.context = undefined;
     this.update({
       status: "loading",
@@ -234,6 +238,7 @@ export class RelatedPapersController implements ReaderSectionController {
     if (this.disposed) return;
     this.disposed = true;
     this.loadController?.abort();
+    this.persistController?.abort();
     this.sessions.dispose();
     this.ports.dispose?.();
     this.listeners.clear();
@@ -279,18 +284,33 @@ export class RelatedPapersController implements ReaderSectionController {
 
   private async persistResults(context: ResolutionContext): Promise<void> {
     if (!this.ports.writeCachedResults) return;
+    this.persistController?.abort();
+    const writeController = new AbortController();
+    this.persistController = writeController;
+    const abortWrite = () => writeController.abort();
+    context.signal.addEventListener("abort", abortWrite, { once: true });
     try {
-      await this.ports.writeCachedResults(context.paper, {
-        references: this.state.references,
-        citingPapers: this.state.citingPapers,
-        citingPapersLoaded: this.state.citingPapersLoaded,
-      });
+      await this.ports.writeCachedResults(
+        context.paper,
+        {
+          references: this.state.references,
+          citingPapers: this.state.citingPapers,
+          citingPapersLoaded: this.state.citingPapersLoaded,
+        },
+        { ...context, signal: writeController.signal },
+      );
     } catch (error) {
+      if (writeController.signal.aborted) return;
       if (!this.sessions.canCommit(context.token)) return;
       this.update({
         status: "error",
         message: `Plugin cache write failed: ${conciseError(error)}`,
       });
+    } finally {
+      context.signal.removeEventListener("abort", abortWrite);
+      if (this.persistController === writeController) {
+        this.persistController = undefined;
+      }
     }
   }
 

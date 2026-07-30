@@ -13,9 +13,18 @@ class MemoryStorage implements CacheStorage {
     return this.values.get(key);
   }
 
-  async write(key: string, value: string): Promise<void> {
+  async write(
+    key: string,
+    value: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    void signal;
     if (this.failWrites) throw new Error("disk full");
     this.values.set(key, value);
+  }
+
+  async remove(key: string): Promise<void> {
+    this.values.delete(key);
   }
 }
 
@@ -63,4 +72,51 @@ test("persistent write failure is exposed instead of becoming memory success", a
     ),
     /disk full/,
   );
+});
+
+test("cache writes carry the active generation abort signal to persistent storage", async () => {
+  const storage = new MemoryStorage();
+  const controller = new AbortController();
+  let receivedSignal: AbortSignal | undefined;
+  storage.write = async (_key, _value, signal) => {
+    receivedSignal = signal;
+  };
+  const cache = new LiteratureCacheRepository(storage);
+
+  await cache.write(
+    {
+      libraryID: 3,
+      attachmentID: 44,
+      attachmentKey: "ABCDEFGH",
+      sourceFingerprint: "sha256-a",
+      providerSchemaVersion: 2,
+      provider: "crossref",
+      providerQueryVersion: 1,
+      normalizedRequestKey: "doi:10.1000/example",
+    },
+    { title: "Paper" },
+    controller.signal,
+  );
+
+  assert.equal(receivedSignal, controller.signal);
+});
+
+test("removing a failed result prevents reuse of an older successful cache entry", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository<{ title: string }>(storage);
+  const identity = {
+    libraryID: 3,
+    attachmentID: 44,
+    attachmentKey: "ABCDEFGH",
+    sourceFingerprint: "sha256-a",
+    providerSchemaVersion: 2,
+    provider: "crossref",
+    providerQueryVersion: 1,
+    normalizedRequestKey: "doi:10.1000/example",
+  };
+  await cache.write(identity, { title: "Previously successful" });
+
+  await cache.remove(identity);
+
+  assert.equal(await cache.read(identity), undefined);
 });

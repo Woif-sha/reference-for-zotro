@@ -34,10 +34,14 @@ export class PaperSessionCoordinator {
     );
   }
 
-  dispose(): void {
-    this.disposed = true;
+  cancelActive(): void {
     this.active?.controller.abort();
     this.active = undefined;
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.cancelActive();
   }
 }
 

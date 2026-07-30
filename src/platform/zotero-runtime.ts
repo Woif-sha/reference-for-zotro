@@ -14,6 +14,12 @@ type IOUtilsLike = {
     data: Uint8Array,
     options?: { tmpPath?: string },
   ): Promise<unknown>;
+  move(
+    sourcePath: string,
+    destinationPath: string,
+    options?: { noOverwrite?: boolean },
+  ): Promise<void>;
+  remove(path: string, options?: { ignoreAbsent?: boolean }): Promise<void>;
   makeDirectory(
     path: string,
     options?: { createAncestors?: boolean; ignoreExisting?: boolean },
@@ -68,6 +74,17 @@ export function createProviderPorts(): ProviderPorts {
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
   const root = joinPath(getDataDirectory(), "reference-for-zotero-cache", "v1");
+  const writes = new Map<string, Promise<void>>();
+  const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
+    const previous = writes.get(key) ?? Promise.resolve();
+    const operation = previous.catch(() => undefined).then(task);
+    writes.set(key, operation);
+    return operation.finally(() => {
+      if (writes.get(key) === operation) {
+        writes.delete(key);
+      }
+    });
+  };
   return {
     async read(key) {
       const path = joinPath(root, `${await sha256(key)}.json`);
@@ -76,18 +93,46 @@ export function createZoteroCacheStorage(): CacheStorage {
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
-    async write(key, value) {
-      await io.makeDirectory(root, {
-        createAncestors: true,
-        ignoreExisting: true,
+    write(key, value, signal) {
+      return enqueue(key, async () => {
+        if (signal?.aborted) throw abortError();
+        await io.makeDirectory(root, {
+          createAncestors: true,
+          ignoreExisting: true,
+        });
+        const path = joinPath(root, `${await sha256(key)}.json`);
+        const stagedPath = `${path}.pending-${nextCacheWriteID++}`;
+        let committed = false;
+        try {
+          await io.write(stagedPath, new TextEncoder().encode(value), {
+            tmpPath: `${stagedPath}.tmp`,
+          });
+          if (signal?.aborted) throw abortError();
+          await io.move(stagedPath, path, { noOverwrite: false });
+          if (signal?.aborted) {
+            await io.remove(path, { ignoreAbsent: true });
+            throw abortError();
+          }
+          committed = true;
+        } finally {
+          if (!committed) {
+            await io.remove(stagedPath, { ignoreAbsent: true });
+          }
+        }
       });
-      const path = joinPath(root, `${await sha256(key)}.json`);
-      await io.write(path, new TextEncoder().encode(value), {
-        tmpPath: `${path}.tmp`,
+    },
+    remove(key, signal) {
+      return enqueue(key, async () => {
+        if (signal?.aborted) throw abortError();
+        const path = joinPath(root, `${await sha256(key)}.json`);
+        await io.remove(path, { ignoreAbsent: true });
+        if (signal?.aborted) throw abortError();
       });
     },
   };
 }
+
+let nextCacheWriteID = 1;
 
 export function createPaperTranslateBridge(): PaperTranslateBridge {
   return new PaperTranslateBridge(

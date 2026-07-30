@@ -125,27 +125,37 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             ? envelope.results
             : undefined;
         },
-        async writeCachedResults(paper, results) {
+        async writeCachedResults(paper, results, context) {
           const hasFailure = results.references.some(
             ({ status, providerFailures }) =>
               status === "failed" || Boolean(providerFailures?.length),
           );
+          if (hasFailure) {
+            await cache.remove(cacheIdentity(paper), context.signal);
+            return;
+          }
           const hasUnconfirmed = results.references.some(
             ({ status }) => status !== "resolved",
           );
-          const ttlMilliseconds = hasFailure
-            ? 0
-            : hasUnconfirmed
-              ? 60 * 60 * 1000
-              : 24 * 60 * 60 * 1000;
-          await cache.write(cacheIdentity(paper), {
-            expiresAt: new Date(Date.now() + ttlMilliseconds).toISOString(),
-            results: {
-              ...results,
-              references: results.references.map(withoutAbstract),
-              citingPapers: results.citingPapers.map(withoutAbstract),
+          if (hasFailure) {
+            await cache.remove(cacheIdentity(paper), context.signal);
+            return;
+          }
+          const ttlMilliseconds = hasUnconfirmed
+            ? 60 * 60 * 1000
+            : 24 * 60 * 60 * 1000;
+          await cache.write(
+            cacheIdentity(paper),
+            {
+              expiresAt: new Date(Date.now() + ttlMilliseconds).toISOString(),
+              results: {
+                ...results,
+                references: results.references.map(withoutAbstract),
+                citingPapers: results.citingPapers.map(withoutAbstract),
+              },
             },
-          });
+            context.signal,
+          );
         },
         translateSelection(text, itemID) {
           return translation.translate(text, {

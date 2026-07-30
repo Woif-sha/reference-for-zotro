@@ -271,6 +271,201 @@ test("late smaller citation responses cannot discard a larger cumulative prefix"
   assert.equal(controller.getState().message, undefined);
 });
 
+test("a late Reference response from an obsolete generation updates neither UI nor cache", async () => {
+  const firstResolution = deferred<readonly ReaderPaperResult[]>();
+  const writes: string[] = [];
+  let loadCount = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => ({
+      ...loadedPaper,
+      sourceFingerprint: `fingerprint-${++loadCount}`,
+    }),
+    resolveReferences: (_entries, context) =>
+      context.paper.sourceFingerprint === "fingerprint-1"
+        ? firstResolution.promise
+        : Promise.resolve([resolvedPaper("Fresh generation", "10.1000/fresh")]),
+    loadCitingPapers: async () => [],
+    writeCachedResults: async (paper) => {
+      writes.push(paper.sourceFingerprint);
+    },
+    openURL() {},
+  });
+
+  const firstRefresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  const secondRefresh = controller.refreshAsync({ bypassCache: true });
+  await secondRefresh;
+
+  firstResolution.resolve([
+    resolvedPaper("Late obsolete result", "10.1000/obsolete"),
+  ]);
+  await firstRefresh;
+
+  assert.equal(controller.getState().references[0]?.title, "Fresh generation");
+  assert.deepEqual(writes, ["fingerprint-2"]);
+});
+
+test("refresh invalidates active work before the replacement paper finishes loading", async () => {
+  const firstResolution = deferred<readonly ReaderPaperResult[]>();
+  const secondLoad = deferred<LoadedPaper>();
+  const writes: string[] = [];
+  let loadCount = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => {
+      loadCount += 1;
+      return loadCount === 1 ? loadedPaper : secondLoad.promise;
+    },
+    resolveReferences: (_entries, context) =>
+      context.token.generation === 1
+        ? firstResolution.promise
+        : Promise.resolve([
+            resolvedPaper("Replacement paper", "10.1000/replacement"),
+          ]),
+    loadCitingPapers: async () => [],
+    writeCachedResults: async (paper) => {
+      writes.push(paper.sourceFingerprint);
+    },
+    openURL() {},
+  });
+
+  const firstRefresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  const secondRefresh = controller.refreshAsync({ bypassCache: true });
+  firstResolution.resolve([
+    resolvedPaper("Late obsolete result", "10.1000/obsolete"),
+  ]);
+  await firstRefresh;
+
+  assert.equal(controller.getState().status, "loading");
+  assert.deepEqual(controller.getState().references, []);
+  assert.deepEqual(writes, []);
+
+  secondLoad.resolve({
+    ...loadedPaper,
+    sourceFingerprint: "replacement-fingerprint",
+  });
+  await secondRefresh;
+  assert.equal(controller.getState().references[0]?.title, "Replacement paper");
+});
+
+test("generation change while cache persistence is staging aborts the obsolete write", async () => {
+  const firstWriteStarted = deferred<void>();
+  const releaseFirstWrite = deferred<void>();
+  const persisted: string[] = [];
+  let loadCount = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => ({
+      ...loadedPaper,
+      sourceFingerprint: `fingerprint-${++loadCount}`,
+    }),
+    resolveReferences: async (_entries, context) => [
+      resolvedPaper(
+        `Generation ${context.token.generation}`,
+        `10.1000/${context.token.generation}`,
+      ),
+    ],
+    loadCitingPapers: async () => [],
+    async writeCachedResults(paper, _results, context) {
+      if (paper.sourceFingerprint === "fingerprint-1") {
+        firstWriteStarted.resolve();
+        await releaseFirstWrite.promise;
+      }
+      if (!context.signal.aborted) persisted.push(paper.sourceFingerprint);
+    },
+    openURL() {},
+  });
+
+  const firstRefresh = controller.refreshAsync();
+  await firstWriteStarted.promise;
+  const secondRefresh = controller.refreshAsync({ bypassCache: true });
+  releaseFirstWrite.resolve();
+  await Promise.all([firstRefresh, secondRefresh]);
+
+  assert.deepEqual(persisted, ["fingerprint-2"]);
+  assert.equal(controller.getState().status, "ready");
+  assert.equal(controller.getState().references[0]?.title, "Generation 2");
+});
+
+test("a newer same-generation snapshot cancels an older staged cache write", async () => {
+  const resolution = deferred<readonly ReaderPaperResult[]>();
+  const firstWriteStarted = deferred<void>();
+  const releaseFirstWrite = deferred<void>();
+  const persistedReferenceTitles: string[] = [];
+  let writeCount = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: () => resolution.promise,
+    loadCitingPapers: async () => [
+      {
+        id: "citation:0",
+        ordinal: 0,
+        title: "Citing paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/citing",
+      },
+    ],
+    async writeCachedResults(_paper, results, context) {
+      writeCount += 1;
+      if (writeCount === 1) {
+        firstWriteStarted.resolve();
+        await releaseFirstWrite.promise;
+      }
+      if (!context.signal.aborted) {
+        persistedReferenceTitles.push(results.references[0]?.title ?? "");
+      }
+    },
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  controller.selectTab("citations");
+  await firstWriteStarted.promise;
+  resolution.resolve([resolvedPaper("Resolved paper", "10.1000/resolved")]);
+  await refresh;
+  releaseFirstWrite.resolve();
+  await tick();
+
+  assert.deepEqual(persistedReferenceTitles, ["Resolved paper"]);
+  assert.equal(controller.getState().status, "ready");
+});
+
+test("current-generation persistent cache failures are visible", async () => {
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Resolved paper", "10.1000/resolved"),
+    ],
+    loadCitingPapers: async () => [],
+    writeCachedResults: async () => {
+      throw new Error("disk full");
+    },
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+
+  assert.equal(controller.getState().status, "error");
+  assert.match(
+    controller.getState().message ?? "",
+    /cache write failed.*disk full/i,
+  );
+});
+
+type ReaderPaperResult = Awaited<
+  ReturnType<RelatedPapersPorts["resolveReferences"]>
+>[number];
+
+function resolvedPaper(title: string, doi: string): ReaderPaperResult {
+  return {
+    id: "reference:0",
+    ordinal: 0,
+    title,
+    status: "resolved",
+    primaryResultURL: `https://doi.org/${doi}`,
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((next) => {

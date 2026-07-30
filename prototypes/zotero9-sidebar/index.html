@@ -3,7 +3,7 @@
   THROWAWAY PROTOTYPE — do not ship.
   Question: which Zotero 9 sidebar structure best supports a dense paper list,
   selection, a card expanding over the PDF, result limits, explicit states,
-  translation, and Ctrl+click navigation?
+  translation of selected sidebar UI text, and Ctrl+click navigation?
   Three variants are switchable with ?variant=A|B|C.
 -->
 <html lang="zh-CN">
@@ -111,26 +111,10 @@
     .authors { margin-bottom: 30px; color: #555; text-align: center; font-size: 12px; }
     .pdf-page h2 { margin-top: 26px; font-size: 16px; }
     .pdf-page p { text-align: justify; }
-    mark.selection {
-      position: relative;
-      cursor: text;
-      background: #ffe789;
-      box-shadow: 0 0 0 1px #e0bd3a;
-    }
-    .selection-hint {
-      display: inline-block;
-      margin-left: 5px;
-      color: #8b6b00;
-      font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-
     .translation-popover {
-      position: absolute;
-      z-index: 8;
-      left: 50%;
-      top: 335px;
+      position: fixed;
+      z-index: 30;
       width: 360px;
-      transform: translateX(-50%);
       border: 1px solid #b7b7ba;
       border-radius: 7px;
       background: #fffffff5;
@@ -140,6 +124,15 @@
     }
     .translation-popover[hidden] { display: none; }
     .translation-popover strong { display: block; margin-bottom: 5px; }
+    .translation-original {
+      max-height: 72px;
+      margin-bottom: 7px;
+      overflow: auto;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .translation-result { line-height: 1.45; }
     .translation-source { margin-top: 7px; color: var(--muted); font-size: 11px; }
 
     .sidebar {
@@ -486,20 +479,12 @@
             <p>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms.</p>
             <h2>1 Introduction</h2>
             <p>Recurrent neural networks have been firmly established as state of the art approaches in sequence modeling. The best performing models also connect the encoder and decoder through an attention mechanism.</p>
-            <p>
-              <mark class="selection" id="selection">The Transformer allows for significantly more parallelization and can reach a new state of the art in translation quality.</mark>
-              <span class="selection-hint">单击选中文本查看翻译</span>
-            </p>
+            <p>The Transformer allows for significantly more parallelization and can reach a new state of the art in translation quality.</p>
             <p>In this work we propose the Transformer, a model architecture eschewing recurrence and instead relying entirely on an attention mechanism to draw global dependencies between input and output.</p>
             <h2>2 Background</h2>
             <p>The goal of reducing sequential computation also forms the foundation of the Extended Neural GPU, ByteNet and ConvS2S, all of which use convolutional neural networks as basic building blocks.</p>
           </article>
         </div>
-        <aside class="translation-popover" id="translation" hidden>
-          <strong>划词翻译</strong>
-          Transformer 支持显著提高并行化程度，并能在翻译质量上达到新的最佳水平。
-          <div class="translation-source">Paper Translate · 此处为只读原型结果</div>
-        </aside>
       </section>
 
       <aside class="sidebar" id="sidebar">
@@ -545,6 +530,12 @@
     </main>
   </div>
 
+  <aside class="translation-popover" id="translation" hidden>
+    <strong>翻译 UI 选中文本</strong>
+    <div class="translation-original" id="translationOriginal"></div>
+    <div class="translation-result" id="translationResult"></div>
+    <div class="translation-source">TranslationBridge → Paper Translate ≥ 1.4.0 · 此处仅验证交互与呈现位置</div>
+  </aside>
   <aside class="state-monitor" id="monitor"><strong>PROTOTYPE STATE</strong></aside>
   <div class="toast" id="toast" hidden></div>
   <div class="switcher" aria-label="Prototype variant switcher">
@@ -665,6 +656,7 @@
     const hoverCard = document.querySelector("#hoverCard");
     const monitor = document.querySelector("#monitor");
     const toast = document.querySelector("#toast");
+    const translation = document.querySelector("#translation");
 
     function activeData() {
       if (state.tab === "references") return references;
@@ -747,6 +739,28 @@ selected: ${state.selected + 1}
 card: ${state.cardOpen ? "open over PDF" : "closed"}
 translation: ${state.translationOpen ? "visible" : "hidden"}
 last: ${state.lastAction}`;
+    }
+
+    function showUiTranslation() {
+      const selection = window.getSelection();
+      const selectedText = selection.toString().trim();
+      if (!selectedText || !selection.rangeCount) return;
+
+      const range = selection.getRangeAt(0);
+      const commonNode = range.commonAncestorContainer;
+      const commonElement = commonNode.nodeType === Node.TEXT_NODE ? commonNode.parentElement : commonNode;
+      if (!content.contains(commonElement) && !hoverCard.contains(commonElement)) return;
+
+      const rect = range.getBoundingClientRect();
+      document.querySelector("#translationOriginal").textContent = `所选 UI 文本：${selectedText}`;
+      document.querySelector("#translationResult").textContent =
+        "（原型译文）此处显示 Zotero.PaperTranslate.api.translate() 返回的译文；本插件不实现翻译后端。";
+      translation.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - 372))}px`;
+      translation.style.top = `${Math.min(rect.bottom + 8, window.innerHeight - 150)}px`;
+      state.translationOpen = true;
+      state.lastAction = "选择插件 UI 文本 → 显示翻译";
+      translation.hidden = false;
+      renderMonitor();
     }
 
     function selectItem(index, openCard = false) {
@@ -839,11 +853,14 @@ last: ${state.lastAction}`;
       if (info) return showCard(Number(info.dataset.info));
       if (jump) return attemptJump(Number(jump.dataset.jump));
       if (!row) return;
+      if (window.getSelection().toString().trim()) return;
       const index = Number(row.dataset.index);
       if (title && (event.ctrlKey || event.metaKey)) return attemptJump(index);
-      if (title && !window.getSelection().toString()) return showCard(index);
+      if (title) return showCard(index);
       selectItem(index, false);
     });
+
+    document.addEventListener("mouseup", showUiTranslation);
 
     document.querySelector("#cardClose").addEventListener("click", () => {
       state.cardOpen = false;
@@ -851,10 +868,12 @@ last: ${state.lastAction}`;
       render();
     });
 
-    document.querySelector("#selection").addEventListener("click", () => {
-      state.translationOpen = !state.translationOpen;
-      state.lastAction = state.translationOpen ? "显示划词翻译" : "关闭划词翻译";
-      render();
+    document.addEventListener("mousedown", event => {
+      if (!state.translationOpen || translation.contains(event.target)) return;
+      state.translationOpen = false;
+      translation.hidden = true;
+      state.lastAction = "关闭 UI 文本翻译";
+      renderMonitor();
     });
 
     document.querySelector("#previous").addEventListener("click", () => changeVariant(-1));

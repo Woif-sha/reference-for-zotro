@@ -21,4 +21,8 @@ to oldest, start with the newest 10, and append entries 11–30 or 31–50 when 
 limit increases. In variant A, a blue bold title means a paper landing page was
 resolved. Click any paper title for its detail card; only resolved titles respond
 to Ctrl+click. The selectable detail card keeps the paper abstract and contains
-no action copy. Click the highlighted PDF sentence to show translation.
+no action copy. Select text inside the sidebar list or detail card to show the
+UI-text translation popover. The production boundary is a local selection listener
+plus a minimal result popover calling `Zotero.PaperTranslate.api.translate()` through
+`TranslationBridge`; PDF body selection remains owned by `paper-translate-for-zotero`
+and is deliberately out of scope here.

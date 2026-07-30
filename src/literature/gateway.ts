@@ -6,7 +6,10 @@ import {
 } from "./primary-result";
 import { lookupCrossrefDoi, searchCrossref } from "./providers/crossref";
 import { lookupDataCiteDoi, searchDataCite } from "./providers/datacite";
-import { verifyDoiLandingPage } from "./providers/doi-reachability";
+import {
+  verifyDoiLandingPage,
+  verifyLandingPage,
+} from "./providers/doi-reachability";
 import {
   fetchOpenCitationEdges,
   fetchOpenCitationMetadata,
@@ -522,11 +525,19 @@ async function withVerifiedLanding(
   | Readonly<{ candidate: ScholarlyCandidate; reachable: false }>
 > {
   const doi = candidate.identifiers.doi;
-  if (!doi) return { candidate, reachable: false };
-  const key = `${scope}|${doi}`;
+  const pmid = candidate.identifiers.pmid;
+  const probeURL = doi
+    ? `https://doi.org/${encodeURI(doi.toLowerCase())}`
+    : pmid
+      ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`
+      : undefined;
+  if (!probeURL) return { candidate, reachable: false };
+  const key = `${scope}|${probeURL}`;
   let pending = reachability.get(key);
   if (!pending) {
-    pending = verifyDoiLandingPage(doi, ports, signal);
+    pending = doi
+      ? verifyDoiLandingPage(doi, ports, signal)
+      : verifyLandingPage(probeURL, ports, signal);
     reachability.set(key, pending);
   }
   const result = await pending;

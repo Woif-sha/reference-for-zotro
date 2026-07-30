@@ -11,7 +11,20 @@ export async function verifyDoiLandingPage(
   ports: ProviderPorts,
   signal?: AbortSignal,
 ): Promise<ReachabilityResult> {
-  let url = `https://doi.org/${encodeURI(doi.toLowerCase())}`;
+  return verifyLandingPage(
+    `https://doi.org/${encodeURI(doi.toLowerCase())}`,
+    ports,
+    signal,
+  );
+}
+
+export async function verifyLandingPage(
+  initialURL: string,
+  ports: ProviderPorts,
+  signal?: AbortSignal,
+): Promise<ReachabilityResult> {
+  let url = initialURL;
+  if (!url.startsWith("https://")) return unreachable();
   for (let redirects = 0; redirects <= 5; redirects += 1) {
     let response: Response;
     try {

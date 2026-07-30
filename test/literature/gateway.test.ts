@@ -433,6 +433,52 @@ test("required citation metadata failures do not become a successful empty resul
   });
 });
 
+test("PMID-only Citing papers use a verified PubMed landing page", async () => {
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input) => {
+      const url = String(input);
+      if (url.includes("/index/v2/citations/")) {
+        return Response.json([
+          {
+            oci: "edge-pmid",
+            citing: "pmid:5678",
+            cited: "pmid:1234",
+            creation: "2025",
+          },
+        ]);
+      }
+      if (url.includes("/meta/v1/metadata/")) {
+        return Response.json([
+          {
+            id: "pmid:5678",
+            title: "A PMID-only Citing paper",
+            author: "Smith, Ada",
+            pub_date: "2025",
+            venue: "Journal",
+          },
+        ]);
+      }
+      if (url === "https://pubmed.ncbi.nlm.nih.gov/5678/") {
+        return new Response("<html></html>", {
+          headers: { "Content-Type": "text/html" },
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }),
+  );
+
+  const result = await gateway.getCitingPapers(
+    { identifiers: { pmid: "1234" } },
+    10,
+  );
+
+  assert.equal(result.status, "ready");
+  assert.equal(
+    result.papers[0]?.landingURL,
+    "https://pubmed.ncbi.nlm.nih.gov/5678/",
+  );
+});
+
 function metadata(doi: string, pubDate: string) {
   return {
     id: `doi:${doi}`,

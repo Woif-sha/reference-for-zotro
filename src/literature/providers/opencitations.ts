@@ -164,6 +164,12 @@ function parseMetadata(
       };
     });
   const doi = normalizeDoi(identifiers.doi);
+  const pmid = identifiers.pmid?.trim();
+  const canonicalURL = doi
+    ? `https://doi.org/${encodeURI(doi)}`
+    : pmid
+      ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(pmid)}/`
+      : null;
   return {
     source: "opencitations-meta",
     sourceRecordID,
@@ -177,8 +183,8 @@ function parseMetadata(
     abstract: null,
     referenceCount: null,
     citationCount: null,
-    canonicalURL: doi ? `https://doi.org/${encodeURI(doi)}` : null,
-    landingURL: doi ? `https://doi.org/${encodeURI(doi)}` : null,
+    canonicalURL,
+    landingURL: canonicalURL,
     matchedFields: ["citation-edge"],
     rawProvenance: [`opencitations-meta:${sourceRecordID}`],
   };

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   candidateToReaderPaper,
+  preparePaperForCache,
   resolutionToReaderPaper,
 } from "../../src/composition-root";
 
@@ -33,6 +34,27 @@ test("resolved paper presentation retains provider record, retrieval time and ma
   assert.equal(paper.retrievedAt, "2026-07-30T00:00:00.000Z");
   assert.deepEqual(paper.matchedFields, ["doi"]);
   assert.equal(paper.metadataIncomplete, false);
+  assert.deepEqual(paper.rawProvenance, ["crossref:10.1000/example"]);
+});
+
+test("cache preserves permitted Abstracts and omits Crossref Abstracts", () => {
+  const base = {
+    id: "paper",
+    ordinal: 0,
+    title: "Paper",
+    status: "resolved" as const,
+    primaryResultURL: "https://example.test/paper",
+    abstract: "Available abstract",
+  };
+
+  assert.equal(
+    preparePaperForCache({ ...base, source: "datacite" }).abstract,
+    "Available abstract",
+  );
+  assert.equal(
+    preparePaperForCache({ ...base, source: "crossref" }).abstract,
+    undefined,
+  );
 });
 
 test("resolved papers expose incomplete descriptive metadata without losing identity", () => {

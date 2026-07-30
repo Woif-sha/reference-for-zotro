@@ -104,6 +104,8 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
         sourceRecordID: index === 0 ? "10.1000/example" : undefined,
         retrievedAt: index === 0 ? "2026-07-30T00:00:00.000Z" : undefined,
         matchedFields: index === 0 ? ["doi"] : undefined,
+        connectedPaperInfo:
+          index === 0 ? "Connected via citing:doi:10.1000/example" : undefined,
       };
       return index === 1
         ? { ...paper, status: "unresolved" }
@@ -180,13 +182,17 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     [
       "12 citations",
       "34 references",
-      "connected papers",
+      "Connected via citing:doi:10.1000/example",
       "DOI: 10.1000/example",
     ],
   );
   assert.match(detailCard.textContent ?? "", /Author 1/);
   assert.match(detailCard.textContent ?? "", /Journal · 2026/);
   assert.match(detailCard.textContent ?? "", /A useful abstract\./);
+  assert.match(
+    dom.window.document.querySelector(".rfz-provenance")?.textContent ?? "",
+    /Source: crossref.*Matched by: title, author, and year/,
+  );
   assert.doesNotMatch(
     detailCard.textContent ?? "",
     /Background|Open|Matched by|Source:|Record:|Retrieved:|Provider failures:/,

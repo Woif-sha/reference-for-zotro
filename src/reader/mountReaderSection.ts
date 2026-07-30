@@ -26,6 +26,7 @@ type ReaderPaperBase = {
   sourceRecordID?: string;
   retrievedAt?: string;
   matchedFields?: readonly string[];
+  rawProvenance?: readonly string[];
   metadataIncomplete?: boolean;
   providerFailures?: readonly string[];
   connectedPaperInfo?: string;
@@ -279,6 +280,7 @@ function renderContent(
             : `<span class="rfz-paper-status">${escapeHTML(
                 paper.statusText ?? statusLabel(paper.status),
               )}</span>`;
+        const provenance = renderPaperProvenance(paper);
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }" data-paper-id="${escapeAttribute(paper.id)}">
@@ -289,7 +291,7 @@ function renderContent(
               [paper.authors, paper.venue, paper.year]
                 .filter(Boolean)
                 .join(" · "),
-            )}</small>${status}
+            )}</small>${provenance}${status}
           </div>
         </li>`;
       })
@@ -312,7 +314,7 @@ function renderDetailCard(
     paper.referenceCount === undefined
       ? undefined
       : `${paper.referenceCount} references`,
-    "connected papers",
+    paper.connectedPaperInfo,
     paper.doi ? `DOI: ${paper.doi}` : undefined,
   ].filter((value): value is string => Boolean(value));
   return `<aside class="rfz-detail-card" data-detail-card data-translation-scope>
@@ -330,6 +332,36 @@ function renderDetailCard(
         : ""
     }
   </aside>`;
+}
+
+function renderPaperProvenance(paper: ReaderPaper): string {
+  const matchedBy =
+    paper.matchedBy !== undefined
+      ? matchedByLabel(paper.matchedBy)
+      : paper.matchedFields?.join(", ");
+  const parts = [
+    paper.source ? `Source: ${paper.source}` : undefined,
+    matchedBy ? `Matched by: ${matchedBy}` : undefined,
+    paper.providerFailures?.length
+      ? `Provider failures: ${paper.providerFailures.join("; ")}`
+      : undefined,
+  ].filter((value): value is string => Boolean(value));
+  return parts.length
+    ? `<small class="rfz-provenance">${escapeHTML(parts.join(" · "))}</small>`
+    : "";
+}
+
+function matchedByLabel(matchedBy: ReferenceMatchBasis): string {
+  return {
+    doi: "DOI",
+    arxiv: "arXiv",
+    "ieee-article-number": "IEEE article number",
+    "trusted-source-url": "trusted source URL",
+    pmid: "PMID",
+    pmcid: "PMCID",
+    omid: "OMID",
+    metadata: "title, author, and year",
+  }[matchedBy];
 }
 
 function statusLabel(status: Exclude<PaperStatus, "resolved">): string {

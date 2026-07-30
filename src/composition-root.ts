@@ -137,10 +137,6 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
           const hasUnconfirmed = results.references.some(
             ({ status }) => status !== "resolved",
           );
-          if (hasFailure) {
-            await cache.remove(cacheIdentity(paper), context.signal);
-            return;
-          }
           const ttlMilliseconds = hasUnconfirmed
             ? 60 * 60 * 1000
             : 24 * 60 * 60 * 1000;
@@ -150,8 +146,8 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
               expiresAt: new Date(Date.now() + ttlMilliseconds).toISOString(),
               results: {
                 ...results,
-                references: results.references.map(withoutAbstract),
-                citingPapers: results.citingPapers.map(withoutAbstract),
+                references: results.references.map(preparePaperForCache),
+                citingPapers: results.citingPapers.map(preparePaperForCache),
               },
             },
             context.signal,
@@ -320,11 +316,13 @@ export function candidateToReaderPaper(
     sourceRecordID: candidate.sourceRecordID,
     retrievedAt: candidate.retrievedAt,
     matchedFields: candidate.matchedFields,
+    rawProvenance: candidate.rawProvenance,
     metadataIncomplete:
       candidate.authors.length === 0 ||
       (!candidate.publicationDate && candidate.publicationYear === null) ||
       !candidate.venue,
     providerFailures: formatProviderFailures(outcomes),
+    connectedPaperInfo: formatConnectionInfo(candidate.rawProvenance),
   };
 }
 
@@ -374,6 +372,17 @@ function formatCandidateDiagnostics(
         }`,
     )
     .join(" | ");
+}
+
+function formatConnectionInfo(
+  rawProvenance: readonly string[],
+): string | undefined {
+  const connection = rawProvenance.find((entry) =>
+    entry.startsWith("opencitations-index:"),
+  );
+  return connection
+    ? `Connected via ${connection.replace(/^opencitations-index:/u, "")}`
+    : undefined;
 }
 
 function currentPaperIdentifiers(context: ResolutionContext): {
@@ -474,7 +483,8 @@ async function verifyDirectLandingPage(
   }
 }
 
-function withoutAbstract(paper: ReaderPaper): ReaderPaper {
+export function preparePaperForCache(paper: ReaderPaper): ReaderPaper {
+  if (paper.source !== "crossref") return paper;
   const sanitized = { ...paper };
   delete sanitized.abstract;
   return sanitized;

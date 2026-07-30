@@ -13,11 +13,7 @@ class MemoryStorage implements CacheStorage {
     return this.values.get(key);
   }
 
-  async write(
-    key: string,
-    value: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async write(key: string, value: string, signal?: AbortSignal): Promise<void> {
     void signal;
     if (this.failWrites) throw new Error("disk full");
     this.values.set(key, value);

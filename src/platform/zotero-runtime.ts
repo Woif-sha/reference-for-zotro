@@ -236,6 +236,12 @@ function requestBudget(
   if (url.hostname === "api.opencitations.net") {
     return { key: "opencitations", minimumInterval: 500 };
   }
+  if (url.hostname === "api.openalex.org") {
+    return { key: "openalex", minimumInterval: 1000 };
+  }
+  if (url.hostname === "api.semanticscholar.org") {
+    return { key: "semantic-scholar", minimumInterval: 1000 };
+  }
   if (url.hostname === "doi.org") {
     return { key: "doi-proxy", minimumInterval: 500 };
   }

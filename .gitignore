@@ -1,6 +1,22 @@
+# Dependencies and build output
 node_modules/
 build/
 .scaffold/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
 .env
 .env.*
+
+# Logs and temporary files
 *.log
+*.tmp
+*.bak
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini

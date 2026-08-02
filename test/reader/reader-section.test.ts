@@ -111,10 +111,16 @@ test("Reader section renders Reference entries in source order and selects Citat
 
   const citationsTab = dom.window.document.querySelector(
     '[data-tab="citations"]',
-  ) as HTMLButtonElement | null;
+  ) as HTMLElement | null;
   assert.ok(citationsTab);
+  assert.equal(citationsTab.tagName, "DIV");
+  assert.equal(citationsTab.getAttribute("role"), "tab");
   citationsTab.click();
   assert.deepEqual(actions, ["tab:citations"]);
+  citationsTab.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+  );
+  assert.deepEqual(actions, ["tab:citations", "tab:citations"]);
 
   mounted.destroy();
   assert.equal(listener, undefined);
@@ -293,6 +299,19 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     2,
   );
   assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+
+  state = { ...state, selectedPaperID: "citing-3" };
+  listener?.(state);
+  const unavailableAbstract =
+    dom.window.document.querySelector(".rfz-abstract");
+  assert.ok(unavailableAbstract);
+  assert.match(unavailableAbstract.textContent ?? "", /^Abstract/u);
+  assert.match(
+    unavailableAbstract.textContent ?? "",
+    /current metadata source did not provide an abstract/iu,
+  );
+  state = { ...state, selectedPaperID: undefined };
+  listener?.(state);
 
   dom.window.document
     .querySelector('[data-paper-id="citing-1"] [data-paper-title]')

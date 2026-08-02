@@ -2,8 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { ResolutionContext } from "../../src/application/related-papers-controller";
-import { resolveReferenceEntry } from "../../src/composition-root";
+import {
+  PROVIDER_QUERY_VERSION,
+  resolveReferenceEntry,
+} from "../../src/composition-root";
 import type { RelatedLiteratureGateway } from "../../src/literature/gateway";
+
+test("trusted-title presentation invalidates previously cached provider results", () => {
+  assert.equal(PROVIDER_QUERY_VERSION, 4);
+});
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
   const lookupText =

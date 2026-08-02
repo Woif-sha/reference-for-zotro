@@ -112,8 +112,8 @@ export function mountReaderSection(options: {
         <button type="button" class="rfz-icon-button" data-refresh="" aria-label="Refresh current paper">↻</button>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
-        <button type="button" data-tab="references" aria-pressed="${state.activeTab === "references"}">References <span>${state.references.length}</span></button>
-        <button type="button" data-tab="citations" aria-pressed="${state.activeTab === "citations"}">Citations <span>${state.citingPapers.length}</span></button>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapers.length}</span></div>
       </nav>
       ${
         state.activeTab === "citations"
@@ -185,6 +185,16 @@ export function mountReaderSection(options: {
 
   root.addEventListener("click", onClick);
   overlay.addEventListener("click", onClick);
+  const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const target = event.target;
+    if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
+    if (tab !== "references" && tab !== "citations") return;
+    event.preventDefault();
+    controller.selectTab(tab);
+  };
+  root.addEventListener("keydown", onKeyDown);
   const onMouseUp = (): void => {
     const selection = body.ownerDocument.defaultView?.getSelection();
     const text = selection?.toString().trim();
@@ -244,6 +254,7 @@ export function mountReaderSection(options: {
       unsubscribe();
       root.removeEventListener("click", onClick);
       overlay.removeEventListener("click", onClick);
+      root.removeEventListener("keydown", onKeyDown);
       root.removeEventListener("mouseup", onMouseUp);
       overlay.removeEventListener("mouseup", onMouseUp);
       body.ownerDocument.defaultView?.removeEventListener(
@@ -367,11 +378,9 @@ function renderDetailCard(
         ? `<div class="rfz-card-meta">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
         : ""
     }
-    ${
-      paper.abstract
-        ? `<p class="rfz-abstract">${escapeHTML(paper.abstract)}</p>`
-        : ""
-    }
+    <section class="rfz-abstract"><strong>Abstract</strong><p>${escapeHTML(
+      paper.abstract ?? "Current metadata source did not provide an abstract.",
+    )}</p></section>
   </aside>`;
 }
 
@@ -448,15 +457,15 @@ const READER_STYLES = `
   .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 0 10px 0 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
   .rfz-header strong { font-size: 13px; }
   .rfz-header small { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
-  .rfz-icon-button, .rfz-tabs button, .rfz-limits button, .rfz-paper-title, .rfz-card-close {
+  .rfz-icon-button, .rfz-tab, .rfz-limits button, .rfz-paper-title, .rfz-card-close {
     border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer;
   }
   .rfz-icon-button { margin-left: 4px; padding: 3px 6px; border-radius: 5px; font-size: 15px; }
   .rfz-icon-button:hover, .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
   .rfz-tabs { position: sticky; z-index: 3; top: var(--rfz-header-height); min-height: var(--rfz-tabs-height); border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-background, #fff); }
-  .rfz-tabs button { position: relative; flex: 1; padding: 11px 8px 9px; color: var(--fill-secondary, #69696f); font-weight: 600; }
-  .rfz-tabs button[aria-pressed="true"] { color: var(--fill-primary, #242428); }
-  .rfz-tabs button[aria-pressed="true"]::after { position: absolute; right: 18px; bottom: -1px; left: 18px; height: 2px; background: var(--rfz-accent); content: ""; }
+  .rfz-tab { position: relative; flex: 1; padding: 11px 8px 9px; color: var(--fill-secondary, #69696f); text-align: center; font-weight: 600; }
+  .rfz-tab[aria-selected="true"] { color: var(--fill-primary, #242428); }
+  .rfz-tab[aria-selected="true"]::after { position: absolute; right: 18px; bottom: -1px; left: 18px; height: 2px; background: var(--rfz-accent); content: ""; }
   .rfz-tabs span { padding: 1px 5px; border-radius: 8px; background: var(--material-button, #ececef); font-size: 10px; }
   .rfz-limits { position: sticky; z-index: 3; top: calc(var(--rfz-header-height) + var(--rfz-tabs-height)); justify-content: flex-end; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid var(--material-border, #e0e0e2); background: var(--material-sidepane, #fafafa); }
   .rfz-limits button { min-width: 29px; padding: 3px 5px; border: 1px solid var(--material-border, #c5c5c8); border-right: 0; background: var(--material-background, #fff); font-size: 10px; }
@@ -484,7 +493,9 @@ const READER_STYLES = `
   .rfz-badges .rfz-badge-connected { background: #2d9fa1; }
   .rfz-badges .rfz-badge-doi { background: #f5aa17; }
   .rfz-card-meta { color: var(--fill-secondary, #6e6e74); font-size: 12px; line-height: 1.5; }
-  .rfz-abstract { margin: 8px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
+  .rfz-abstract { margin: 12px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
+  .rfz-abstract strong { display: block; margin-bottom: 3px; font-size: 12px; }
+  .rfz-abstract p { margin: 0; }
   .rfz-translation { position: absolute; z-index: 20; right: 10px; bottom: 10px; width: min(340px, calc(100% - 20px)); padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
   .rfz-translation-source { margin-bottom: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
 `;

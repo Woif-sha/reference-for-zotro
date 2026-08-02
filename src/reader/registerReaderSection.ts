@@ -32,7 +32,7 @@ export interface ReaderSectionRegistration {
     item: { id: number };
     tabType: string;
     setEnabled(enabled: boolean): void;
-  }): boolean;
+  }): void;
   onDestroy(context: { body: HTMLElement }): void;
 }
 
@@ -56,9 +56,11 @@ interface ActiveSection {
 export function registerReaderSection(options: {
   itemPaneManager: ItemPaneManagerPort;
   pluginID: string;
+  localeNamespace: string;
   controllerFactory: ReaderControllerFactory;
 }): () => void {
-  const { itemPaneManager, pluginID, controllerFactory } = options;
+  const { itemPaneManager, pluginID, localeNamespace, controllerFactory } =
+    options;
   const activeSections = new Map<HTMLElement, ActiveSection>();
 
   const destroyBody = (body: HTMLElement): void => {
@@ -93,11 +95,11 @@ export function registerReaderSection(options: {
     paneID: READER_PANE_ID,
     pluginID,
     header: {
-      l10nID: "reference-for-zotero-section-header",
+      l10nID: `${localeNamespace}-reference-for-zotero-section-header`,
       icon: "chrome://referenceforzotero/content/icons/related-papers.svg",
     },
     sidenav: {
-      l10nID: "reference-for-zotero-section-sidenav",
+      l10nID: `${localeNamespace}-reference-for-zotero-section-sidenav`,
       icon: "chrome://referenceforzotero/content/icons/related-papers.svg",
     },
     onInit({ tabType, setEnabled }) {
@@ -106,9 +108,8 @@ export function registerReaderSection(options: {
     onRender({ body, item, tabType, setEnabled }) {
       renderBody(body, item, tabType, setEnabled);
     },
-    onItemChange({ body, item, tabType, setEnabled }) {
-      renderBody(body, item, tabType, setEnabled);
-      return true;
+    onItemChange({ tabType, setEnabled }) {
+      setEnabled(tabType === "reader");
     },
     onDestroy({ body }) {
       destroyBody(body);

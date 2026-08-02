@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
@@ -22,6 +23,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
       unregistered.push(paneID);
     },
   };
+  const created: number[] = [];
   const destroyed: number[] = [];
   const state: ReaderSectionState = {
     activeTab: "references",
@@ -33,6 +35,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
   };
   const factory: ReaderControllerFactory = {
     create({ attachmentItemID }) {
+      created.push(attachmentItemID);
       return {
         getState: () => state,
         subscribe: () => () => {},
@@ -49,9 +52,18 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
   const unregister = registerReaderSection({
     itemPaneManager: manager,
     pluginID: "referenceforzotero@woif-sha.github.io",
+    localeNamespace: "referenceforzotero",
     controllerFactory: factory,
   });
   assert.ok(registration);
+  assert.equal(
+    registration.header.l10nID,
+    "referenceforzotero-reference-for-zotero-section-header",
+  );
+  assert.equal(
+    registration.sidenav.l10nID,
+    "referenceforzotero-reference-for-zotero-section-sidenav",
+  );
 
   const enabled: boolean[] = [];
   registration.onInit({
@@ -75,18 +87,48 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     tabType: "reader",
     setEnabled: () => {},
   });
+  assert.deepEqual(created, [42]);
   assert.match(body.textContent ?? "", /Related Papers/);
 
+  const itemChangeEnabled: boolean[] = [];
   registration.onItemChange({
+    body,
+    item: { id: 43 },
+    tabType: "reader",
+    setEnabled: (value) => itemChangeEnabled.push(value),
+  });
+  assert.deepEqual(itemChangeEnabled, [true]);
+  assert.deepEqual(created, [42]);
+  assert.deepEqual(destroyed, []);
+
+  registration.onRender({
     body,
     item: { id: 43 },
     tabType: "reader",
     setEnabled: () => {},
   });
+  assert.deepEqual(created, [42, 43]);
   assert.deepEqual(destroyed, [42]);
 
   registration.onDestroy({ body });
   unregister();
   assert.deepEqual(destroyed, [42, 43]);
   assert.deepEqual(unregistered, ["registered-pane-key"]);
+});
+
+test("Reader section Fluent messages localize control attributes without replacing their contents", () => {
+  for (const locale of ["en-US", "zh-CN"]) {
+    const fluent = readFileSync(
+      new URL(`../../addon/locale/${locale}/addon.ftl`, import.meta.url),
+      "utf8",
+    );
+    assert.match(
+      fluent,
+      /reference-for-zotero-section-header\s*=\s*\r?\n\s+\.label\s*=\s*\S+/u,
+    );
+    assert.match(
+      fluent,
+      /reference-for-zotero-section-sidenav\s*=\s*\r?\n\s+\.tooltiptext\s*=\s*\S+/u,
+    );
+  }
 });

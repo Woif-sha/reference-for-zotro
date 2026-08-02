@@ -1,5 +1,7 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
 
+const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
+
 export type ReaderTab = "references" | "citations";
 export type ReaderStatus = "loading" | "ready" | "error" | "no-md";
 export type PaperStatus =
@@ -83,9 +85,13 @@ export function mountReaderSection(options: {
   controller: ReaderSectionController;
 }): MountedReaderSection {
   const { body, controller } = options;
-  const root = body.ownerDocument.createElement("div");
+  const root = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   root.className = "reference-for-zotero";
   body.replaceChildren(root);
+  const overlay = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
+  overlay.className = "rfz-overlay";
+  overlay.dataset.readerOverlay = "";
+  body.ownerDocument.documentElement.append(overlay);
   let destroyed = false;
   let translationRequest = 0;
   let translationEnabled = Boolean(controller.translateSelection);
@@ -101,11 +107,9 @@ export function mountReaderSection(options: {
     root.innerHTML = `
       <style>${READER_STYLES}</style>
       <header class="rfz-header">
-        <div>
-          <strong>Related Papers</strong>
-          <small>${state.activeTab === "references" ? "MinerU Markdown" : "Scholarly sources"}</small>
-        </div>
-        <button type="button" class="rfz-icon-button" data-refresh aria-label="Refresh current paper">↻</button>
+        <strong>Related Papers</strong>
+        <small>${state.activeTab === "references" ? "MinerU Markdown" : "Scholarly sources"}</small>
+        <button type="button" class="rfz-icon-button" data-refresh="" aria-label="Refresh current paper">↻</button>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
         <button type="button" data-tab="references" aria-pressed="${state.activeTab === "references"}">References <span>${state.references.length}</span></button>
@@ -123,10 +127,11 @@ export function mountReaderSection(options: {
             </div>`
           : ""
       }
-      <main class="rfz-content" data-translation-scope>
+      <main class="rfz-content" data-translation-scope="">
         ${renderContent(state, papers)}
-      </main>
-      ${renderDetailCard(state, papers)}`;
+      </main>`;
+    overlay.innerHTML = renderDetailCard(state, papers);
+    positionDetailCard(root, overlay);
   }
 
   const onClick = (event: Event): void => {
@@ -134,6 +139,13 @@ export function mountReaderSection(options: {
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
     if (target.closest("[data-refresh]")) {
       controller.refresh();
+      return;
+    }
+    const close = target.closest<HTMLElement>("[data-detail-close]");
+    if (close) {
+      const paperID =
+        close.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
+      if (paperID) controller.selectPaper(paperID);
       return;
     }
     const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
@@ -172,6 +184,7 @@ export function mountReaderSection(options: {
   };
 
   root.addEventListener("click", onClick);
+  overlay.addEventListener("click", onClick);
   const onMouseUp = (): void => {
     const selection = body.ownerDocument.defaultView?.getSelection();
     const text = selection?.toString().trim();
@@ -185,7 +198,12 @@ export function mountReaderSection(options: {
       return;
     }
     const translationScope = commonElement.closest("[data-translation-scope]");
-    if (!translationScope || !root.contains(translationScope)) return;
+    if (
+      !translationScope ||
+      (!root.contains(translationScope) && !overlay.contains(translationScope))
+    ) {
+      return;
+    }
     const request = ++translationRequest;
     if (!translationEnabled || !controller.translateSelection) {
       showTranslation(root, text, "UI translation disabled");
@@ -209,6 +227,13 @@ export function mountReaderSection(options: {
       });
   };
   root.addEventListener("mouseup", onMouseUp);
+  overlay.addEventListener("mouseup", onMouseUp);
+  const repositionDetailCard = (): void => positionDetailCard(root, overlay);
+  body.ownerDocument.defaultView?.addEventListener(
+    "resize",
+    repositionDetailCard,
+  );
+  body.ownerDocument.addEventListener("scroll", repositionDetailCard, true);
   render(controller.getState());
   const unsubscribe = controller.subscribe(render);
 
@@ -218,7 +243,19 @@ export function mountReaderSection(options: {
       translationRequest += 1;
       unsubscribe();
       root.removeEventListener("click", onClick);
+      overlay.removeEventListener("click", onClick);
       root.removeEventListener("mouseup", onMouseUp);
+      overlay.removeEventListener("mouseup", onMouseUp);
+      body.ownerDocument.defaultView?.removeEventListener(
+        "resize",
+        repositionDetailCard,
+      );
+      body.ownerDocument.removeEventListener(
+        "scroll",
+        repositionDetailCard,
+        true,
+      );
+      overlay.remove();
       root.remove();
     },
   };
@@ -280,18 +317,17 @@ function renderContent(
             : `<span class="rfz-paper-status">${escapeHTML(
                 paper.statusText ?? statusLabel(paper.status),
               )}</span>`;
-        const provenance = renderPaperProvenance(paper);
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }" data-paper-id="${escapeAttribute(paper.id)}">
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div>
-            <button type="button" class="rfz-paper-title" data-paper-title>${escapeHTML(
+            <div class="rfz-paper-title" data-paper-title="">${escapeHTML(
               paper.title,
-            )}</button><small>${escapeHTML(
+            )}</div><small>${escapeHTML(
               [paper.authors, paper.venue, paper.year]
                 .filter(Boolean)
                 .join(" · "),
-            )}</small>${provenance}${status}
+            )}</small>${status}
           </div>
         </li>`;
       })
@@ -310,58 +346,59 @@ function renderDetailCard(
   const badges = [
     paper.citationCount === undefined
       ? undefined
-      : `${paper.citationCount} citations`,
+      : { label: `${paper.citationCount} citations`, kind: "count" },
     paper.referenceCount === undefined
       ? undefined
-      : `${paper.referenceCount} references`,
-    paper.connectedPaperInfo,
-    paper.doi ? `DOI: ${paper.doi}` : undefined,
-  ].filter((value): value is string => Boolean(value));
-  return `<aside class="rfz-detail-card" data-detail-card data-translation-scope>
-    <strong>${escapeHTML(paper.title)}</strong>
-    ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span>${escapeHTML(badge)}</span>`).join("")}</div>` : ""}
-    ${paper.authors ? `<div>${escapeHTML(paper.authors)}</div>` : ""}
+      : { label: `${paper.referenceCount} references`, kind: "count" },
+    paper.connectedPaperInfo
+      ? { label: paper.connectedPaperInfo, kind: "connected" }
+      : undefined,
+    paper.doi ? { label: `DOI: ${paper.doi}`, kind: "doi" } : undefined,
+  ].filter(
+    (value): value is { label: string; kind: string } => value !== undefined,
+  );
+  return `<aside class="rfz-detail-card" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}" data-translation-scope="">
+    <button type="button" class="rfz-card-close" data-detail-close="" aria-label="Close paper details">×</button>
+    <strong class="rfz-card-title">${escapeHTML(paper.title)}</strong>
+    ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span class="rfz-badge-${badge.kind}">${escapeHTML(badge.label)}</span>`).join("")}</div>` : ""}
+    ${paper.authors ? `<div class="rfz-card-meta">${escapeHTML(paper.authors)}</div>` : ""}
     ${
       paper.venue || paper.year
-        ? `<div>${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
+        ? `<div class="rfz-card-meta">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
         : ""
     }
     ${
       paper.abstract
-        ? `<div class="rfz-abstract"><b>Abstract</b> ${escapeHTML(paper.abstract)}</div>`
+        ? `<p class="rfz-abstract">${escapeHTML(paper.abstract)}</p>`
         : ""
     }
   </aside>`;
 }
 
-function renderPaperProvenance(paper: ReaderPaper): string {
-  const matchedBy =
-    paper.matchedBy !== undefined
-      ? matchedByLabel(paper.matchedBy)
-      : paper.matchedFields?.join(", ");
-  const parts = [
-    paper.source ? `Source: ${paper.source}` : undefined,
-    matchedBy ? `Matched by: ${matchedBy}` : undefined,
-    paper.providerFailures?.length
-      ? `Provider failures: ${paper.providerFailures.join("; ")}`
-      : undefined,
-  ].filter((value): value is string => Boolean(value));
-  return parts.length
-    ? `<small class="rfz-provenance">${escapeHTML(parts.join(" · "))}</small>`
-    : "";
-}
-
-function matchedByLabel(matchedBy: ReferenceMatchBasis): string {
-  return {
-    doi: "DOI",
-    arxiv: "arXiv",
-    "ieee-article-number": "IEEE article number",
-    "trusted-source-url": "trusted source URL",
-    pmid: "PMID",
-    pmcid: "PMCID",
-    omid: "OMID",
-    metadata: "title, author, and year",
-  }[matchedBy];
+function positionDetailCard(root: HTMLElement, overlay: HTMLElement): void {
+  const card = overlay.querySelector<HTMLElement>("[data-detail-card]");
+  if (!card) return;
+  const view = root.ownerDocument.defaultView;
+  const viewportWidth = view?.innerWidth ?? 0;
+  const viewportHeight = view?.innerHeight ?? 0;
+  const rootRect = root.getBoundingClientRect();
+  const paperID = card.dataset.paperId;
+  const anchor = [
+    ...root.querySelectorAll<HTMLElement>("[data-paper-id]"),
+  ].find((paperRow) => paperRow.dataset.paperId === paperID);
+  const anchorRect = anchor?.getBoundingClientRect() ?? rootRect;
+  const sidebarLeft = rootRect.left > 0 ? rootRect.left : viewportWidth;
+  const right = Math.max(12, viewportWidth - sidebarLeft + 1);
+  const width = Math.max(280, Math.min(760, sidebarLeft - 24));
+  card.style.right = `${right}px`;
+  card.style.width = `${width}px`;
+  card.style.maxHeight = `${Math.max(180, viewportHeight - 24)}px`;
+  const measuredHeight =
+    card.getBoundingClientRect().height || card.scrollHeight;
+  const cardHeight = Math.min(measuredHeight, Math.max(0, viewportHeight - 24));
+  const maximumTop = Math.max(12, viewportHeight - cardHeight - 12);
+  const top = Math.min(Math.max(anchorRect.top, 12), maximumTop);
+  card.style.top = `${top}px`;
 }
 
 function statusLabel(status: Exclude<PaperStatus, "resolved">): string {
@@ -381,13 +418,13 @@ function showTranslation(
   result: string,
 ): void {
   root.querySelector("[data-translation]")?.remove();
-  const popover = root.ownerDocument.createElement("aside");
+  const popover = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "aside");
   popover.className = "rfz-translation";
   popover.dataset.translation = "";
-  const original = root.ownerDocument.createElement("div");
+  const original = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   original.className = "rfz-translation-source";
   original.textContent = source;
-  const translated = root.ownerDocument.createElement("div");
+  const translated = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   translated.dataset.translationResult = "";
   translated.textContent = result;
   popover.append(original, translated);
@@ -398,44 +435,56 @@ const READER_STYLES = `
   .reference-for-zotero {
     --rfz-accent: #2d6cdf;
     --rfz-accent-soft: color-mix(in srgb, var(--rfz-accent) 12%, transparent);
+    --rfz-header-height: 42px;
+    --rfz-tabs-height: 39px;
     position: relative;
     height: 100%;
     color: var(--fill-primary, #242428);
-    background: var(--material-sidepane, #fff);
+    background: var(--material-sidepane, #fbfbfc);
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   .reference-for-zotero * { box-sizing: border-box; }
   .rfz-header, .rfz-tabs, .rfz-limits { display: flex; align-items: center; }
-  .rfz-header { justify-content: space-between; padding: 10px 12px 8px; }
-  .rfz-header small { display: block; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
-  .rfz-icon-button, .rfz-tabs button, .rfz-limits button, .rfz-paper-title {
+  .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 0 10px 0 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
+  .rfz-header strong { font-size: 13px; }
+  .rfz-header small { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
+  .rfz-icon-button, .rfz-tabs button, .rfz-limits button, .rfz-paper-title, .rfz-card-close {
     border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer;
   }
-  .rfz-icon-button { padding: 4px 8px; border-radius: 5px; font-size: 17px; }
-  .rfz-tabs { border-block: 1px solid var(--material-border, #d6d6d9); }
-  .rfz-tabs button { flex: 1; padding: 8px 4px; border-bottom: 2px solid transparent; }
-  .rfz-tabs button[aria-pressed="true"] { border-bottom-color: var(--rfz-accent); color: var(--rfz-accent); font-weight: 700; }
+  .rfz-icon-button { margin-left: 4px; padding: 3px 6px; border-radius: 5px; font-size: 15px; }
+  .rfz-icon-button:hover, .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
+  .rfz-tabs { position: sticky; z-index: 3; top: var(--rfz-header-height); min-height: var(--rfz-tabs-height); border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-background, #fff); }
+  .rfz-tabs button { position: relative; flex: 1; padding: 11px 8px 9px; color: var(--fill-secondary, #69696f); font-weight: 600; }
+  .rfz-tabs button[aria-pressed="true"] { color: var(--fill-primary, #242428); }
+  .rfz-tabs button[aria-pressed="true"]::after { position: absolute; right: 18px; bottom: -1px; left: 18px; height: 2px; background: var(--rfz-accent); content: ""; }
   .rfz-tabs span { padding: 1px 5px; border-radius: 8px; background: var(--material-button, #ececef); font-size: 10px; }
-  .rfz-limits { justify-content: flex-end; gap: 2px; padding: 5px 8px; border-bottom: 1px solid var(--material-border, #e4e4e7); }
-  .rfz-limits button { min-width: 30px; padding: 2px 6px; border-radius: 4px; font-size: 11px; }
-  .rfz-limits button[aria-pressed="true"] { color: #fff; background: var(--rfz-accent); }
-  .rfz-content { overflow: auto; max-height: calc(100% - 90px); }
+  .rfz-limits { position: sticky; z-index: 3; top: calc(var(--rfz-header-height) + var(--rfz-tabs-height)); justify-content: flex-end; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid var(--material-border, #e0e0e2); background: var(--material-sidepane, #fafafa); }
+  .rfz-limits button { min-width: 29px; padding: 3px 5px; border: 1px solid var(--material-border, #c5c5c8); border-right: 0; background: var(--material-background, #fff); font-size: 10px; }
+  .rfz-limits button:first-child { border-radius: 5px 0 0 5px; }
+  .rfz-limits button:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
+  .rfz-limits button[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
+  .rfz-content { overflow: auto; max-height: calc(100% - 85px); }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
-  .rfz-paper { display: grid; grid-template-columns: 28px 1fr; gap: 5px; padding: 9px 8px; border-bottom: 1px solid var(--material-border, #ececef); }
+  .rfz-paper { display: grid; grid-template-columns: 27px 1fr; gap: 5px; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
   .rfz-ordinal { color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
-  .rfz-paper-title { display: block; padding: 0; text-align: left; font-weight: 600; line-height: 1.35; }
+  .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }
   .rfz-paper--failed .rfz-paper-status { color: #ba3b32; }
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
-  .rfz-detail-card { position: absolute; z-index: 10; top: 42px; right: 100%; width: min(680px, 65vw); max-height: calc(100% - 70px); padding: 16px 18px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 8px 0 0 8px; background: var(--material-sidepane, #fff); box-shadow: -8px 12px 28px #0003; overflow: auto; user-select: text; }
-  .rfz-detail-card > strong { color: var(--rfz-accent); font-size: 18px; }
-  .rfz-badges { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-  .rfz-badges span { padding: 2px 9px; border-radius: 999px; color: #fff; background: #2d9fa1; font-size: 11px; }
-  .rfz-abstract { margin-top: 9px; line-height: 1.55; }
+  .rfz-overlay { position: fixed; z-index: 2147483000; inset: 0; pointer-events: none; }
+  .rfz-detail-card { position: fixed; padding: 16px 18px 18px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 8px 0 0 8px; color: var(--fill-primary, #242428); background: var(--material-background, #fff); box-shadow: -8px 12px 28px #0003; overflow: auto; pointer-events: auto; user-select: text; }
+  .rfz-card-title { display: block; max-width: calc(100% - 30px); color: var(--rfz-accent); font-size: 18px; font-weight: 750; line-height: 1.25; }
+  .rfz-card-close { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 50%; color: var(--fill-secondary, #65656b); background: var(--fill-quinary, #f0f0f2); user-select: none; }
+  .rfz-badges { display: flex; flex-wrap: wrap; gap: 9px; margin: 11px 0 9px; }
+  .rfz-badges span { padding: 2px 11px; border-radius: 999px; color: #fff; background: #76c3c5; font-size: 11px; line-height: 1.2; }
+  .rfz-badges .rfz-badge-connected { background: #2d9fa1; }
+  .rfz-badges .rfz-badge-doi { background: #f5aa17; }
+  .rfz-card-meta { color: var(--fill-secondary, #6e6e74); font-size: 12px; line-height: 1.5; }
+  .rfz-abstract { margin: 8px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
   .rfz-translation { position: absolute; z-index: 20; right: 10px; bottom: 10px; width: min(340px, calc(100% - 20px)); padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
   .rfz-translation-source { margin-bottom: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
 `;

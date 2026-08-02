@@ -154,7 +154,7 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
   };
 }
 
-async function resolveReferenceEntry(
+export async function resolveReferenceEntry(
   ordinal: number,
   lookupText: string,
   gateway: RelatedLiteratureGateway,
@@ -184,7 +184,7 @@ async function resolveReferenceEntry(
       return {
         id: `reference:${ordinal}`,
         ordinal,
-        title: lookupText,
+        title: query.title || lookupText,
         status: "resolved",
         primaryResultURL: landingURL,
         matchedBy: deterministic.matchedBy,

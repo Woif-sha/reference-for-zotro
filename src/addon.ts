@@ -16,6 +16,7 @@ export function startReferenceForZotero(
   const unregister = registerReaderSection({
     itemPaneManager,
     pluginID: config.addonID,
+    localeNamespace: config.addonRef,
     controllerFactory: factory,
   });
   let active = true;

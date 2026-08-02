@@ -39,6 +39,43 @@ function readyState(): ReaderSectionState {
   };
 }
 
+test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
+  const dom = new JSDOM(
+    '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:div xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
+    { contentType: "application/xml" },
+  );
+  const body = dom.window.document.getElementsByTagNameNS(
+    "http://www.w3.org/1999/xhtml",
+    "div",
+  )[0] as HTMLElement;
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPrimaryResult() {},
+    },
+  });
+
+  const root = body.firstElementChild;
+  assert.ok(root);
+  assert.equal(root.namespaceURI, "http://www.w3.org/1999/xhtml");
+  assert.match(root.textContent ?? "", /Related Papers/);
+  const titles = [...root.querySelectorAll("[data-paper-title]")];
+  assert.deepEqual(
+    titles.map(({ tagName, textContent }) => [tagName, textContent]),
+    [
+      ["div", "First reference"],
+      ["div", "Second reference"],
+    ],
+  );
+  mounted.destroy();
+});
+
 test("Reader section renders Reference entries in source order and selects Citations through its controller", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const actions: string[] = [];
@@ -84,7 +121,31 @@ test("Reader section renders Reference entries in source order and selects Citat
 });
 
 test("Reader section exposes cumulative citation limits, paper details, safe opening, and refresh", () => {
-  const dom = new JSDOM("<!doctype html><body></body>");
+  const dom = new JSDOM(
+    '<!doctype html><body><main style="overflow: hidden"><section id="reader-section"></section></main></body>',
+  );
+  Object.defineProperties(dom.window, {
+    innerWidth: { configurable: true, value: 1600 },
+    innerHeight: { configurable: true, value: 600 },
+  });
+  let selectedRowTop = 260;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    if (this.matches("[data-detail-card]")) {
+      return domRect({ top: 0, left: 0, width: 760, height: 180 });
+    }
+    if (this.dataset.paperId === "citing-1") {
+      return domRect({
+        top: selectedRowTop,
+        left: 1200,
+        width: 400,
+        height: 80,
+      });
+    }
+    if (this.classList.contains("reference-for-zotero")) {
+      return domRect({ top: 80, left: 1200, width: 400, height: 520 });
+    }
+    return domRect({ top: 0, left: 0, width: 0, height: 0 });
+  };
   let state: ReaderSectionState = {
     ...readyState(),
     activeTab: "citations",
@@ -138,7 +199,11 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     },
     selectPaper(paperID) {
       actions.push(`select:${paperID}`);
-      state = { ...state, selectedPaperID: paperID };
+      state = {
+        ...state,
+        selectedPaperID:
+          state.selectedPaperID === paperID ? undefined : paperID,
+      };
       listener?.(state);
     },
     refresh() {
@@ -150,7 +215,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   };
 
   const mounted = mountReaderSection({
-    body: dom.window.document.body,
+    body: dom.window.document.querySelector("#reader-section") as HTMLElement,
     controller,
   });
 
@@ -158,6 +223,9 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     dom.window.document.querySelectorAll("[data-paper-id]").length,
     10,
   );
+  const styles = dom.window.document.querySelector("style")?.textContent ?? "";
+  assert.match(styles, /\.rfz-header\s*\{[^}]*position:\s*sticky/u);
+  assert.match(styles, /\.rfz-tabs\s*\{[^}]*position:\s*sticky/u);
   (
     dom.window.document.querySelector(
       '[data-limit="30"]',
@@ -175,6 +243,19 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   firstTitle.click();
   const detailCard = dom.window.document.querySelector("[data-detail-card]");
   assert.ok(detailCard);
+  assert.equal(
+    detailCard.parentElement?.dataset.readerOverlay,
+    "",
+    "detail card must escape Zotero's clipped custom-section body",
+  );
+  assert.equal((detailCard as HTMLElement).style.top, "260px");
+  selectedRowTop = 520;
+  dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+  assert.equal((detailCard as HTMLElement).style.top, "408px");
+  selectedRowTop = -80;
+  dom.window.document.dispatchEvent(new dom.window.Event("scroll"));
+  assert.equal((detailCard as HTMLElement).style.top, "12px");
+  assert.ok(detailCard.querySelector("[data-detail-close]"));
   assert.deepEqual(
     [...detailCard.querySelectorAll(".rfz-badges span")].map(
       (badge) => badge.textContent,
@@ -189,14 +270,29 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   assert.match(detailCard.textContent ?? "", /Author 1/);
   assert.match(detailCard.textContent ?? "", /Journal · 2026/);
   assert.match(detailCard.textContent ?? "", /A useful abstract\./);
-  assert.match(
-    dom.window.document.querySelector(".rfz-provenance")?.textContent ?? "",
-    /Source: crossref.*Matched by: title, author, and year/,
+  assert.equal(dom.window.document.querySelector(".rfz-provenance"), null);
+  assert.doesNotMatch(
+    dom.window.document.querySelector('[data-paper-id="citing-1"]')
+      ?.textContent ?? "",
+    /Source:|Matched by:/u,
   );
   assert.doesNotMatch(
     detailCard.textContent ?? "",
     /Background|Open|Matched by|Source:|Record:|Retrieved:|Provider failures:/,
   );
+  const closeButton = detailCard.querySelector(
+    "[data-detail-close]",
+  ) as HTMLElement;
+  assert.equal(
+    closeButton.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId,
+    "citing-1",
+  );
+  closeButton.click();
+  assert.equal(
+    actions.filter((action) => action === "select:citing-1").length,
+    2,
+  );
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
 
   dom.window.document
     .querySelector('[data-paper-id="citing-1"] [data-paper-title]')
@@ -218,6 +314,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
 
   assert.deepEqual(actions, [
     "limit:30",
+    "select:citing-1",
     "select:citing-1",
     "open:citing-1",
     "refresh",
@@ -498,4 +595,20 @@ function selectNodeContents(dom: JSDOM, node: Node): void {
   const selection = dom.window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
+}
+
+function domRect(options: {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}): DOMRect {
+  return {
+    ...options,
+    x: options.left,
+    y: options.top,
+    right: options.left + options.width,
+    bottom: options.top + options.height,
+    toJSON: () => ({}),
+  };
 }

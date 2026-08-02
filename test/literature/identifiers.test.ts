@@ -54,3 +54,14 @@ test("trusted scholarly URLs discard request-specific query and fragment data", 
     "https://dl.acm.org/doi/abs/10.1145/example",
   );
 });
+
+test("ACL Anthology paper pages are stable scholarly landing pages", () => {
+  const identifiers = extractStableIdentifiers(
+    "Available: https://aclanthology.org/N19-1423/",
+  );
+
+  assert.equal(
+    identifiers.trustedSourceUrl,
+    "https://aclanthology.org/N19-1423/",
+  );
+});

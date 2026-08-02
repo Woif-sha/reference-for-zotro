@@ -10,7 +10,7 @@ const ARXIV_PATTERN =
 const IEEE_PATTERN =
   /(?:ieeexplore\.ieee\.org\/(?:document|abstract\/document)\/|(?:article|document)\s*(?:number|no\.?)?\s*[:#]?\s*)(\d{5,10})/i;
 const TRUSTED_SOURCE_URL_PATTERN =
-  /https:\/\/(?:dl\.acm\.org\/doi\/(?:abs\/|full\/)?|ieeexplore\.ieee\.org\/(?:document|abstract\/document)\/|doi\.org\/|arxiv\.org\/abs\/)[^\s<>"']+/i;
+  /https:\/\/(?:dl\.acm\.org\/doi\/(?:abs\/|full\/)?|ieeexplore\.ieee\.org\/(?:document|abstract\/document)\/|doi\.org\/|arxiv\.org\/abs\/|aclanthology\.org\/)[^\s<>"']+/i;
 
 export function extractStableIdentifiers(text: string): StableIdentifiers {
   const doi = text.match(DOI_PATTERN)?.[0];
@@ -46,7 +46,7 @@ export function findMalformedStableIdentifier(
     return "ieee-article-number";
   }
   if (
-    /https?:\/\/(?:dl\.acm\.org|ieeexplore\.ieee\.org|doi\.org|arxiv\.org)\//iu.test(
+    /https?:\/\/(?:dl\.acm\.org|ieeexplore\.ieee\.org|doi\.org|arxiv\.org|aclanthology\.org)\//iu.test(
       text,
     )
   ) {

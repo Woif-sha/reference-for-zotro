@@ -74,6 +74,112 @@ test("exact DOI resolution uses registrar metadata and opens only the verified l
   assert.ok(seen.includes("https://doi.org/10.1000/example"));
 });
 
+test("a DOI redirect remains usable when the publisher blocks automated requests", async () => {
+  const seen: string[] = [];
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input, init) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({
+          message: {
+            DOI: "10.1145/example",
+            title: ["An ACM Paper"],
+            author: [{ family: "Smith" }],
+            published: { "date-parts": [[2024]] },
+            "container-title": ["Proceedings"],
+            URL: "https://doi.org/10.1145/example",
+          },
+        });
+      }
+      if (url.includes("api.datacite.org")) {
+        return new Response(null, { status: 404 });
+      }
+      if (url === "https://doi.org/10.1145/example") {
+        assert.equal(init?.redirect, "follow");
+        const response = new Response("blocked", { status: 403 });
+        Object.defineProperty(response, "url", {
+          value: "https://dl.acm.org/doi/10.1145/example",
+        });
+        return response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }),
+  );
+
+  const result = await gateway.resolveReference({
+    identifiers: { doi: "10.1145/example" },
+    title: "An ACM Paper",
+    authors: ["Smith"],
+    year: 2024,
+    channel: "conference",
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.equal(
+    result.primaryResult.landingURL,
+    "https://dl.acm.org/doi/10.1145/example",
+  );
+  assert.equal(seen.length, 3);
+  assert.match(seen[0] ?? "", /api\.crossref\.org/u);
+  assert.match(seen[1] ?? "", /api\.datacite\.org/u);
+  assert.equal(seen[2], "https://doi.org/10.1145/example");
+});
+
+test("traditional literature falls back to DataCite only after Crossref has no confirmed match", async () => {
+  const seen: string[] = [];
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({ message: { items: [] } });
+      }
+      if (url.includes("api.datacite.org")) {
+        return Response.json({
+          data: [
+            {
+              id: "10.48550/arxiv.2004.05718",
+              attributes: {
+                doi: "10.48550/arxiv.2004.05718",
+                titles: [
+                  {
+                    title: "Principal Neighbourhood Aggregation for Graph Nets",
+                  },
+                ],
+                creators: [{ familyName: "Corso" }],
+                publicationYear: 2020,
+                publisher: "arXiv",
+                url: "https://doi.org/10.48550/arxiv.2004.05718",
+              },
+            },
+          ],
+        });
+      }
+      if (url === "https://doi.org/10.48550/arxiv.2004.05718") {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "https://arxiv.org/abs/2004.05718" },
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }),
+  );
+
+  const result = await gateway.resolveReference({
+    identifiers: {},
+    title: "Principal Neighbourhood Aggregation for Graph Nets",
+    authors: ["Corso"],
+    year: 2020,
+    venue: "NeurIPS",
+    channel: "conference",
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.ok(seen[0]?.includes("api.crossref.org"));
+  assert.ok(seen[1]?.includes("api.datacite.org"));
+});
+
 test("DataCite string publisher is retained as venue metadata", async () => {
   const gateway = createRelatedLiteratureGateway(
     ports(async (input) => {
@@ -435,7 +541,7 @@ test("required citation metadata failures do not become a successful empty resul
 
 test("PMID-only Citing papers use a verified PubMed landing page", async () => {
   const gateway = createRelatedLiteratureGateway(
-    ports(async (input) => {
+    ports(async (input, init) => {
       const url = String(input);
       if (url.includes("/index/v2/citations/")) {
         return Response.json([
@@ -459,9 +565,12 @@ test("PMID-only Citing papers use a verified PubMed landing page", async () => {
         ]);
       }
       if (url === "https://pubmed.ncbi.nlm.nih.gov/5678/") {
-        return new Response("<html></html>", {
+        assert.equal(init?.redirect, "follow");
+        const response = new Response("<html></html>", {
           headers: { "Content-Type": "text/html" },
         });
+        Object.defineProperty(response, "url", { value: url });
+        return response;
       }
       throw new Error(`Unexpected URL ${url}`);
     }),

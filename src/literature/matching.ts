@@ -66,15 +66,29 @@ export function matchScholarlyCandidates(
       ({
         titleScore,
         authorScore,
+        hasExpectedAuthors,
         firstAuthorMatches,
+        exactTitleAndYear,
+        titleFormattingMatches,
         yearDifference,
         total,
-      }) =>
-        titleScore >= 0.9 &&
-        authorScore >= 0.5 &&
-        firstAuthorMatches &&
-        (yearDifference === null || yearDifference <= 1) &&
-        total >= 0.85,
+      }) => {
+        const strongMetadata =
+          hasExpectedAuthors &&
+          authorScore >= 0.7 &&
+          firstAuthorMatches &&
+          yearDifference !== null &&
+          yearDifference <= 1;
+        return (
+          exactTitleAndYear ||
+          ((titleScore >= 0.9 || (titleFormattingMatches && strongMetadata)) &&
+            (hasExpectedAuthors
+              ? authorScore >= 0.5 && firstAuthorMatches
+              : titleScore >= 0.98) &&
+            (yearDifference === null || yearDifference <= 1) &&
+            (total >= 0.85 || (titleFormattingMatches && strongMetadata)))
+        );
+      },
     )
     .sort(
       (left, right) =>
@@ -86,10 +100,25 @@ export function matchScholarlyCandidates(
     );
 
   if (eligible.length === 0) return { status: "no-candidate" };
-  const matched = eligible.map(({ candidate }) =>
-    withMatchedFields(candidate, metadataMatchedFields(paper, candidate)),
+  const matched = eligible.map(
+    ({ candidate, authorScore, firstAuthorMatches }) =>
+      withMatchedFields(
+        candidate,
+        metadataMatchedFields(
+          paper,
+          candidate,
+          authorScore,
+          firstAuthorMatches,
+        ),
+      ),
   );
-  if (eligible.length > 1 && eligible[0].total - eligible[1].total < 0.08) {
+  const first = eligible[0];
+  const second = eligible[1];
+  if (
+    second &&
+    ((first.exactTitleAndYear && second.exactTitleAndYear) ||
+      (!first.exactTitleAndYear && first.total - second.total < 0.08))
+  ) {
     return {
       status: "ambiguous",
       candidates: matched,
@@ -107,11 +136,13 @@ export function matchScholarlyCandidates(
 function metadataMatchedFields(
   paper: MatchablePaper,
   candidate: ScholarlyCandidate,
+  authorScore: number,
+  firstAuthorMatches: boolean,
 ): readonly string[] {
   return [
     "title",
-    "first-author",
-    "authors",
+    ...(firstAuthorMatches ? ["first-author"] : []),
+    ...(authorScore > 0 ? ["authors"] : []),
     ...(paper.year !== null && candidate.publicationYear !== null
       ? ["year"]
       : []),
@@ -149,7 +180,10 @@ function scoreMetadata(
 ): Readonly<{
   titleScore: number;
   authorScore: number;
+  hasExpectedAuthors: boolean;
   firstAuthorMatches: boolean;
+  exactTitleAndYear: boolean;
+  titleFormattingMatches: boolean;
   yearDifference: number | null;
   total: number;
 }> {
@@ -158,23 +192,31 @@ function scoreMetadata(
     wordBigrams(normalizeText(candidate.title ?? "")),
   );
   const expectedAuthors = new Set(
-    paper.authors.map(normalizeText).filter(Boolean),
+    paper.authors.map(normalizeFamilyName).filter(Boolean),
   );
   const actualAuthors = new Set(
     candidate.authors
-      .map(({ family }) => normalizeText(family))
+      .map(({ family }) => normalizeFamilyName(family))
       .filter(Boolean),
   );
   const authorScore = jaccard(expectedAuthors, actualAuthors);
+  const hasExpectedAuthors = expectedAuthors.size > 0;
   const firstAuthorMatches =
     expectedAuthors.size > 0 &&
     actualAuthors.size > 0 &&
-    normalizeText(paper.authors[0] ?? "") ===
-      normalizeText(candidate.authors[0]?.family ?? "");
+    normalizeFamilyName(paper.authors[0] ?? "") ===
+      normalizeFamilyName(candidate.authors[0]?.family ?? "");
+  const expectedTitle = normalizeText(paper.title ?? "");
+  const actualTitle = normalizeText(candidate.title ?? "");
+  const titleEquivalent = expectedTitle === actualTitle;
+  const titleFormattingMatches =
+    compactText(expectedTitle) === compactText(actualTitle) ||
+    (actualTitle.length >= 7 && expectedTitle.startsWith(`${actualTitle} `));
   const yearDifference =
     paper.year === null || candidate.publicationYear === null
       ? null
       : Math.abs(paper.year - candidate.publicationYear);
+  const exactTitleAndYear = titleEquivalent && yearDifference === 0;
   const yearScore =
     yearDifference === null
       ? 0
@@ -183,22 +225,40 @@ function scoreMetadata(
         : yearDifference === 1
           ? 0.5
           : 0;
+  const yearWeight = yearDifference === null ? 0 : 0.1;
+  const authorWeight = hasExpectedAuthors ? 0.25 : 0;
+  const totalWeight = 0.65 + authorWeight + yearWeight;
+  const weightedTotal =
+    (0.65 * titleScore + authorWeight * authorScore + yearWeight * yearScore) /
+    totalWeight;
   return {
     titleScore,
     authorScore,
+    hasExpectedAuthors,
     firstAuthorMatches,
+    exactTitleAndYear,
+    titleFormattingMatches,
     yearDifference,
-    total: 0.65 * titleScore + 0.25 * authorScore + 0.1 * yearScore,
+    total: exactTitleAndYear ? 1 : weightedTotal,
   };
 }
 
 function normalizeText(value: string): string {
   return decodeHTML(value)
-    .normalize("NFKC")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLocaleLowerCase("en")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
+}
+
+function normalizeFamilyName(value: string): string {
+  return normalizeText(value).replace(/^(?:da|de|di|la|le|van|von)\s+/u, "");
+}
+
+function compactText(value: string): string {
+  return value.replace(/\s+/gu, "");
 }
 
 function wordBigrams(value: string): Set<string> {

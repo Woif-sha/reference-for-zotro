@@ -50,13 +50,12 @@ export async function searchCrossref(
     );
   }
   const params = new URLSearchParams({
-    "query.bibliographic": [input.title, input.year?.toString(), input.venue]
+    "query.bibliographic": [input.title, input.year?.toString()]
       .filter(Boolean)
       .join(" "),
     rows: "5",
   });
   if (input.firstAuthor) params.set("query.author", input.firstAuthor);
-  if (input.venue) params.set("query.container-title", input.venue);
   const body = await getJson(
     "crossref",
     `https://api.crossref.org/v1/works?${params}`,

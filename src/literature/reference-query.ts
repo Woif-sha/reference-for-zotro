@@ -18,16 +18,15 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
     : (unquoted?.authorRegion ?? "");
   const authors = extractFamilyNames(authorRegion);
   const year = extractYear(lookupText);
-  const venue = quoted
-    ? extractVenue(lookupText.slice(quoted.end), year)
-    : unquoted?.venue;
+  const citationTail = quoted ? lookupText.slice(quoted.end) : lookupText;
+  const venue = quoted ? extractVenue(citationTail) : unquoted?.venue;
   return {
     identifiers,
-    title,
+    title: trimTitlePunctuation(title),
     authors,
     year,
     venue,
-    channel: classifyChannel(`${venue ?? ""} ${lookupText}`),
+    channel: classifyChannel(venue ?? "", citationTail),
   };
 }
 
@@ -50,11 +49,10 @@ function findUnquotedMetadata(
   const titleMatch = /^(.+?)\.(?:\s+|$)/u.exec(remainder);
   if (!titleMatch?.[1]) return undefined;
   const afterTitle = remainder.slice(titleMatch[0].length);
-  const year = extractYear(afterTitle);
   return {
     authorRegion: value.slice(0, boundary),
     title: titleMatch[1],
-    venue: extractVenue(afterTitle, year),
+    venue: extractVenue(afterTitle),
   };
 }
 
@@ -71,21 +69,45 @@ function findQuotedTitle(
 }
 
 function extractFamilyNames(value: string): string[] {
+  const initialFirst = value
+    .split(/\s*,\s*|\s+and\s+/iu)
+    .map((part) =>
+      /^(?:(?:\p{L}\.(?:-\p{L}\.)?)\s*)+([\p{L}][\p{L}'’\- ]*)$/u.exec(
+        part.trim().replace(/^and\s+/iu, ""),
+      ),
+    )
+    .map((match) => match?.[1]?.trim().split(/\s+/u).at(-1))
+    .filter((family): family is string => Boolean(family));
+  if (initialFirst.length > 0) return initialFirst;
+
   return [
     ...value.matchAll(/(?:^|[\s;&])([\p{L}][\p{L}'’-]+),\s*(?:[\p{L}]\.?)/gu),
   ].map((match) => match[1]);
 }
 
 function extractYear(value: string): number | null {
-  const years = [...value.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})\b/gu)];
+  const metadata = value
+    .replace(/https?:\/\/\S+/giu, " ")
+    .replace(/\b10\.\d{4,9}\/[-._;()/:a-z0-9]+/giu, " ")
+    .replace(/\barxiv\s*:\s*\S+/giu, " ");
+  const years = [...metadata.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})\b/gu)];
   const last = years.at(-1)?.[1];
   return last ? Number(last) : null;
 }
 
-function extractVenue(value: string, year: number | null): string | undefined {
-  const beforeYear = year === null ? value : value.split(String(year), 1)[0];
-  const venue = beforeYear
+function extractVenue(value: string): string | undefined {
+  const metadata = value
+    .replace(/\s*\[Online\][\s\S]*$/iu, "")
+    .replace(/\s*(?:Available\s*:|https?:\/\/)[\s\S]*$/iu, "")
     .replace(/^[\s.,;:]+/u, "")
+    .trim();
+  const conference =
+    /^in\s+(?:\d{4}\s+)?(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|pp?|ser|eds?)\.)|$)/iu.exec(
+      metadata,
+    );
+  const publication =
+    /^(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|pp?|ser|eds?)\.)|$)/iu.exec(metadata);
+  const venue = (conference?.[1] ?? publication?.[1] ?? metadata)
     .replace(/[\s,;:]+$/u, "")
     .trim();
   return venue || undefined;
@@ -100,8 +122,12 @@ function extractBiomedicalIdentifiers(value: string): ScholarlyIdentifiers {
   };
 }
 
-function classifyChannel(value: string): PublicationChannel {
-  const normalized = value.toLowerCase();
+function classifyChannel(
+  venue: string,
+  citationTail: string,
+): PublicationChannel {
+  const normalized = `${venue} ${citationTail}`.toLowerCase();
+  if (/^[\s.,;:]*in\b/iu.test(citationTail)) return "conference";
   const rules: Array<[PublicationChannel, RegExp]> = [
     ["dataset", /\bdata\s*set\b|\bdataset\b/u],
     ["software", /\bsoftware\b|\bsource code\b/u],
@@ -111,10 +137,14 @@ function classifyChannel(value: string): PublicationChannel {
     ["conference", /\bconference\b|\bproceedings\b|\bsymposium\b/u],
     ["chapter", /\bchapter\b/u],
     ["book", /\bbook\b|\bpress\b/u],
-    ["standard", /\bstandard\b|\bieee std\b|\biso \d/iu],
-    ["journal", /\bjournal\b|\btransactions\b|\bletters\b/u],
+    ["standard", /\bieee std\b|\biso \d/iu],
+    ["journal", /\bjournal\b|\btransactions\b|\bletters\b|\bieee access\b/u],
   ];
   return (
     rules.find(([, pattern]) => pattern.test(normalized))?.[0] ?? "unknown"
   );
+}
+
+function trimTitlePunctuation(value: string): string {
+  return value.replace(/[,;]+$/u, "").trim();
 }

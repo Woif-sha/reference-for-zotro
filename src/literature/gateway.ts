@@ -167,11 +167,25 @@ export function createRelatedLiteratureGateway(
   async function resolveReference(
     query: ReferenceQuery,
   ): Promise<ReferenceResolution> {
-    const plans = referencePlans(query, ports);
-    const runs = await Promise.all(plans);
+    let runs = await Promise.all(referencePlans(query, ports));
+    let candidates = runs.flatMap(({ candidates: values }) => values);
+    let match = matchScholarlyCandidates(query, candidates);
+    if (
+      match.status === "no-candidate" &&
+      !query.identifiers.doi &&
+      isTraditional(query.channel) &&
+      runs.every(({ outcome }) => outcome.status !== "failed")
+    ) {
+      runs = [
+        ...runs,
+        await runProvider("datacite", () =>
+          searchDataCite(referenceSearchInput(query), ports),
+        ),
+      ];
+      candidates = runs.flatMap(({ candidates: values }) => values);
+      match = matchScholarlyCandidates(query, candidates);
+    }
     const outcomes = runs.map(({ outcome }) => outcome);
-    const candidates = runs.flatMap(({ candidates: values }) => values);
-    const match = matchScholarlyCandidates(query, candidates);
     if (match.status === "ambiguous") {
       return { status: "ambiguous", candidates: match.candidates, outcomes };
     }
@@ -510,13 +524,7 @@ function referencePlans(
       ),
     ];
   }
-  const input = {
-    title: query.title ?? "",
-    firstAuthor: query.authors[0],
-    year: query.year ?? undefined,
-    venue: query.venue,
-    signal: query.signal,
-  };
+  const input = referenceSearchInput(query);
   if (isTraditional(query.channel)) {
     return [runProvider("crossref", () => searchCrossref(input, ports))];
   }
@@ -527,6 +535,16 @@ function referencePlans(
     runProvider("crossref", () => searchCrossref(input, ports)),
     runProvider("datacite", () => searchDataCite(input, ports)),
   ];
+}
+
+function referenceSearchInput(query: ReferenceQuery) {
+  return {
+    title: query.title ?? "",
+    firstAuthor: query.authors[0],
+    year: query.year ?? undefined,
+    venue: query.venue,
+    signal: query.signal,
+  };
 }
 
 async function runProvider(

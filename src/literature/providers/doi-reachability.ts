@@ -11,11 +11,34 @@ export async function verifyDoiLandingPage(
   ports: ProviderPorts,
   signal?: AbortSignal,
 ): Promise<ReachabilityResult> {
-  return verifyLandingPage(
-    `https://doi.org/${encodeURI(doi.toLowerCase())}`,
-    ports,
-    signal,
-  );
+  const resolverURL = `https://doi.org/${encodeURI(doi.toLowerCase())}`;
+  let response: Response;
+  try {
+    response = await ports.fetch(resolverURL, {
+      method: "GET",
+      redirect: "follow",
+      headers: { Accept: "text/html,application/xhtml+xml" },
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return unreachable();
+  }
+  if (REDIRECTS.has(response.status)) {
+    const location = response.headers.get("Location");
+    if (!location) return unreachable();
+    const landingURL = new URL(location, resolverURL).toString();
+    return isSafeLandingURL(landingURL)
+      ? { status: "reachable", landingURL }
+      : unreachable();
+  }
+  const landingURL = response.url || resolverURL;
+  const accessControlled =
+    landingURL !== resolverURL &&
+    (response.status === 401 || response.status === 403);
+  return (response.ok || accessControlled) && isSafeLandingURL(landingURL)
+    ? { status: "reachable", landingURL }
+    : unreachable();
 }
 
 export async function verifyLandingPage(
@@ -23,40 +46,26 @@ export async function verifyLandingPage(
   ports: ProviderPorts,
   signal?: AbortSignal,
 ): Promise<ReachabilityResult> {
-  let url = initialURL;
-  if (!url.startsWith("https://")) return unreachable();
-  for (let redirects = 0; redirects <= 5; redirects += 1) {
-    let response: Response;
-    try {
-      response = await ports.fetch(url, {
-        method: "GET",
-        redirect: "manual",
-        headers: { Accept: "text/html,application/xhtml+xml" },
-        signal,
-      });
-    } catch (error) {
-      if (isAbortError(error)) throw error;
-      return { status: "unreachable", code: "unreachable-landing-page" };
-    }
-    if (REDIRECTS.has(response.status)) {
-      const location = response.headers.get("Location");
-      if (!location) return unreachable();
-      const next = new URL(location, url);
-      if (next.protocol !== "https:") return unreachable();
-      url = next.toString();
-      continue;
-    }
-    if (!response.ok || !url.startsWith("https://")) return unreachable();
-    const contentType = response.headers.get("Content-Type")?.toLowerCase();
-    if (
-      contentType?.includes("application/pdf") ||
-      /\.pdf(?:$|[?#])/iu.test(url)
-    ) {
-      return unreachable();
-    }
-    return { status: "reachable", landingURL: url };
+  if (!isSafeLandingURL(initialURL)) return unreachable();
+  let response: Response;
+  try {
+    response = await ports.fetch(initialURL, {
+      method: "GET",
+      redirect: "follow",
+      headers: { Accept: "text/html,application/xhtml+xml" },
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) throw error;
+    return unreachable();
   }
-  return unreachable();
+  const landingURL = response.url || initialURL;
+  const contentType = response.headers.get("Content-Type")?.toLowerCase();
+  return response.ok &&
+    isSafeLandingURL(landingURL) &&
+    !contentType?.includes("application/pdf")
+    ? { status: "reachable", landingURL }
+    : unreachable();
 }
 
 function isAbortError(error: unknown): boolean {
@@ -68,4 +77,8 @@ function isAbortError(error: unknown): boolean {
 
 function unreachable(): ReachabilityResult {
   return { status: "unreachable", code: "unreachable-landing-page" };
+}
+
+function isSafeLandingURL(url: string): boolean {
+  return url.startsWith("https://") && !/\.pdf(?:$|[?#])/iu.test(url);
 }

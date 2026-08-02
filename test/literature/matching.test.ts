@@ -198,3 +198,84 @@ test("named scholarly HTML entities are decoded before title evidence is scored"
     "confirmed",
   );
 });
+
+test("an exact title and year can confirm a candidate when the citation has no parsed authors", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title:
+        "CSyn-fp: Standard Cell Synthesis of Advanced Nodes With Simultaneous Transistor Folding and Placement",
+      authors: [],
+      year: 2024,
+    },
+    [
+      candidate({
+        title:
+          "CSyn-fp: Standard Cell Synthesis of Advanced Nodes With Simultaneous Transistor Folding and Placement",
+        authors: [{ family: "Baek" }, { family: "Kim" }],
+        publicationYear: 2024,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "confirmed");
+  assert.deepEqual(result.candidate.matchedFields, ["title", "year"]);
+});
+
+test("strong author and year evidence tolerates publisher title formatting", () => {
+  for (const example of [
+    {
+      referenceTitle:
+        "High-correlation 3d routability estimation for congestionguided global routing",
+      candidateTitle:
+        "High-Correlation 3D Routability Estimation for Congestion-guided Global Routing",
+      expectedAuthors: ["Zhou", "Jin", "Tan"],
+      actualAuthors: ["Zhou", "Jin", "Tan"],
+    },
+    {
+      referenceTitle:
+        "Routenet: Routability prediction for mixed-size designs using convolutional neural network",
+      candidateTitle: "RouteNet",
+      expectedAuthors: ["Xie", "Huang", "Fang", "Ren", "Chen", "Hu"],
+      actualAuthors: ["Xie", "Huang", "Fang", "Ren", "Chen", "Corporation"],
+    },
+  ]) {
+    const result = matchScholarlyCandidates(
+      {
+        identifiers: {},
+        title: example.referenceTitle,
+        authors: example.expectedAuthors,
+        year: 2020,
+      },
+      [
+        candidate({
+          title: example.candidateTitle,
+          authors: example.actualAuthors.map((family) => ({ family })),
+          publicationYear: 2020,
+        }),
+      ],
+    );
+
+    assert.equal(result.status, "confirmed");
+  }
+});
+
+test("exact title and year do not depend on author spelling", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title: "BonnCell: Automatic Cell Layout in the 7-nm Era",
+      authors: ["Reported-Author"],
+      year: 2020,
+    },
+    [
+      candidate({
+        title: "BonnCell: Automatic Cell Layout in the 7-nm Era",
+        authors: [{ family: "Different-Author" }],
+        publicationYear: 2020,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "confirmed");
+});

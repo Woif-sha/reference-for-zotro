@@ -45,3 +45,23 @@ test("common unquoted author-title-venue entries use all three matching signals"
     "Advances in Neural Information Processing Systems",
   );
 });
+
+test("IEEE-style references keep real authors, conference venue, and publication year", () => {
+  const conference = parseReferenceQuery(
+    "Y. Yasuda-Masuoka, J. Jeong, K. Son, S. Lee, S. Park, Y. Lee, J. Youn Kim, J. Lee, M. Cho, S. Lee, S. Hong, H. Hong, Y. Jung, C. Yoon, Y. Ko, K. Jung, T. Myung, J. M. Youn, and G. Jeong, “High performance 4nm finfet platform (4lpe) with novel advanced transistor level dtco for dual-cpp/hp-hd standard cells,” in 2021 IEEE International Electron Devices Meeting (IEDM), 2021, pp. 13.3.1–13.3.4.",
+  );
+  assert.ok(conference.title);
+  assert.equal(conference.title.endsWith(","), false);
+  assert.equal(conference.authors.length, 19);
+  assert.deepEqual(conference.authors.slice(-2), ["Youn", "Jeong"]);
+  assert.equal(
+    conference.venue,
+    "IEEE International Electron Devices Meeting (IEDM)",
+  );
+  assert.equal(conference.channel, "conference");
+
+  const doiReference = parseReferenceQuery(
+    "R. Zhong, J. Ye, Z. Tang, S. Kai, M. Yuan, J. Hao, and J. Yan, “Preroutgnn for timing prediction,” in Proceedings of the AAAI Conference, 2024. [Online]. Available: https://doi.org/10.1609/aaai.v38i15.29653",
+  );
+  assert.equal(doiReference.year, 2024);
+});

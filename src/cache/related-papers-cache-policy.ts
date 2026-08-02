@@ -19,7 +19,9 @@ export function decideRelatedPapersCacheWrite(
 ): CacheWriteDecision {
   const hasFailure = results.references.some(
     ({ status, providerFailures }) =>
-      status === "failed" || Boolean(providerFailures?.length),
+      status === "failed" ||
+      status === "unreachable" ||
+      Boolean(providerFailures?.length),
   );
   if (hasFailure) return { kind: "remove" };
 

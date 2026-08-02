@@ -1,5 +1,15 @@
 export type ProviderName =
-  "crossref" | "datacite" | "opencitations-index" | "opencitations-meta";
+  | "crossref"
+  | "datacite"
+  | "openalex"
+  | "opencitations-index"
+  | "opencitations-meta"
+  | "semantic-scholar";
+
+export type CandidateProviderName = Exclude<
+  ProviderName,
+  "openalex" | "semantic-scholar"
+>;
 
 export type ScholarlyIdentifiers = Readonly<{
   doi?: string;
@@ -21,7 +31,7 @@ export type ScholarlyAuthor = Readonly<{
 }>;
 
 export type ScholarlyCandidate = Readonly<{
-  source: ProviderName;
+  source: CandidateProviderName;
   sourceRecordID: string;
   retrievedAt: string;
   identifiers: ScholarlyIdentifiers;
@@ -31,6 +41,7 @@ export type ScholarlyCandidate = Readonly<{
   publicationYear: number | null;
   venue: string | null;
   abstract: string | null;
+  abstractSource?: ProviderName;
   referenceCount: number | null;
   citationCount: number | null;
   canonicalURL: string | null;

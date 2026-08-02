@@ -90,6 +90,7 @@ export function candidateToReaderPaper(
     matchedBy,
     doi: candidate.identifiers.doi,
     abstract: stripMarkup(candidate.abstract),
+    abstractSource: candidate.abstractSource,
     citationCount: candidate.citationCount ?? undefined,
     referenceCount: candidate.referenceCount ?? undefined,
     source: candidate.source,

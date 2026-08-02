@@ -45,7 +45,12 @@ export function decideRelatedPapersCacheWrite(
 }
 
 export function preparePaperForCache(paper: ReaderPaper): ReaderPaper {
-  if (paper.source !== "crossref") return paper;
+  if (
+    paper.source !== "crossref" ||
+    (paper.abstractSource && paper.abstractSource !== "crossref")
+  ) {
+    return paper;
+  }
   const sanitized = { ...paper };
   delete sanitized.abstract;
   return sanitized;

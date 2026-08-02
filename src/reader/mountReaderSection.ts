@@ -22,6 +22,9 @@ type ReaderPaperBase = {
   statusText?: string;
   doi?: string;
   abstract?: string;
+  abstractSource?: string;
+  abstractLoading?: boolean;
+  abstractError?: string;
   citationCount?: number;
   referenceCount?: number;
   source?: string;
@@ -379,7 +382,12 @@ function renderDetailCard(
         : ""
     }
     <section class="rfz-abstract"><strong>Abstract</strong><p>${escapeHTML(
-      paper.abstract ?? "Current metadata source did not provide an abstract.",
+      paper.abstract ??
+        (paper.abstractLoading
+          ? "Loading abstract…"
+          : paper.abstractError
+            ? `Abstract unavailable: ${paper.abstractError}`
+            : "Current metadata source did not provide an abstract."),
     )}</p></section>
   </aside>`;
 }

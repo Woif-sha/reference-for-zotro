@@ -25,6 +25,11 @@ import {
   resolveDeterministicLandingPage,
 } from "./literature/identifiers";
 import { parseReferenceQuery } from "./literature/reference-query";
+import { lookupAvailableAbstract } from "./literature/providers/abstract";
+import {
+  parseTrustedLandingMetadata,
+  type TrustedLandingMetadata,
+} from "./literature/providers/trusted-landing-metadata";
 import type { FetchPort } from "./literature/providers/types";
 import {
   createPaperTranslateBridge,
@@ -37,7 +42,7 @@ import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 const PROVIDER_SCHEMA_VERSION = 2;
-export const PROVIDER_QUERY_VERSION = 4;
+export const PROVIDER_QUERY_VERSION = 5;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -111,6 +116,16 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             candidateToReaderPaper(candidate, index),
           );
         },
+        async loadAbstract(paper, context) {
+          if (!paper.doi) {
+            throw new Error("Abstract lookup requires a confirmed DOI");
+          }
+          return lookupAvailableAbstract(
+            paper.doi,
+            providerPorts,
+            context.signal,
+          );
+        },
         async readCachedResults(paper) {
           const envelope = await cache.read(cacheIdentity(paper));
           if (!envelope) return undefined;
@@ -175,21 +190,34 @@ export async function resolveReferenceEntry(
   const query = parseReferenceQuery(lookupText);
 
   if (!query.identifiers.doi && deterministic.status === "confirmed") {
-    const landingURL = await verifyDirectLandingPage(
+    const landing = await loadDirectLandingPage(
       deterministic.url,
       fetchPort,
       context.signal,
     );
-    if (landingURL) {
-      return {
-        id: `reference:${ordinal}`,
+    if (landing) {
+      const doi = landing.metadata.doi;
+      if (doi) {
+        const resolution = await gateway.resolveReference({
+          ...query,
+          identifiers: { ...query.identifiers, doi },
+          title: landing.metadata.title ?? query.title,
+          year: landing.metadata.publicationYear ?? query.year,
+          venue: landing.metadata.venue ?? query.venue,
+          signal: context.signal,
+          context: gatewayContext(context),
+        });
+        if (resolution.status === "resolved") {
+          return resolutionToReaderPaper(ordinal, lookupText, resolution);
+        }
+      }
+      return directLandingToReaderPaper(
         ordinal,
-        title: query.title || lookupText,
-        status: "resolved",
-        primaryResultURL: landingURL,
-        matchedBy: deterministic.matchedBy,
-        doi: stable.doi,
-      };
+        query.title || lookupText,
+        landing.url,
+        deterministic.matchedBy,
+        landing.metadata,
+      );
     }
     return unresolvedPaper(
       ordinal,
@@ -271,11 +299,13 @@ function resolveReaderAttachmentID(itemID: number): number {
   return itemID;
 }
 
-async function verifyDirectLandingPage(
+async function loadDirectLandingPage(
   url: string,
   fetchPort: FetchPort,
   signal: AbortSignal,
-): Promise<string | undefined> {
+): Promise<
+  Readonly<{ url: string; metadata: TrustedLandingMetadata }> | undefined
+> {
   try {
     const response = await fetchPort(url, {
       method: "GET",
@@ -293,7 +323,8 @@ async function verifyDirectLandingPage(
     ) {
       return undefined;
     }
-    return landingURL;
+    const html = await response.text();
+    return { url: landingURL, metadata: parseTrustedLandingMetadata(html) };
   } catch (error) {
     if (isAbortError(error)) throw error;
     throw new Error(
@@ -303,6 +334,39 @@ async function verifyDirectLandingPage(
       { cause: error },
     );
   }
+}
+
+function directLandingToReaderPaper(
+  ordinal: number,
+  fallbackTitle: string,
+  landingURL: string,
+  matchedBy: "trusted-source-url" | "arxiv" | "ieee-article-number" | "doi",
+  metadata: TrustedLandingMetadata,
+): ReaderPaper {
+  const metadataIncomplete =
+    metadata.authors.length === 0 ||
+    metadata.publicationYear === undefined ||
+    !metadata.venue;
+  return {
+    id: metadata.doi ?? `reference:${ordinal}`,
+    ordinal,
+    title: metadata.title ?? fallbackTitle,
+    authors:
+      metadata.authors.length > 0 ? metadata.authors.join(", ") : undefined,
+    venue: metadata.venue,
+    year: metadata.publicationYear?.toString(),
+    abstract: metadata.abstract,
+    status: "resolved",
+    primaryResultURL: landingURL,
+    matchedBy,
+    doi: metadata.doi,
+    source: "trusted-source",
+    sourceRecordID: landingURL,
+    retrievedAt: new Date().toISOString(),
+    matchedFields: [metadata.doi ? "doi" : "trusted-source-url"],
+    rawProvenance: [`trusted-source-url:${landingURL}`],
+    metadataIncomplete,
+  };
 }
 
 function abortError(): Error {

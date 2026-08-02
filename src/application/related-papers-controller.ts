@@ -41,6 +41,10 @@ export interface RelatedPapersPorts {
     limit: 10 | 30 | 50,
     context: ResolutionContext,
   ): Promise<readonly ReaderPaper[]>;
+  loadAbstract?(
+    paper: ReaderPaper,
+    context: ResolutionContext,
+  ): Promise<Readonly<{ text: string; source: string }>>;
   readCachedResults?(
     paper: LoadedPaper,
   ): Promise<CachedRelatedPapers | undefined>;
@@ -67,6 +71,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private readonly sessions = new PaperSessionCoordinator();
   private loadController?: AbortController;
   private persistController?: AbortController;
+  private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
@@ -105,10 +110,11 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   selectPaper(paperID: string): void {
+    const closing = this.state.selectedPaperID === paperID;
     this.update({
-      selectedPaperID:
-        this.state.selectedPaperID === paperID ? undefined : paperID,
+      selectedPaperID: closing ? undefined : paperID,
     });
+    if (!closing) void this.loadPaperAbstract(paperID);
   }
 
   refresh(): void {
@@ -270,6 +276,48 @@ export class RelatedPapersController implements ReaderSectionController {
     }
   }
 
+  private async loadPaperAbstract(paperID: string): Promise<void> {
+    const context = this.context;
+    const paper = [...this.state.references, ...this.state.citingPapers].find(
+      (candidate) => candidate.id === paperID,
+    );
+    if (
+      !context ||
+      !this.ports.loadAbstract ||
+      paper?.status !== "resolved" ||
+      paper.abstract ||
+      paper.abstractLoading
+    ) {
+      return;
+    }
+    const requestKey = `${context.token.generation}:${paperID}`;
+    if (this.abstractLoads.has(requestKey)) return;
+    this.abstractLoads.add(requestKey);
+    this.replacePaper(paperID, {
+      abstractLoading: true,
+      abstractError: undefined,
+    });
+    try {
+      const loaded = await this.ports.loadAbstract(paper, context);
+      if (!this.sessions.canCommit(context.token)) return;
+      this.replacePaper(paperID, {
+        abstract: loaded.text,
+        abstractSource: loaded.source,
+        abstractLoading: false,
+        abstractError: undefined,
+      });
+      await this.persistResults(context);
+    } catch (error) {
+      if (!this.sessions.canCommit(context.token)) return;
+      this.replacePaper(paperID, {
+        abstractLoading: false,
+        abstractError: conciseError(error),
+      });
+    } finally {
+      this.abstractLoads.delete(requestKey);
+    }
+  }
+
   private publishLoadFailure(error: unknown): void {
     const code = getErrorCode(error);
     if (isMinerUContractFailure(code)) {
@@ -325,6 +373,15 @@ export class RelatedPapersController implements ReaderSectionController {
   private update(patch: Partial<ReaderSectionState>): void {
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener(this.state);
+  }
+
+  private replacePaper(paperID: string, patch: Partial<ReaderPaper>): void {
+    const replace = (paper: ReaderPaper): ReaderPaper =>
+      paper.id === paperID ? ({ ...paper, ...patch } as ReaderPaper) : paper;
+    this.update({
+      references: this.state.references.map(replace),
+      citingPapers: this.state.citingPapers.map(replace),
+    });
   }
 
   private assertActive(): void {

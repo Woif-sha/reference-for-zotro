@@ -55,6 +55,14 @@ test("cache preserves permitted Abstracts and omits Crossref Abstracts", () => {
     preparePaperForCache({ ...base, source: "crossref" }).abstract,
     undefined,
   );
+  assert.equal(
+    preparePaperForCache({
+      ...base,
+      source: "crossref",
+      abstractSource: "semantic-scholar",
+    }).abstract,
+    "Available abstract",
+  );
 });
 
 test("resolved papers expose incomplete descriptive metadata without losing identity", () => {

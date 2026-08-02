@@ -1,6 +1,6 @@
 import {
   hasStableIdentifier,
-  type ProviderName,
+  type CandidateProviderName,
   type ScholarlyCandidate,
 } from "./providers/types";
 
@@ -10,7 +10,7 @@ export type PrimaryResultCandidate = Readonly<{
   reachability: "reachable" | "unreachable";
 }>;
 
-const AUTHORITY: Readonly<Record<ProviderName, number>> = {
+const AUTHORITY: Readonly<Record<CandidateProviderName, number>> = {
   crossref: 2,
   datacite: 2,
   "opencitations-meta": 1,

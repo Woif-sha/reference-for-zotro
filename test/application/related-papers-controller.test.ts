@@ -200,6 +200,47 @@ test("only a resolved Primary result can open the browser", async () => {
   assert.deepEqual(opened, ["https://doi.org/10.1000/one"]);
 });
 
+test("selecting a resolved DOI paper lazily loads and publishes its Abstract", async () => {
+  const abstract = deferred<{ text: string; source: string }>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        id: "reference:0",
+        ordinal: 0,
+        title: "Resolved paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/one",
+        doi: "10.1000/one",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    loadAbstract: () => abstract.promise,
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  controller.selectPaper("reference:0");
+  await waitFor(
+    () => controller.getState().references[0]?.abstractLoading === true,
+  );
+  abstract.resolve({
+    text: "An abstract loaded only after the paper was selected.",
+    source: "semantic-scholar",
+  });
+  await waitFor(
+    () =>
+      controller.getState().references[0]?.abstract ===
+      "An abstract loaded only after the paper was selected.",
+  );
+
+  assert.equal(
+    controller.getState().references[0]?.abstractSource,
+    "semantic-scholar",
+  );
+  assert.equal(controller.getState().references[0]?.abstractLoading, false);
+});
+
 test("unchanged MinerU identity reuses persisted results while manual refresh bypasses them", async () => {
   let resolveCalls = 0;
   let cacheReads = 0;

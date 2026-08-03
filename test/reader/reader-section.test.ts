@@ -20,6 +20,7 @@ function readyState(): ReaderSectionState {
         title: "First reference",
         authors: "Alpha",
         year: "2024",
+        doi: "10.1000/first",
         status: "resolved",
         primaryResultURL: "https://example.test/first",
         matchedBy: "doi",
@@ -58,6 +59,7 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
       selectPaper() {},
       refresh() {},
       openPaper() {},
+      performPaperAction() {},
     },
   });
 
@@ -95,6 +97,7 @@ test("Reader section renders Reference entries in source order and selects Citat
     selectPaper() {},
     refresh() {},
     openPaper() {},
+    performPaperAction() {},
   };
 
   const mounted = mountReaderSection({
@@ -218,6 +221,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     openPaper(paperID) {
       actions.push(`open:${paperID}`);
     },
+    performPaperAction() {},
   };
 
   const mounted = mountReaderSection({
@@ -395,6 +399,7 @@ test("Reader section delegates Ctrl+left-click for resolved and unresolved title
     selectPaper: (paperID) => actions.push(`select:${paperID}`),
     refresh() {},
     openPaper: (paperID) => actions.push(`open:${paperID}`),
+    performPaperAction() {},
   };
   const mounted = mountReaderSection({
     body: dom.window.document.body,
@@ -446,6 +451,103 @@ test("Reader section delegates Ctrl+left-click for resolved and unresolved title
   mounted.destroy();
 });
 
+test("Reader paper rows expose XUL-compatible context actions", () => {
+  const dom = new JSDOM(
+    '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
+    { contentType: "application/xml" },
+  );
+  const body = dom.window.document.getElementsByTagNameNS(
+    "http://www.w3.org/1999/xhtml",
+    "section",
+  )[0] as HTMLElement;
+  const actions: string[] = [];
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction(paperID, action) {
+        actions.push(`${paperID}:${action}`);
+      },
+    },
+  });
+  const firstRow = dom.window.document.querySelector('[data-paper-id="ref-1"]');
+  assert.ok(firstRow);
+
+  const openMenu = (): HTMLElement => {
+    firstRow.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: 120,
+        clientY: 80,
+      }),
+    );
+    const menu = dom.window.document.querySelector(
+      "[data-paper-context-menu]",
+    ) as HTMLElement | null;
+    assert.ok(menu);
+    assert.ok(menu.classList.contains("is-open"));
+    return menu;
+  };
+
+  assert.deepEqual(
+    [...openMenu().querySelectorAll("[data-paper-action]")].map(
+      ({ tagName, textContent }) => [tagName, textContent],
+    ),
+    [
+      ["div", "Copy paper title"],
+      ["div", "Copy DOI"],
+      ["div", "Search with Google"],
+    ],
+  );
+  (
+    openMenu().querySelector('[data-paper-action="copy-title"]') as HTMLElement
+  ).click();
+  (
+    openMenu().querySelector('[data-paper-action="copy-doi"]') as HTMLElement
+  ).click();
+  (
+    openMenu().querySelector(
+      '[data-paper-action="google-search"]',
+    ) as HTMLElement
+  ).click();
+
+  assert.deepEqual(actions, [
+    "ref-1:copy-title",
+    "ref-1:copy-doi",
+    "ref-1:google-search",
+  ]);
+
+  const secondRow = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"]',
+  );
+  assert.ok(secondRow);
+  secondRow.dispatchEvent(
+    new dom.window.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  assert.equal(
+    dom.window.document
+      .querySelector('[data-paper-action="copy-doi"]')
+      ?.getAttribute("aria-disabled"),
+    "true",
+  );
+
+  mounted.destroy();
+  assert.equal(
+    dom.window.document.querySelector("[data-paper-context-menu]"),
+    null,
+  );
+});
+
 test("Reader section closes an open detail card when clicking elsewhere", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
@@ -481,6 +583,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
       },
       refresh() {},
       openPaper() {},
+      performPaperAction() {},
     },
   });
 
@@ -537,6 +640,7 @@ test("only Resolved references and Citing papers open a detail card", () => {
       },
       refresh() {},
       openPaper() {},
+      performPaperAction() {},
     },
   });
 
@@ -579,6 +683,7 @@ test("Reader section keeps unresolved rows title-only while retaining actionable
       selectPaper() {},
       refresh() {},
       openPaper() {},
+      performPaperAction() {},
     },
   });
 
@@ -610,6 +715,7 @@ test("Reader section translates only text selected inside the extension UI", asy
     selectPaper() {},
     refresh() {},
     openPaper() {},
+    performPaperAction() {},
     async translateSelection(text) {
       translated.push(text);
       return "第一篇参考文献";
@@ -661,6 +767,7 @@ test("a translation failure disables only UI translation for the mounted section
       selectPaper() {},
       refresh() {},
       openPaper() {},
+      performPaperAction() {},
       async translateSelection() {
         translationCalls += 1;
         throw new Error("Paper Translate service unavailable");

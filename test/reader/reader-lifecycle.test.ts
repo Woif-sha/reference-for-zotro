@@ -44,6 +44,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
         selectPaper() {},
         refresh() {},
         openPaper() {},
+        performPaperAction() {},
         dispose: () => destroyed.push(attachmentItemID),
       };
     },

@@ -154,6 +154,9 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             itemID,
           });
         },
+        copyText(text) {
+          Zotero.Utilities.Internal.copyTextToClipboard(text);
+        },
         openURL(url) {
           Zotero.launchURL(url);
         },

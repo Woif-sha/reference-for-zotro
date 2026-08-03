@@ -170,7 +170,7 @@ test("unsupported References structure blocks both relationship paths with actio
   assert.equal(citationCalls, 0);
 });
 
-test("resolved papers open their Primary result and unresolved papers search Google by title", async () => {
+test("resolved papers open their Primary result and unresolved papers search Google Scholar by title", async () => {
   const opened: string[] = [];
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
@@ -205,8 +205,40 @@ test("resolved papers open their Primary result and unresolved papers search Goo
   controller.openPaper("reference:0");
 
   assert.deepEqual(opened, [
-    "https://www.google.com/search?q=Ambiguous%20paper",
+    "https://scholar.google.com/scholar?q=%22Ambiguous%20paper%22",
     "https://doi.org/10.1000/one",
+  ]);
+});
+
+test("paper actions copy available metadata and open an explicit Google search", async () => {
+  const copied: string[] = [];
+  const opened: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        id: "reference:0",
+        ordinal: 0,
+        title: "Resolved paper",
+        year: "2024",
+        doi: "10.1000/one",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/one",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    copyText: (text) => copied.push(text),
+    openURL: (url) => opened.push(url),
+  });
+  await controller.refreshAsync();
+
+  controller.performPaperAction("reference:0", "copy-title");
+  controller.performPaperAction("reference:0", "copy-doi");
+  controller.performPaperAction("reference:0", "google-search");
+
+  assert.deepEqual(copied, ["Resolved paper", "10.1000/one"]);
+  assert.deepEqual(opened, [
+    "https://www.google.com/search?q=%22Resolved%20paper%22%202024",
   ]);
 });
 

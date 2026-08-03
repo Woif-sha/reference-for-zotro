@@ -12,14 +12,17 @@ npm ci
 
 ## Quality gate
 
-The stable `main` branch contains only release source, build configuration and maintained documentation. Run its reproducible release gate before submitting a change:
+Run the complete gate before submitting a change:
 
 ```powershell
+npm test
+npm run lint
 npm run typecheck
+npm run format:check
 npm run build
 ```
 
-The full regression suites and UI prototypes stay on development branches and are not included in release-source commits. Run those suites before promoting a development commit. Reader UI changes must also be installed as the generated XPI and checked in a real Zotero 9 Reader; browser-like DOM tests do not replace XUL/XML runtime validation.
+Reader UI changes must also be installed as the generated XPI and checked in a real Zotero 9 Reader. Browser-like DOM tests do not replace XUL/XML runtime validation.
 
 ## Change guidelines
 

@@ -12,8 +12,11 @@
   "type": "module",
   "scripts": {
     "start": "zotero-plugin serve",
+    "test": "node --test --test-concurrency=1 --test-timeout=60000 --import tsx test/**/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && zotero-plugin build"
+    "build": "tsc --noEmit && zotero-plugin build",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json}\" eslint.config.js README.md CHANGELOG.md CONTRIBUTING.md PRIVACY.md SECURITY.md package.json tsconfig.json zotero-plugin.config.ts",
+    "lint": "eslint src test"
   },
   "repository": {
     "type": "git",
@@ -27,8 +30,15 @@
     "zotero-plugin-toolkit": "^5.1.0-beta.8"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/jsdom": "^21.1.7",
     "@types/node": "^22.16.5",
+    "eslint": "^10.8.0",
+    "jsdom": "^26.1.0",
+    "prettier": "^3.7.4",
+    "tsx": "^4.20.6",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.65.0",
     "zotero-plugin-scaffold": "^0.8.2",
     "zotero-types": "^4.1.0-beta.3"
   }

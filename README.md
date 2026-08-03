@@ -12,7 +12,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - 在所选论文旁显示详情卡片；卡片随论文位置移动并在视口边缘自动约束。
 - 显示题名、作者、期刊或会议、年份、DOI、引用数、参考文献数与摘要。
 - 摘要缺失时仅在打开详情卡后按 DOI 延迟补全，避免批量请求。
-- `Ctrl + 左键` 打开经过确认的论文落地页；未解析、存在歧义或落地页不可达时，仅保留论文题名并用该题名打开 Google 搜索。
+- `Ctrl + 左键` 打开经过确认的论文落地页。
 - 可选调用 Paper Translate 的公开接口翻译插件界面内选中的文字。
 
 ## 运行要求
@@ -40,7 +40,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - **Citations**：引用当前论文的文献。
 - 单击已解析题名：打开论文详情卡。
 - 再次单击题名或卡片关闭按钮：关闭详情卡。
-- `Ctrl + 左键`：已解析论文打开经过验证的学术落地页；无法确认时直接搜索当前显示的论文题名。
+- `Ctrl + 左键`：在浏览器打开已验证的学术落地页。
 - **Refresh**：跳过当前缓存并重新解析。
 
 ## 数据与匹配
@@ -50,8 +50,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - OpenCitations 用于 Citing papers。
 - ACL Anthology 等可信页面的标准 citation metadata 可用于补全作者、会议、年份、DOI 和摘要。
 - OpenAlex 与 Semantic Scholar 仅在用户打开缺少摘要的 DOI 论文详情时请求摘要，并验证返回 DOI 与目标完全一致。
-- 同一引用出现多个候选时，只有作者、年份和题名相互一致且能够提供原论文的最优落地页才会成为主结果。
-- 未解析、候选歧义或落地页不可达的条目不展示未经确认的元数据，只保留论文题名；`Ctrl + 左键` 会打开 Google 题名搜索。
+- 只有已确认身份且落地页可达的结果才能通过 `Ctrl + 左键` 打开。
 
 ## 故障排查
 
@@ -66,11 +65,14 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 
 ```powershell
 npm ci
+npm test
+npm run lint
 npm run typecheck
+npm run format:check
 npm run build
 ```
 
-稳定版 `main` 仅保留发布所需的核心源码、构建配置和相关文档；测试与界面原型不随发布源码上传。生成的 XPI 位于 `build/reference-for-zotero.xpi`。贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+生成的 XPI 位于 `build/reference-for-zotero.xpi`。贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可证
 

@@ -42,7 +42,7 @@ import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 const PROVIDER_SCHEMA_VERSION = 2;
-export const PROVIDER_QUERY_VERSION = 6;
+export const PROVIDER_QUERY_VERSION = 7;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -153,6 +153,9 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             pluginID: PLUGIN_ID,
             itemID,
           });
+        },
+        copyText(text) {
+          Zotero.Utilities.Internal.copyTextToClipboard(text);
         },
         openURL(url) {
           Zotero.launchURL(url);

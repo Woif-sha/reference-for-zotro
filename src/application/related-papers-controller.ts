@@ -2,6 +2,7 @@ import type { ReferenceEntry } from "../domain/reference";
 import type { PaperIdentity, SessionToken } from "../domain/literature";
 import type {
   ReaderPaper,
+  ReaderPaperAction,
   ReaderSectionController,
   ReaderSectionState,
   ReaderTab,
@@ -54,6 +55,7 @@ export interface RelatedPapersPorts {
     context: ResolutionContext,
   ): Promise<void>;
   translateSelection?(text: string, attachmentItemID: number): Promise<string>;
+  copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
 }
@@ -226,15 +228,31 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   openPaper(paperID: string): void {
-    const paper = [...this.state.references, ...this.state.citingPapers].find(
-      (candidate) => candidate.id === paperID,
-    );
+    const paper = this.findPaper(paperID);
     if (!paper || paper.status === "matching") return;
     this.ports.openURL(
       canOpenPrimaryResult(paper)
         ? paper.primaryResultURL
-        : `https://www.google.com/search?q=${encodeURIComponent(paper.title)}`,
+        : searchURL("google-scholar", paper),
     );
+  }
+
+  performPaperAction(paperID: string, action: ReaderPaperAction): void {
+    const paper = this.findPaper(paperID);
+    if (!paper) return;
+    if (action === "google-search") {
+      this.ports.openURL(searchURL("google", paper));
+      return;
+    }
+    if (!this.ports.copyText) {
+      throw new Error("Clipboard unavailable");
+    }
+    if (action === "copy-title") {
+      this.ports.copyText(paper.title);
+      return;
+    }
+    if (!paper.doi) throw new Error("Paper DOI unavailable");
+    this.ports.copyText(paper.doi);
   }
 
   async translateSelection(text: string): Promise<string> {
@@ -388,9 +406,27 @@ export class RelatedPapersController implements ReaderSectionController {
     });
   }
 
+  private findPaper(paperID: string): ReaderPaper | undefined {
+    return [...this.state.references, ...this.state.citingPapers].find(
+      (candidate) => candidate.id === paperID,
+    );
+  }
+
   private assertActive(): void {
     if (this.disposed) throw new Error("RelatedPapersController is disposed");
   }
+}
+
+function searchURL(
+  engine: "google" | "google-scholar",
+  paper: ReaderPaper,
+): string {
+  const query = `"${paper.title}"${paper.year ? ` ${paper.year}` : ""}`;
+  const base =
+    engine === "google"
+      ? "https://www.google.com/search?q="
+      : "https://scholar.google.com/scholar?q=";
+  return `${base}${encodeURIComponent(query)}`;
 }
 
 function assertStablePrefix(

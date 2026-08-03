@@ -12,6 +12,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "test/**/*.ts",
     "typings/**/*.d.ts",
     "zotero-plugin.config.ts"
   ]

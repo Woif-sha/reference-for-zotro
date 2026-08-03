@@ -10,8 +10,7 @@ Depending on the selected feature, the plugin may send:
 - DOI to the DOI resolver to verify a paper landing page;
 - DOI or other supported identifiers to OpenCitations for Citing papers;
 - DOI to OpenAlex and, if necessary, Semantic Scholar when the user opens a detail card whose resolved record has no Abstract;
-- a trusted scholarly landing-page URL, such as ACL Anthology, to read public citation metadata;
-- the visible paper title to Google only when the user explicitly uses `Ctrl + left click` on an unresolved, ambiguous or unreachable entry.
+- a trusted scholarly landing-page URL, such as ACL Anthology, to read public citation metadata.
 
 Returned records are accepted only through the plugin's identity, schema and reachability checks. Abstract fallback responses must contain the exact requested DOI.
 

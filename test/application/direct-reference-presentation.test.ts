@@ -9,7 +9,7 @@ import {
 import type { RelatedLiteratureGateway } from "../../src/literature/gateway";
 
 test("trusted-title presentation invalidates previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 7);
+  assert.equal(PROVIDER_QUERY_VERSION, 8);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {

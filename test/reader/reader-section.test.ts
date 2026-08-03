@@ -1065,7 +1065,7 @@ test("Reader section translates only text selected inside the extension UI", asy
   mounted.destroy();
 });
 
-test("a translation failure disables only UI translation for the mounted section", async () => {
+test("a translation failure ends only that request and the next selection can retry", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,
   });
@@ -1084,7 +1084,10 @@ test("a translation failure disables only UI translation for the mounted section
       performPaperAction() {},
       async translateSelection() {
         translationCalls += 1;
-        throw new Error("Paper Translate service unavailable");
+        if (translationCalls === 1) {
+          throw new Error("Paper Translate service unavailable");
+        }
+        return "第二篇参考文献";
       },
     },
   });
@@ -1121,10 +1124,10 @@ test("a translation failure disables only UI translation for the mounted section
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(translationCalls, 1);
+  assert.equal(translationCalls, 2);
   assert.equal(
     dom.window.document.querySelector("[data-translation-result]")?.textContent,
-    "UI translation disabled",
+    "第二篇参考文献",
   );
   mounted.destroy();
 });
@@ -1221,6 +1224,190 @@ test("Reader download area exposes destination, confirmed runtime installation, 
   assert.equal(install, 1);
   assert.equal(cancel, 1);
   mounted.destroy();
+});
+
+test("an unavailable Paper Translate capability is explicit without calling translate", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translationCapability: () => ({
+        available: false,
+        reason: "incompatible-version",
+      }),
+      async translateSelection() {
+        translationCalls += 1;
+        return "unreachable";
+      },
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 0);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "UI translation unavailable: incompatible-version",
+  );
+  mounted.destroy();
+});
+
+test("status and error copy stay outside the academic translation scope", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      {
+        id: "failed",
+        ordinal: 0,
+        title: "Visible paper title",
+        status: "failed",
+        statusText: "C:\\private\\diagnostics.log",
+      },
+    ],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async translateSelection() {
+        translationCalls += 1;
+        return "unreachable";
+      },
+    },
+  });
+  const status = dom.window.document.querySelector(".rfz-paper-status");
+  assert.ok(status);
+  selectNodeContents(dom, status);
+  status.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 0);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]"),
+    null,
+  );
+  mounted.destroy();
+});
+
+test("a newer academic selection invalidates an older translation result", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  const pending: Array<(value: string) => void> = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translateSelection: () =>
+        new Promise<string>((resolve) => pending.push(resolve)),
+    },
+  });
+  const firstTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const secondTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-paper-title]',
+  );
+  assert.ok(firstTitle);
+  assert.ok(secondTitle);
+  selectNodeContents(dom, firstTitle);
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  selectNodeContents(dom, secondTitle);
+  secondTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+
+  pending[1]?.("new result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "new result",
+  );
+  pending[0]?.("stale result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "new result",
+  );
+  mounted.destroy();
+});
+
+test("destroying the section prevents a late translation UI commit", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let resolveTranslation: ((value: string) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translateSelection: () =>
+        new Promise<string>((resolve) => {
+          resolveTranslation = resolve;
+        }),
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  mounted.destroy();
+  resolveTranslation?.("late result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]"),
+    null,
+  );
 });
 
 function selectNodeContents(dom: JSDOM, node: Node): void {

@@ -139,9 +139,9 @@ export function createPaperTranslateBridge(): PaperTranslateBridge {
     () =>
       (
         Zotero as typeof Zotero & {
-          PaperTranslate?: PaperTranslateGlobal;
+          PDFTranslate?: PaperTranslateGlobal;
         }
-      ).PaperTranslate,
+      ).PDFTranslate,
   );
 }
 

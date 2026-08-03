@@ -13,6 +13,7 @@ import type {
 } from "../reader/mountReaderSection";
 import { canOpenPrimaryResult } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
+import type { TranslationCapability } from "../translation/paper-translate-bridge";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
@@ -62,6 +63,7 @@ export interface RelatedPapersPorts {
     results: CachedRelatedPapers,
     context: ResolutionContext,
   ): Promise<void>;
+  translationCapability?(): TranslationCapability;
   translateSelection?(text: string, attachmentItemID: number): Promise<string>;
   downloadPaper?(
     paper: ReaderPaper & { status: "resolved" },
@@ -447,6 +449,15 @@ export class RelatedPapersController implements ReaderSectionController {
       throw new Error("UI translation unavailable");
     }
     return this.ports.translateSelection(text, this.attachmentItemID);
+  }
+
+  translationCapability(): TranslationCapability {
+    if (this.ports.translationCapability) {
+      return this.ports.translationCapability();
+    }
+    return this.ports.translateSelection
+      ? { available: true }
+      : { available: false, reason: "not-installed" };
   }
 
   dispose(): void {

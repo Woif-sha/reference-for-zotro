@@ -3,6 +3,7 @@ import {
   DEFAULT_DOWNLOAD_DESTINATION,
   type DownloadFirstUseState,
 } from "../application/download-first-use";
+import type { TranslationCapability } from "../translation/paper-translate-bridge";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const DISCONNECTED_DOWNLOAD_SETUP: DownloadFirstUseState = {
@@ -123,6 +124,7 @@ export interface ReaderSectionController {
   choosePythonExecutable?(): Promise<void>;
   installDownloadRuntime?(): Promise<void>;
   cancelDownloadRuntimeInstallation?(): void;
+  translationCapability?(): TranslationCapability;
   translateSelection?(text: string): Promise<string>;
 }
 
@@ -152,7 +154,6 @@ export function mountReaderSection(options: {
   body.ownerDocument.documentElement.append(contextMenu);
   let destroyed = false;
   let translationRequest = 0;
-  let translationEnabled = Boolean(controller.translateSelection);
 
   const dismissSelectedPaper = (): void => {
     const selectedPaperID = controller.getState().selectedPaperID;
@@ -464,27 +465,22 @@ export function mountReaderSection(options: {
   body.ownerDocument.addEventListener("click", onDocumentClick);
   const onMouseUp = (): void => {
     const selection = body.ownerDocument.defaultView?.getSelection();
-    const text = selection?.toString().trim();
-    if (!selection || !text || selection.rangeCount === 0) return;
-    const commonNode = selection.getRangeAt(0).commonAncestorContainer;
-    const commonElement =
-      commonNode.nodeType === commonNode.TEXT_NODE
-        ? commonNode.parentElement
-        : commonNode;
-    if (!(commonElement instanceof body.ownerDocument.defaultView!.Element)) {
-      return;
-    }
-    const translationScope = commonElement.closest("[data-translation-scope]");
-    if (
-      !translationScope ||
-      commonElement.closest("[data-no-translation]") ||
-      (!root.contains(translationScope) && !overlay.contains(translationScope))
-    ) {
-      return;
-    }
+    if (!selection || selection.rangeCount === 0) return;
+    if (!selection.toString().trim()) return;
     const request = ++translationRequest;
-    if (!translationEnabled || !controller.translateSelection) {
-      showTranslation(root, text, "UI translation disabled");
+    root.querySelector("[data-translation]")?.remove();
+    const text = selectedAcademicText(selection, root, overlay);
+    if (!text) return;
+    const capability = controller.translationCapability?.() ?? {
+      available: Boolean(controller.translateSelection),
+      reason: "not-installed" as const,
+    };
+    if (!capability.available || !controller.translateSelection) {
+      showTranslation(
+        root,
+        text,
+        `UI translation unavailable: ${capability.available ? "incompatible-api" : capability.reason}`,
+      );
       return;
     }
     showTranslation(root, text, "Translating…");
@@ -496,7 +492,6 @@ export function mountReaderSection(options: {
       })
       .catch((error: unknown) => {
         if (destroyed || request !== translationRequest) return;
-        translationEnabled = false;
         showTranslation(
           root,
           text,
@@ -693,9 +688,10 @@ function renderContent(
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
           <input class="rfz-paper-checkbox" type="checkbox" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectedForDownload ? 'checked=""' : ""} ${selectable ? "" : 'disabled=""'} />
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
-            <div class="rfz-paper-title" data-paper-title="" data-translation-scope="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
+            <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
-            )}</div>${metadata ? `<small data-translation-scope="">${escapeHTML(metadata)}</small>` : ""}${status}${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
+            )}</div>${metadata ? `<small data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}
+            ${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
           </div>
         </li>`;
       })
@@ -765,15 +761,15 @@ function renderDetailCard(
   );
   return `<aside class="rfz-detail-card" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}">
     <button type="button" class="rfz-card-close" data-detail-close="" aria-label="Close paper details">×</button>
-    <strong class="rfz-card-title" data-translation-scope="">${escapeHTML(paper.title)}</strong>
-    ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span class="rfz-badge-${badge.kind}">${escapeHTML(badge.label)}</span>`).join("")}</div>` : ""}
-    ${paper.authors ? `<div class="rfz-card-meta" data-translation-scope="">${escapeHTML(paper.authors)}</div>` : ""}
+    <strong class="rfz-card-title" data-translation-text="">${escapeHTML(paper.title)}</strong>
+    ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span class="rfz-badge-${badge.kind}"${badge.kind === "doi" ? ' data-translation-text=""' : ""}>${escapeHTML(badge.label)}</span>`).join("")}</div>` : ""}
+    ${paper.authors ? `<div class="rfz-card-meta" data-translation-text="">${escapeHTML(paper.authors)}</div>` : ""}
     ${
       paper.venue || paper.year
-        ? `<div class="rfz-card-meta" data-translation-scope="">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
+        ? `<div class="rfz-card-meta" data-translation-text="">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
         : ""
     }
-    <section class="rfz-abstract"><strong>Abstract</strong><p${paper.abstract ? ' data-translation-scope=""' : ""}>${escapeHTML(
+    <section class="rfz-abstract"><strong>Abstract</strong><p${paper.abstract ? ' data-translation-text=""' : ""}>${escapeHTML(
       paper.abstract ??
         (paper.abstractLoading
           ? "Loading abstract…"
@@ -846,6 +842,42 @@ function showTranslation(
   translated.textContent = result;
   popover.append(original, translated);
   root.append(popover);
+}
+
+function selectedAcademicText(
+  selection: Selection,
+  root: HTMLElement,
+  overlay: HTMLElement,
+): string | undefined {
+  const text = selection.toString().trim();
+  if (!text || selection.rangeCount !== 1) return undefined;
+  const range = selection.getRangeAt(0);
+  const startHost = selectionHost(range.startContainer, root, overlay);
+  const endHost = selectionHost(range.endContainer, root, overlay);
+  if (!startHost || startHost !== endHost) return undefined;
+
+  const view = root.ownerDocument.defaultView;
+  if (!view) return undefined;
+  const walker = root.ownerDocument.createTreeWalker(
+    startHost,
+    view.NodeFilter.SHOW_TEXT,
+  );
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!range.intersectsNode(node) || !node.textContent?.trim()) continue;
+    const parent = node.parentElement;
+    if (!parent?.closest("[data-translation-text]")) return undefined;
+  }
+  return text;
+}
+
+function selectionHost(
+  node: Node,
+  root: HTMLElement,
+  overlay: HTMLElement,
+): HTMLElement | undefined {
+  if (root.contains(node)) return root;
+  if (overlay.contains(node)) return overlay;
+  return undefined;
 }
 
 const READER_STYLES = `

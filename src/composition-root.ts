@@ -156,6 +156,9 @@ export function createReaderControllerFactory(
             context.signal,
           );
         },
+        translationCapability() {
+          return translation.capability();
+        },
         translateSelection(text, itemID) {
           return translation.translate(text, {
             pluginID: PLUGIN_ID,

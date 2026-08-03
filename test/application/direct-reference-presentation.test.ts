@@ -9,7 +9,7 @@ import {
 import type { RelatedLiteratureGateway } from "../../src/literature/gateway";
 
 test("trusted-title presentation invalidates previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 6);
+  assert.equal(PROVIDER_QUERY_VERSION, 7);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -100,9 +100,9 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
   assert.equal(paper.abstract, "BERT abstract.");
 });
 
-test("unresolved references display only the parsed paper title", async () => {
+test("unresolved references display titles wrapped in MinerU right double quotes", async () => {
   const lookupText =
-    "S. M. Ebrahimiapour, B. Ghavami, H. Mousavi, M. Raji, Z. Fang, and L. Shannon, “Aadam: A fast, accurate, and versatile aging-aware cell library delay model using feed-forward neural network,” in Proceedings of the 39th International Conference on Computer-Aided Design, 2020, pp. 1–9.";
+    "L. Jin, W. Fu, H. Yan, and L. Shi, ”A Statistical Cell Delay Model for Estimating the 3σ Delay by Matching Kurtosis”, IEEE Trans. Circuits Syst. II Express Briefs, 2022, vol. 69, no. 6, pp. 2932–2936.";
   const abortController = new AbortController();
   const context: ResolutionContext = {
     paper: {
@@ -149,7 +149,7 @@ test("unresolved references display only the parsed paper title", async () => {
 
   assert.equal(
     paper.title,
-    "Aadam: A fast, accurate, and versatile aging-aware cell library delay model using feed-forward neural network",
+    "A Statistical Cell Delay Model for Estimating the 3σ Delay by Matching Kurtosis",
   );
-  assert.doesNotMatch(paper.title, /Ebrahimiapour|Proceedings|2020/u);
+  assert.doesNotMatch(paper.title, /L\. Jin|IEEE Trans|2022/u);
 });

@@ -229,6 +229,16 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     dom.window.document.querySelectorAll("[data-paper-id]").length,
     10,
   );
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll("[data-limit]")].map(
+      ({ tagName, textContent }) => [tagName, textContent],
+    ),
+    [
+      ["DIV", "10"],
+      ["DIV", "30"],
+      ["DIV", "50"],
+    ],
+  );
   const styles = dom.window.document.querySelector("style")?.textContent ?? "";
   assert.match(styles, /\.rfz-header\s*\{[^}]*position:\s*sticky/u);
   assert.match(styles, /\.rfz-tabs\s*\{[^}]*position:\s*sticky/u);
@@ -240,6 +250,15 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   assert.equal(
     dom.window.document.querySelectorAll("[data-paper-id]").length,
     30,
+  );
+  dom.window.document
+    .querySelector('[data-limit="50"]')
+    ?.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { bubbles: true, key: "Enter" }),
+    );
+  assert.equal(
+    dom.window.document.querySelectorAll("[data-paper-id]").length,
+    35,
   );
 
   const firstTitle = dom.window.document.querySelector(
@@ -333,6 +352,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
 
   assert.deepEqual(actions, [
     "limit:30",
+    "limit:50",
     "select:citing-1",
     "select:citing-1",
     "open:citing-1",

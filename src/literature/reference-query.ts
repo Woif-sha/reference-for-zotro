@@ -59,7 +59,7 @@ function findUnquotedMetadata(
 function findQuotedTitle(
   value: string,
 ): { title: string; start: number; end: number } | undefined {
-  const match = /["“]([^"”]+)["”]/u.exec(value);
+  const match = /["“”]([^"“”]+)["“”]/u.exec(value);
   if (!match || match.index === undefined) return undefined;
   return {
     title: match[1],

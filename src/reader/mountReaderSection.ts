@@ -129,7 +129,7 @@ export function mountReaderSection(options: {
               ${([10, 30, 50] as const)
                 .map(
                   (limit) =>
-                    `<button type="button" data-limit="${limit}" aria-pressed="${state.citingPaperLimit === limit}">${limit}</button>`,
+                    `<div class="rfz-limit" role="button" tabindex="0" data-limit="${limit}" aria-pressed="${state.citingPaperLimit === limit}">${limit}</div>`,
                 )
                 .join("")}
             </div>`
@@ -194,9 +194,17 @@ export function mountReaderSection(options: {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
     const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
-    if (tab !== "references" && tab !== "citations") return;
+    if (tab === "references" || tab === "citations") {
+      event.preventDefault();
+      controller.selectTab(tab);
+      return;
+    }
+    const limit = Number(
+      target.closest<HTMLElement>("[data-limit]")?.dataset.limit,
+    );
+    if (limit !== 10 && limit !== 30 && limit !== 50) return;
     event.preventDefault();
-    controller.selectTab(tab);
+    controller.setCitationLimit(limit);
   };
   root.addEventListener("keydown", onKeyDown);
   const onMouseUp = (): void => {
@@ -468,7 +476,7 @@ const READER_STYLES = `
   .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 0 10px 0 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
   .rfz-header strong { font-size: 13px; }
   .rfz-header small { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
-  .rfz-icon-button, .rfz-tab, .rfz-limits button, .rfz-paper-title, .rfz-card-close {
+  .rfz-icon-button, .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
     border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer;
   }
   .rfz-icon-button { margin-left: 4px; padding: 3px 6px; border-radius: 5px; font-size: 15px; }
@@ -479,10 +487,10 @@ const READER_STYLES = `
   .rfz-tab[aria-selected="true"]::after { position: absolute; right: 18px; bottom: -1px; left: 18px; height: 2px; background: var(--rfz-accent); content: ""; }
   .rfz-tabs span { padding: 1px 5px; border-radius: 8px; background: var(--material-button, #ececef); font-size: 10px; }
   .rfz-limits { position: sticky; z-index: 3; top: calc(var(--rfz-header-height) + var(--rfz-tabs-height)); justify-content: flex-end; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid var(--material-border, #e0e0e2); background: var(--material-sidepane, #fafafa); }
-  .rfz-limits button { min-width: 29px; padding: 3px 5px; border: 1px solid var(--material-border, #c5c5c8); border-right: 0; background: var(--material-background, #fff); font-size: 10px; }
-  .rfz-limits button:first-child { border-radius: 5px 0 0 5px; }
-  .rfz-limits button:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
-  .rfz-limits button[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
+  .rfz-limit { display: flex; align-items: center; justify-content: center; min-width: 29px; padding: 3px 5px; border: 1px solid var(--material-border, #c5c5c8); border-right: 0; color: var(--fill-primary, CanvasText); background: var(--material-background, #fff); font-size: 10px; user-select: none; }
+  .rfz-limit:first-child { border-radius: 5px 0 0 5px; }
+  .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
+  .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
   .rfz-content { overflow: auto; max-height: calc(100% - 85px); }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 27px 1fr; gap: 5px; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }

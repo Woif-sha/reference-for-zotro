@@ -99,6 +99,11 @@ export function mountReaderSection(options: {
   let translationRequest = 0;
   let translationEnabled = Boolean(controller.translateSelection);
 
+  const dismissSelectedPaper = (): void => {
+    const selectedPaperID = controller.getState().selectedPaperID;
+    if (selectedPaperID) controller.selectPaper(selectedPaperID);
+  };
+
   function render(state: ReaderSectionState): void {
     const papers =
       state.activeTab === "references"
@@ -133,22 +138,26 @@ export function mountReaderSection(options: {
       <main class="rfz-content" data-translation-scope="">
         ${renderContent(state, papers)}
       </main>`;
-    overlay.innerHTML = renderDetailCard(state, papers);
+    const detailCard = renderDetailCard(state, papers);
+    overlay.innerHTML = detailCard;
+    overlay.classList.toggle("is-open", detailCard.length > 0);
     positionDetailCard(root, overlay);
   }
 
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    if (target === overlay) {
+      dismissSelectedPaper();
+      return;
+    }
     if (target.closest("[data-refresh]")) {
       controller.refresh();
       return;
     }
     const close = target.closest<HTMLElement>("[data-detail-close]");
     if (close) {
-      const paperID =
-        close.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
-      if (paperID) controller.selectPaper(paperID);
+      dismissSelectedPaper();
       return;
     }
     const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
@@ -493,6 +502,7 @@ const READER_STYLES = `
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
   .rfz-overlay { position: fixed; z-index: 2147483000; inset: 0; pointer-events: none; }
+  .rfz-overlay.is-open { pointer-events: auto; }
   .rfz-detail-card { position: fixed; padding: 16px 18px 18px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 8px 0 0 8px; color: var(--fill-primary, #242428); background: var(--material-background, #fff); box-shadow: -8px 12px 28px #0003; overflow: auto; pointer-events: auto; user-select: text; }
   .rfz-card-title { display: block; max-width: calc(100% - 30px); color: var(--rfz-accent); font-size: 18px; font-weight: 750; line-height: 1.25; }
   .rfz-card-close { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 50%; color: var(--fill-secondary, #65656b); background: var(--fill-quinary, #f0f0f2); user-select: none; }

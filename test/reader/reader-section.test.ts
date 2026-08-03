@@ -421,6 +421,75 @@ test("Reader section opens only a confirmed reachable title on Ctrl+left-click",
   mounted.destroy();
 });
 
+test("Reader section closes an open detail card when clicking elsewhere", () => {
+  const dom = new JSDOM(
+    '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
+    { contentType: "application/xml" },
+  );
+  const body = dom.window.document.getElementsByTagNameNS(
+    "http://www.w3.org/1999/xhtml",
+    "section",
+  )[0] as HTMLElement;
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const selections: string[] = [];
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        selections.push(paperID);
+        state = {
+          ...state,
+          selectedPaperID:
+            state.selectedPaperID === paperID ? undefined : paperID,
+        };
+        listener?.(state);
+      },
+      refresh() {},
+      openPrimaryResult() {},
+    },
+  });
+
+  (
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement
+  ).click();
+  const detailCard = dom.window.document.querySelector(
+    "[data-detail-card]",
+  ) as HTMLElement | null;
+  const overlay = dom.window.document.querySelector(
+    "[data-reader-overlay]",
+  ) as HTMLElement | null;
+  assert.ok(detailCard);
+  assert.ok(overlay);
+  assert.ok(overlay.classList.contains("is-open"));
+  const styles = body.querySelector("style")?.textContent ?? "";
+  assert.match(
+    styles,
+    /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*auto/u,
+  );
+
+  detailCard.click();
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+
+  overlay.click();
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  assert.ok(!overlay.classList.contains("is-open"));
+  assert.deepEqual(selections, ["ref-1", "ref-1"]);
+
+  mounted.destroy();
+});
+
 test("only Resolved references and Citing papers open a detail card", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();

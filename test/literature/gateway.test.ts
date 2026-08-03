@@ -126,6 +126,73 @@ test("a DOI redirect remains usable when the publisher blocks automated requests
   assert.equal(seen[2], "https://doi.org/10.1145/example");
 });
 
+test("Crossref subtitles form the complete title used to resolve a reference", async () => {
+  const expectedTitle =
+    "Aadam: a fast, accurate, and versatile aging-aware cell library delay model using feed-forward neural network";
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input) => {
+      const url = String(input);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1145/3400302.3415605",
+                title: ["Aadam"],
+                subtitle: [
+                  "a fast, accurate, and versatile &lt;u&gt;a&lt;/u&gt;ging-&lt;u&gt;a&lt;/u&gt;ware cell library &lt;u&gt;d&lt;/u&gt;el&lt;u&gt;a&lt;/u&gt;y &lt;u&gt;m&lt;/u&gt;odel using feed-forward neural network",
+                ],
+                author: [
+                  { family: "Ebrahimipour", given: "Seyed Milad" },
+                  { family: "Ghavami", given: "Behnam" },
+                  { family: "Mousavi", given: "Hamid" },
+                  { family: "Raji", given: "Mohsen" },
+                  { family: "Fang", given: "Zhenman" },
+                  { family: "Shannon", given: "Lesley" },
+                ],
+                published: { "date-parts": [[2020, 11, 2]] },
+                "container-title": [
+                  "Proceedings of the 39th International Conference on Computer-Aided Design",
+                ],
+                URL: "https://doi.org/10.1145/3400302.3415605",
+              },
+            ],
+          },
+        });
+      }
+      if (url === "https://doi.org/10.1145/3400302.3415605") {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: "https://dl.acm.org/doi/10.1145/3400302.3415605",
+          },
+        });
+      }
+      if (url.includes("api.datacite.org")) {
+        return Response.json({ data: [] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }),
+  );
+
+  const result = await gateway.resolveReference({
+    identifiers: {},
+    title: expectedTitle,
+    authors: ["Ebrahimipour", "Ghavami", "Mousavi", "Raji", "Fang", "Shannon"],
+    year: 2020,
+    venue:
+      "Proceedings of the 39th International Conference on Computer-Aided Design",
+    channel: "conference",
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.equal(result.primaryResult.title, expectedTitle);
+  assert.equal(
+    result.primaryResult.landingURL,
+    "https://dl.acm.org/doi/10.1145/3400302.3415605",
+  );
+});
+
 test("traditional literature falls back to DataCite only after Crossref has no confirmed match", async () => {
   const seen: string[] = [];
   const gateway = createRelatedLiteratureGateway(

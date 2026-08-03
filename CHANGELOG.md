@@ -2,6 +2,14 @@
 
 All notable changes to Reference for Zotero are documented in this file.
 
+## [1.0.1] - 2026-08-03
+
+### Fixed
+
+- Reconstructed complete Crossref paper titles from separate `title` and `subtitle` metadata fields.
+- Removed encoded inline emphasis markup from Crossref title segments before matching and display.
+- Invalidated cached provider queries so references previously rejected because of missing subtitles are resolved again.
+
 ## [1.0.0] - 2026-08-02
 
 ### Highlights
@@ -30,4 +38,5 @@ All notable changes to Reference for Zotero are documented in this file.
 - Requires valid MinerU Markdown generated for the current attachment by the user's `llm-for-zotero` workflow.
 - Validated with 106 automated tests, TypeScript checks, ESLint, Prettier, production XPI builds and installed-XPI testing in Zotero 9.
 
+[1.0.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.0

@@ -13,6 +13,7 @@ import {
   type ScholarlyAuthor,
   type ScholarlyCandidate,
 } from "./types";
+import { decodeHTML } from "entities";
 
 export type CrossrefSearchInput = Readonly<{
   title: string;
@@ -109,7 +110,7 @@ function parseCrossrefWork(
     sourceRecordID,
     retrievedAt: ports.clock.now().toISOString(),
     identifiers: doi ? { doi } : {},
-    title: firstString(work.title) ?? null,
+    title: completeTitle(work),
     authors,
     publicationDate,
     publicationYear,
@@ -123,6 +124,22 @@ function parseCrossrefWork(
     matchedFields: [],
     rawProvenance: [`crossref:${sourceRecordID}`],
   };
+}
+
+function completeTitle(work: Record<string, unknown>): string | null {
+  const title = plainTitleSegment(firstString(work.title));
+  const subtitle = plainTitleSegment(firstString(work.subtitle));
+  return [title, subtitle].filter(Boolean).join(": ") || null;
+}
+
+function plainTitleSegment(value: string | undefined): string | undefined {
+  const text = value
+    ? decodeHTML(value)
+        .replace(/<[^>]+>/gu, "")
+        .replace(/\s+/gu, " ")
+        .trim()
+    : "";
+  return text || undefined;
 }
 
 function findVersionOfRecordURL(value: unknown): string | undefined {

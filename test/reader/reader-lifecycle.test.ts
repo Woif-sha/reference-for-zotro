@@ -32,11 +32,19 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
+    downloadSelection: [],
+    paperDownloads: [],
+    downloadInProgress: false,
+    downloadAvailable: true,
   };
   const factory: ReaderControllerFactory = {
     create({ attachmentItemID }) {
       created.push(attachmentItemID);
       return {
+        setPaperDownloadSelected() {},
+        setTabDownloadSelected() {},
+        async downloadSelected() {},
+        openDownloadedFolder() {},
         getState: () => state,
         subscribe: () => () => {},
         selectTab() {},
@@ -100,7 +108,8 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
   });
   assert.deepEqual(itemChangeEnabled, [true]);
   assert.deepEqual(created, [42]);
-  assert.deepEqual(destroyed, []);
+  assert.deepEqual(destroyed, [42]);
+  assert.equal(body.childElementCount, 0);
 
   registration.onRender({
     body,

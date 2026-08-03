@@ -46,7 +46,13 @@ export const PROVIDER_QUERY_VERSION = 8;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
-export function createReaderControllerFactory(): ReaderControllerFactory {
+export type ReaderDownloadDependencies = Readonly<{
+  downloadPaper?: NonNullable<RelatedPapersPorts["downloadPaper"]>;
+}>;
+
+export function createReaderControllerFactory(
+  downloadDependencies: ReaderDownloadDependencies = {},
+): ReaderControllerFactory {
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
@@ -152,6 +158,16 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
           return translation.translate(text, {
             pluginID: PLUGIN_ID,
             itemID,
+          });
+        },
+        ...(downloadDependencies.downloadPaper
+          ? { downloadPaper: downloadDependencies.downloadPaper }
+          : {}),
+        revealDownloadedFile(savedPath) {
+          void Zotero.File.reveal(savedPath).catch((error: unknown) => {
+            Zotero.logError(
+              error instanceof Error ? error : new Error(String(error)),
+            );
           });
         },
         copyText(text) {

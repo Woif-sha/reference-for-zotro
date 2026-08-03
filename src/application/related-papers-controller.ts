@@ -28,6 +28,10 @@ export type CachedRelatedPapers = {
   citingPapersLoaded: number;
 };
 
+export type SinglePaperDownloadResult =
+  | Readonly<{ status: "downloaded"; savedPath: string }>
+  | Readonly<{ status: "failed"; error: string }>;
+
 export interface RelatedPapersPorts {
   loadPaper(
     attachmentItemID: number,
@@ -55,6 +59,10 @@ export interface RelatedPapersPorts {
     context: ResolutionContext,
   ): Promise<void>;
   translateSelection?(text: string, attachmentItemID: number): Promise<string>;
+  downloadPaper?(
+    paper: ReaderPaper & { status: "resolved" },
+  ): Promise<SinglePaperDownloadResult>;
+  revealDownloadedFile?(savedPath: string): void;
   copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
@@ -68,11 +76,16 @@ export class RelatedPapersController implements ReaderSectionController {
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 0,
+    downloadSelection: [],
+    paperDownloads: [],
+    downloadInProgress: false,
+    downloadAvailable: false,
   };
   private readonly listeners = new Set<(state: ReaderSectionState) => void>();
   private readonly sessions = new PaperSessionCoordinator();
   private loadController?: AbortController;
   private persistController?: AbortController;
+  private downloadRun?: { invalidated: boolean };
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private context?: ResolutionContext;
@@ -81,7 +94,12 @@ export class RelatedPapersController implements ReaderSectionController {
   constructor(
     private readonly attachmentItemID: number,
     private readonly ports: RelatedPapersPorts,
-  ) {}
+  ) {
+    this.state = {
+      ...this.state,
+      downloadAvailable: Boolean(ports.downloadPaper),
+    };
+  }
 
   getState(): ReaderSectionState {
     return this.state;
@@ -111,6 +129,131 @@ export class RelatedPapersController implements ReaderSectionController {
     }
   }
 
+  setPaperDownloadSelected(
+    tab: ReaderTab,
+    paperID: string,
+    selected: boolean,
+  ): void {
+    this.assertActive();
+    const paper = this.findPaperInTab(tab, paperID);
+    if (paper?.status !== "resolved") return;
+    const selection = this.state.downloadSelection;
+    const entry = { originTab: tab, paperID } as const;
+    const alreadySelected = selection.some((selectedEntry) =>
+      sameSelectionEntry(selectedEntry, entry),
+    );
+    if (selected === alreadySelected) return;
+    this.update({
+      downloadSelection: selected
+        ? [...selection, entry]
+        : selection.filter(
+            (selectedEntry) => !sameSelectionEntry(selectedEntry, entry),
+          ),
+    });
+  }
+
+  setTabDownloadSelected(tab: ReaderTab, selected: boolean): void {
+    this.assertActive();
+    const eligibleEntries: ReaderSectionState["downloadSelection"][number][] =
+      [];
+    for (const paper of this.visiblePapers(tab)) {
+      if (paper.status !== "resolved") continue;
+      const entry = { originTab: tab, paperID: paper.id } as const;
+      if (
+        !eligibleEntries.some((candidate) =>
+          sameSelectionEntry(candidate, entry),
+        )
+      ) {
+        eligibleEntries.push(entry);
+      }
+    }
+    if (eligibleEntries.length === 0) return;
+    const selection = this.state.downloadSelection;
+    const next = selected
+      ? [
+          ...selection,
+          ...eligibleEntries.filter(
+            (entry) =>
+              !selection.some((selectedEntry) =>
+                sameSelectionEntry(selectedEntry, entry),
+              ),
+          ),
+        ]
+      : selection.filter(
+          (selectedEntry) =>
+            !eligibleEntries.some((entry) =>
+              sameSelectionEntry(selectedEntry, entry),
+            ),
+        );
+    if (sameOrderedSelection(selection, next)) return;
+    this.update({ downloadSelection: next });
+  }
+
+  async downloadSelected(): Promise<void> {
+    this.assertActive();
+    if (
+      this.state.downloadInProgress ||
+      this.state.downloadSelection.length === 0 ||
+      !this.ports.downloadPaper
+    ) {
+      return;
+    }
+
+    const snapshot = this.state.downloadSelection
+      .map((entry) => ({
+        entry,
+        paper: this.findPaperInTab(entry.originTab, entry.paperID),
+      }))
+      .filter(
+        (
+          selected,
+        ): selected is {
+          entry: (typeof selected)["entry"];
+          paper: ReaderPaper & { status: "resolved" };
+        } => selected.paper?.status === "resolved",
+      );
+    if (snapshot.length === 0) return;
+
+    const run = { invalidated: false };
+    this.downloadRun = run;
+    this.update({
+      downloadInProgress: true,
+      paperDownloads: snapshot.map(({ entry }) => ({
+        ...entry,
+        status: "queued" as const,
+      })),
+    });
+
+    try {
+      for (const { entry, paper } of snapshot) {
+        if (!this.downloadIsCurrent(run)) return;
+        this.replaceDownload(entry, { status: "downloading" });
+        let result: SinglePaperDownloadResult;
+        try {
+          result = await this.ports.downloadPaper(paper);
+        } catch (error) {
+          if (!this.downloadIsCurrent(run)) return;
+          result = { status: "failed", error: originalError(error) };
+        }
+        if (!this.downloadIsCurrent(run)) return;
+        this.replaceDownload(entry, result);
+      }
+    } finally {
+      if (this.downloadRun === run) {
+        this.downloadRun = undefined;
+        this.update({ downloadInProgress: false });
+      }
+    }
+  }
+
+  openDownloadedFolder(paperID: string): void {
+    const result = this.state.paperDownloads.find(
+      (download) => download.paperID === paperID,
+    );
+    if (result?.status !== "downloaded") return;
+    this.ports.revealDownloadedFile?.(result.savedPath);
+  }
+
   selectPaper(paperID: string): void {
     const closing = this.state.selectedPaperID === paperID;
     this.update({
@@ -129,6 +272,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.loadController?.abort();
     this.loadController = new AbortController();
     this.persistController?.abort();
+    this.cancelDownloads();
     this.sessions.cancelActive();
     this.context = undefined;
     this.update({
@@ -138,6 +282,9 @@ export class RelatedPapersController implements ReaderSectionController {
       citingPapers: [],
       citingPapersLoaded: 0,
       selectedPaperID: undefined,
+      downloadSelection: [],
+      paperDownloads: [],
+      downloadInProgress: Boolean(this.downloadRun),
     });
 
     let paper: LoadedPaper;
@@ -267,6 +414,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.disposed = true;
     this.loadController?.abort();
     this.persistController?.abort();
+    this.cancelDownloads();
     this.sessions.dispose();
     this.ports.dispose?.();
     this.listeners.clear();
@@ -406,10 +554,46 @@ export class RelatedPapersController implements ReaderSectionController {
     });
   }
 
+  private replaceDownload(
+    entry: ReaderSectionState["downloadSelection"][number],
+    result: SinglePaperDownloadResult | Readonly<{ status: "downloading" }>,
+  ): void {
+    this.update({
+      paperDownloads: this.state.paperDownloads.map((download) =>
+        sameSelectionEntry(download, entry)
+          ? { ...entry, ...result }
+          : download,
+      ),
+    });
+  }
+
+  private visiblePapers(tab: ReaderTab): readonly ReaderPaper[] {
+    return tab === "references"
+      ? this.state.references
+      : this.state.citingPapers.slice(0, this.state.citingPaperLimit);
+  }
+
+  private downloadIsCurrent(run: { invalidated: boolean }): boolean {
+    return !this.disposed && this.downloadRun === run && !run.invalidated;
+  }
+
+  private cancelDownloads(): void {
+    if (this.downloadRun) this.downloadRun.invalidated = true;
+  }
+
   private findPaper(paperID: string): ReaderPaper | undefined {
     return [...this.state.references, ...this.state.citingPapers].find(
       (candidate) => candidate.id === paperID,
     );
+  }
+
+  private findPaperInTab(
+    tab: ReaderTab,
+    paperID: string,
+  ): ReaderPaper | undefined {
+    const papers =
+      tab === "references" ? this.state.references : this.state.citingPapers;
+    return papers.find((candidate) => candidate.id === paperID);
   }
 
   private assertActive(): void {
@@ -465,4 +649,28 @@ function conciseError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error))
     .replace(/https?:\/\/\S+/g, "[URL omitted]")
     .slice(0, 180);
+}
+
+function originalError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sameSelectionEntry(
+  left: Readonly<{ originTab: ReaderTab; paperID: string }>,
+  right: Readonly<{ originTab: ReaderTab; paperID: string }>,
+): boolean {
+  return left.paperID === right.paperID;
+}
+
+function sameOrderedSelection(
+  left: readonly Readonly<{ originTab: ReaderTab; paperID: string }>[],
+  right: readonly Readonly<{ originTab: ReaderTab; paperID: string }>[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((entry, index) => {
+      const rightEntry = right[index];
+      return rightEntry !== undefined && sameSelectionEntry(entry, rightEntry);
+    })
+  );
 }

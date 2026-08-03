@@ -13,6 +13,17 @@ export type PaperStatus =
   | "invalid-identifier"
   | "unreachable"
   | "failed";
+export type PaperDownloadState =
+  | Readonly<{ status: "queued" }>
+  | Readonly<{ status: "downloading" }>
+  | Readonly<{ status: "downloaded"; savedPath: string }>
+  | Readonly<{ status: "failed"; error: string }>;
+export type DownloadSelectionEntry = Readonly<{
+  originTab: ReaderTab;
+  paperID: string;
+}>;
+export type PaperDownloadProjection = DownloadSelectionEntry &
+  PaperDownloadState;
 type ReaderPaperBase = {
   id: string;
   ordinal: number;
@@ -67,6 +78,10 @@ export interface ReaderSectionState {
   citingPaperLimit: 10 | 30 | 50;
   citingPapersLoaded: number;
   selectedPaperID?: string;
+  downloadSelection: readonly DownloadSelectionEntry[];
+  paperDownloads: readonly PaperDownloadProjection[];
+  downloadInProgress: boolean;
+  downloadAvailable: boolean;
 }
 
 export interface ReaderSectionController {
@@ -78,6 +93,14 @@ export interface ReaderSectionController {
   refresh(): void;
   openPaper(paperID: string): void;
   performPaperAction(paperID: string, action: ReaderPaperAction): void;
+  setPaperDownloadSelected(
+    tab: ReaderTab,
+    paperID: string,
+    selected: boolean,
+  ): void;
+  setTabDownloadSelected(tab: ReaderTab, selected: boolean): void;
+  downloadSelected(): Promise<void>;
+  openDownloadedFolder(paperID: string): void;
   translateSelection?(text: string): Promise<string>;
 }
 
@@ -149,6 +172,12 @@ export function mountReaderSection(options: {
   };
 
   function render(state: ReaderSectionState): void {
+    const activeElement = body.ownerDocument.activeElement;
+    const focusKey =
+      activeElement instanceof body.ownerDocument.defaultView!.Element &&
+      root.contains(activeElement)
+        ? activeElement.getAttribute("data-focus-key")
+        : null;
     const papers =
       state.activeTab === "references"
         ? state.references
@@ -156,6 +185,18 @@ export function mountReaderSection(options: {
             0,
             Math.min(state.citingPaperLimit, state.citingPapers.length),
           );
+    const eligiblePapers = papers.filter(
+      (paper) => paper.status === "resolved",
+    );
+    const selectedInTab = eligiblePapers.filter((paper) =>
+      state.downloadSelection.some((entry) => entry.paperID === paper.id),
+    ).length;
+    const selectAllChecked =
+      eligiblePapers.length > 0 && selectedInTab === eligiblePapers.length;
+    const downloadDisabled =
+      state.downloadSelection.length === 0 ||
+      state.downloadInProgress ||
+      !state.downloadAvailable;
     root.innerHTML = `
       <style>${READER_STYLES}</style>
       <header class="rfz-header">
@@ -164,8 +205,8 @@ export function mountReaderSection(options: {
         <button type="button" class="rfz-icon-button" data-refresh="" aria-label="Refresh current paper">↻</button>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
-        <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
-        <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapers.length}</span></div>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" data-focus-key="tab:references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" data-focus-key="tab:citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapers.length}</span></div>
       </nav>
       ${
         state.activeTab === "citations"
@@ -173,15 +214,38 @@ export function mountReaderSection(options: {
               ${([10, 30, 50] as const)
                 .map(
                   (limit) =>
-                    `<div class="rfz-limit" role="button" tabindex="0" data-limit="${limit}" aria-pressed="${state.citingPaperLimit === limit}">${limit}</div>`,
+                    `<div class="rfz-limit" role="button" tabindex="0" data-limit="${limit}" data-focus-key="limit:${limit}" aria-pressed="${state.citingPaperLimit === limit}">${limit}</div>`,
                 )
                 .join("")}
             </div>`
           : ""
       }
-      <main class="rfz-content" data-translation-scope="">
+      <div class="rfz-selection-toolbar" data-no-translation="">
+        <label>
+          <input type="checkbox" data-select-tab="${state.activeTab}" data-focus-key="select-all:${state.activeTab}" aria-label="Select all confirmed papers in ${state.activeTab === "references" ? "References" : "Citations"}" ${selectAllChecked ? 'checked=""' : ""} ${eligiblePapers.length === 0 ? 'disabled=""' : ""} />
+          <span>Select all</span>
+        </label>
+        <span class="rfz-selection-summary">${selectedInTab}/${eligiblePapers.length} in tab · ${state.downloadSelection.length} selected</span>
+      </div>
+      <main class="rfz-content">
         ${renderContent(state, papers)}
-      </main>`;
+      </main>
+      <footer class="rfz-download-dock" data-no-translation="">
+        <span><strong>${state.downloadSelection.length} selected</strong><small>References + Citations</small></span>
+        <button type="button" class="rfz-download-button" data-download-selected="" data-focus-key="download-selected" aria-label="Download ${state.downloadSelection.length} selected papers" ${downloadDisabled ? 'disabled=""' : ""}>Download selected (${state.downloadSelection.length})</button>
+        <span class="rfz-sr-only" role="status" aria-live="polite">${escapeHTML(downloadAnnouncement(state))}</span>
+      </footer>`;
+    const selectAll = root.querySelector<HTMLInputElement>("[data-select-tab]");
+    if (selectAll) {
+      selectAll.indeterminate =
+        selectedInTab > 0 && selectedInTab < eligiblePapers.length;
+    }
+    if (focusKey) {
+      const replacement = [
+        ...root.querySelectorAll<HTMLElement>("[data-focus-key]"),
+      ].find((element) => element.dataset.focusKey === focusKey);
+      replacement?.focus();
+    }
     const detailCard = renderDetailCard(state, papers);
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);
@@ -197,6 +261,17 @@ export function mountReaderSection(options: {
     }
     if (target.closest("[data-refresh]")) {
       controller.refresh();
+      return;
+    }
+    if (target.closest("[data-download-selected]")) {
+      void controller.downloadSelected();
+      return;
+    }
+    const openFolder = target.closest<HTMLElement>("[data-open-folder]");
+    if (openFolder) {
+      const paperID =
+        openFolder.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
+      if (paperID) controller.openDownloadedFolder(paperID);
       return;
     }
     const close = target.closest<HTMLElement>("[data-detail-close]");
@@ -228,14 +303,41 @@ export function mountReaderSection(options: {
       }
       return;
     }
+    if (body.ownerDocument.defaultView?.getSelection()?.toString().trim()) {
+      return;
+    }
     controller.selectPaper(paperID);
   };
 
   root.addEventListener("click", onClick);
   overlay.addEventListener("click", onClick);
+  const onChange = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof body.ownerDocument.defaultView!.HTMLInputElement)) {
+      return;
+    }
+    const paperID = target.dataset.selectPaper;
+    if (paperID) {
+      controller.setPaperDownloadSelected(
+        controller.getState().activeTab,
+        paperID,
+        target.checked,
+      );
+      return;
+    }
+    const tab = target.dataset.selectTab;
+    if (tab === "references" || tab === "citations") {
+      controller.setTabDownloadSelected(tab, target.checked);
+    }
+  };
+  root.addEventListener("change", onChange);
   const onContextMenu = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    if (target.closest("input, button, [data-paper-control]")) {
+      closeContextMenu();
+      return;
+    }
     const paperID =
       target.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
     if (!paperID) {
@@ -276,9 +378,22 @@ export function mountReaderSection(options: {
     const limit = Number(
       target.closest<HTMLElement>("[data-limit]")?.dataset.limit,
     );
-    if (limit !== 10 && limit !== 30 && limit !== 50) return;
+    if (limit === 10 || limit === 30 || limit === 50) {
+      event.preventDefault();
+      controller.setCitationLimit(limit);
+      return;
+    }
+    const title = target.closest<HTMLElement>("[data-paper-title]");
+    if (!title) return;
+    const paperID =
+      title.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
+    if (!paperID) return;
     event.preventDefault();
-    controller.setCitationLimit(limit);
+    if (event.ctrlKey || event.metaKey) {
+      controller.openPaper(paperID);
+      return;
+    }
+    controller.selectPaper(paperID);
   };
   root.addEventListener("keydown", onKeyDown);
   const onContextMenuKeyDown = (event: KeyboardEvent): void => {
@@ -315,6 +430,7 @@ export function mountReaderSection(options: {
     const translationScope = commonElement.closest("[data-translation-scope]");
     if (
       !translationScope ||
+      commonElement.closest("[data-no-translation]") ||
       (!root.contains(translationScope) && !overlay.contains(translationScope))
     ) {
       return;
@@ -359,6 +475,7 @@ export function mountReaderSection(options: {
       unsubscribe();
       root.removeEventListener("click", onClick);
       overlay.removeEventListener("click", onClick);
+      root.removeEventListener("change", onChange);
       root.removeEventListener("contextmenu", onContextMenu);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
@@ -444,18 +561,69 @@ function renderContent(
             : `<span class="rfz-paper-status">${escapeHTML(
                 paper.statusText ?? statusLabel(paper.status),
               )}</span>`;
+        const selectable = paper.status === "resolved";
+        const unavailableReason =
+          paper.status === "resolved" ? undefined : statusLabel(paper.status);
+        const checkboxLabel = selectable
+          ? `Select ${paper.title} for download`
+          : `${paper.title} cannot be selected: ${unavailableReason}`;
+        const selectedForDownload = state.downloadSelection.some(
+          (entry) => entry.paperID === paper.id,
+        );
+        const download = renderDownloadState(
+          state.paperDownloads.find((entry) => entry.paperID === paper.id),
+        );
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
-        }" data-paper-id="${escapeAttribute(paper.id)}">
-          <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div>
-            <div class="rfz-paper-title" data-paper-title="">${escapeHTML(
+        }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
+          <input class="rfz-paper-checkbox" type="checkbox" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectedForDownload ? 'checked=""' : ""} ${selectable ? "" : 'disabled=""'} />
+          <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
+            <div class="rfz-paper-title" data-paper-title="" data-translation-scope="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
-            )}</div>${metadata ? `<small>${escapeHTML(metadata)}</small>` : ""}${status}
+            )}</div>${metadata ? `<small data-translation-scope="">${escapeHTML(metadata)}</small>` : ""}${status}${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
           </div>
         </li>`;
       })
       .join("")}
   </ol>`;
+}
+
+function renderDownloadState(
+  state: PaperDownloadProjection | undefined,
+): string {
+  if (!state) return "";
+  const content = {
+    queued: "Queued",
+    downloading: "Downloading",
+    downloaded: "Downloaded",
+    failed: "Failed",
+  }[state.status];
+  const detail =
+    state.status === "downloaded"
+      ? `<span class="rfz-download-detail" data-saved-path="">${escapeHTML(state.savedPath)}</span><button type="button" class="rfz-open-folder" data-open-folder="" data-paper-control="" data-focus-key="open-folder:${escapeAttribute(state.paperID)}">Open folder</button>`
+      : state.status === "failed"
+        ? `<span class="rfz-download-detail">${escapeHTML(state.error)}</span>`
+        : "";
+  return `<div class="rfz-download-state rfz-download-state--${state.status}" data-download-state="${state.status}" data-no-translation=""><strong>${content}</strong>${detail}</div>`;
+}
+
+function downloadAnnouncement(state: ReaderSectionState): string {
+  const current =
+    [...state.paperDownloads]
+      .reverse()
+      .find((download) => download.status !== "queued") ??
+    state.paperDownloads[0];
+  if (!current) return "";
+  const papers =
+    current.originTab === "references" ? state.references : state.citingPapers;
+  const title =
+    papers.find((paper) => paper.id === current.paperID)?.title ??
+    current.paperID;
+  if (current.status === "downloaded") {
+    return `${title}: Downloaded to ${current.savedPath}`;
+  }
+  if (current.status === "failed") return `${title}: Failed: ${current.error}`;
+  return `${title}: ${current.status === "queued" ? "Queued" : "Downloading"}`;
 }
 
 function renderDetailCard(
@@ -480,17 +648,17 @@ function renderDetailCard(
   ].filter(
     (value): value is { label: string; kind: string } => value !== undefined,
   );
-  return `<aside class="rfz-detail-card" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}" data-translation-scope="">
+  return `<aside class="rfz-detail-card" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}">
     <button type="button" class="rfz-card-close" data-detail-close="" aria-label="Close paper details">×</button>
-    <strong class="rfz-card-title">${escapeHTML(paper.title)}</strong>
+    <strong class="rfz-card-title" data-translation-scope="">${escapeHTML(paper.title)}</strong>
     ${badges.length ? `<div class="rfz-badges">${badges.map((badge) => `<span class="rfz-badge-${badge.kind}">${escapeHTML(badge.label)}</span>`).join("")}</div>` : ""}
-    ${paper.authors ? `<div class="rfz-card-meta">${escapeHTML(paper.authors)}</div>` : ""}
+    ${paper.authors ? `<div class="rfz-card-meta" data-translation-scope="">${escapeHTML(paper.authors)}</div>` : ""}
     ${
       paper.venue || paper.year
-        ? `<div class="rfz-card-meta">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
+        ? `<div class="rfz-card-meta" data-translation-scope="">${escapeHTML([paper.venue, paper.year].filter(Boolean).join(" · "))}</div>`
         : ""
     }
-    <section class="rfz-abstract"><strong>Abstract</strong><p>${escapeHTML(
+    <section class="rfz-abstract"><strong>Abstract</strong><p${paper.abstract ? ' data-translation-scope=""' : ""}>${escapeHTML(
       paper.abstract ??
         (paper.abstractLoading
           ? "Loading abstract…"
@@ -572,13 +740,15 @@ const READER_STYLES = `
     --rfz-header-height: 42px;
     --rfz-tabs-height: 39px;
     position: relative;
+    display: flex;
+    flex-direction: column;
     height: 100%;
     color: var(--fill-primary, #242428);
     background: var(--material-sidepane, #fbfbfc);
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   .reference-for-zotero * { box-sizing: border-box; }
-  .rfz-header, .rfz-tabs, .rfz-limits { display: flex; align-items: center; }
+  .rfz-header, .rfz-tabs, .rfz-limits, .rfz-selection-toolbar, .rfz-download-dock { display: flex; flex: none; align-items: center; }
   .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 0 10px 0 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
   .rfz-header strong { font-size: 13px; }
   .rfz-header small { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
@@ -597,16 +767,37 @@ const READER_STYLES = `
   .rfz-limit:first-child { border-radius: 5px 0 0 5px; }
   .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
   .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
-  .rfz-content { overflow: auto; max-height: calc(100% - 85px); }
+  .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 10px; }
+  .rfz-selection-toolbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+  .rfz-selection-toolbar input, .rfz-paper-checkbox { accent-color: var(--rfz-accent); }
+  .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); }
+  .rfz-content { flex: 1; min-height: 0; overflow: auto; }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
-  .rfz-paper { display: grid; grid-template-columns: 27px 1fr; gap: 5px; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
+  .rfz-paper { display: grid; grid-template-columns: 18px 27px 1fr; gap: 5px; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
+  .rfz-paper-checkbox { width: 15px; height: 15px; margin: 1px 0 0; }
+  .rfz-paper-main { min-width: 0; }
   .rfz-ordinal { color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
   .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }
   .rfz-paper--failed .rfz-paper-status { color: #ba3b32; }
+  .rfz-download-unavailable { display: block; margin-top: 4px; color: #8a5d0b; font-size: 10px; }
+  .rfz-download-state { display: flex; flex-wrap: wrap; gap: 3px 6px; align-items: center; margin-top: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; overflow-wrap: anywhere; }
+  .rfz-download-state--downloading strong { color: var(--rfz-accent); }
+  .rfz-download-state--downloaded strong { color: #237a3b; }
+  .rfz-download-state--failed strong { color: #ba3b32; }
+  .rfz-download-detail { flex-basis: 100%; user-select: text; }
+  .rfz-open-folder { border: 0; padding: 0; color: var(--rfz-accent); background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }
+  .rfz-download-dock { gap: 7px; min-height: 55px; padding: 7px 9px; border-top: 1px solid var(--material-border, #bfc5cf); background: var(--material-sidepane, #f8f9fb); box-shadow: 0 -5px 15px #0001; }
+  .rfz-download-dock > span { min-width: 0; font-size: 10px; }
+  .rfz-download-dock strong, .rfz-download-dock small { display: block; }
+  .rfz-download-dock small { margin-top: 2px; color: var(--fill-secondary, #6a6a70); }
+  .rfz-download-button { margin-left: auto; flex: none; border: 1px solid #1f5fbe; border-radius: 5px; padding: 5px 8px; color: #fff; background: var(--rfz-accent); font: inherit; font-size: 10px; font-weight: 650; cursor: pointer; }
+  .rfz-download-button:disabled { border-color: #d2d2d5; color: #919197; background: #e4e4e6; cursor: default; }
+  .rfz-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   .rfz-context-menu { position: fixed; z-index: 2147483640; display: none; min-width: 174px; padding: 4px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 6px; color: var(--fill-primary, CanvasText); background: var(--material-background, #fff); box-shadow: 0 8px 24px #0003; font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
   .rfz-context-menu.is-open { display: block; }
   .rfz-context-item { padding: 6px 10px; border-radius: 4px; color: var(--fill-primary, CanvasText); background: transparent; cursor: pointer; user-select: none; }

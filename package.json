@@ -1,0 +1,35 @@
+{
+  "name": "reference-for-zotero",
+  "version": "1.0.0",
+  "description": "References and citing papers in the Zotero 9 Reader.",
+  "config": {
+    "addonName": "Reference for Zotero",
+    "addonID": "referenceforzotero@woif-sha.github.io",
+    "addonRef": "referenceforzotero",
+    "addonInstance": "ReferenceForZotero"
+  },
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "zotero-plugin serve",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && zotero-plugin build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Woif-sha/reference-for-zotro.git"
+  },
+  "author": "Woif-sha and contributors",
+  "license": "AGPL-3.0-or-later",
+  "homepage": "https://github.com/Woif-sha/reference-for-zotro",
+  "dependencies": {
+    "entities": "^6.0.1",
+    "zotero-plugin-toolkit": "^5.1.0-beta.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.16.5",
+    "typescript": "^5.9.3",
+    "zotero-plugin-scaffold": "^0.8.2",
+    "zotero-types": "^4.1.0-beta.3"
+  }
+}

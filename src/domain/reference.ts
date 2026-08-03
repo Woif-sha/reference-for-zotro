@@ -19,11 +19,8 @@ export type MinerUErrorCode =
   | "md-cache-incomplete"
   | "md-cache-invalid"
   | "unsupported-reader-item"
-  | "references-heading-missing"
-  | "references-heading-ambiguous"
   | "references-section-empty"
   | "references-marker-mixed"
-  | "references-prefix-unparsed"
   | "references-entry-structure-unsupported";
 
 export class MinerUContractError extends Error {

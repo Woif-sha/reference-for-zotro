@@ -9,10 +9,12 @@ const CACHE_ROOT_NAME = "llm-for-zotero-mineru";
 const SOURCE_FILENAME = "_llm_source.json";
 const MARKDOWN_FILENAME = "full.md";
 const MANIFEST_FILENAME = "manifest.json";
+const CONTENT_LIST_FILENAME = "content_list.json";
 const REQUIRED_FILENAMES = [
   SOURCE_FILENAME,
   MARKDOWN_FILENAME,
   MANIFEST_FILENAME,
+  CONTENT_LIST_FILENAME,
 ] as const;
 const PROVENANCE_KIND = "llm-for-zotero/mineru-cache-source";
 const PROVENANCE_VERSION = 2;
@@ -89,14 +91,19 @@ export async function loadMineruReferences(
   const firstRead = await readRequiredFiles(paths, ports);
   validateCache(firstRead, identity);
   const fullMarkdown = firstRead[1]!.text;
-  const entries = parseReferenceEntries(fullMarkdown);
+  const entries = parseReferenceEntries(fullMarkdown, firstRead[3]!.text);
   let fullMdSha256: string;
   let sourceFingerprint: string;
   try {
     [fullMdSha256, sourceFingerprint] = await Promise.all([
       ports.sha256(fullMarkdown),
       ports.sha256(
-        [firstRead[0]!.text, fullMarkdown, firstRead[2]!.text].join("\0"),
+        [
+          firstRead[0]!.text,
+          fullMarkdown,
+          firstRead[2]!.text,
+          firstRead[3]!.text,
+        ].join("\0"),
       ),
     ]);
   } catch {

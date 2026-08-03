@@ -12,6 +12,42 @@ const DATA_DIRECTORY = "ZOTERO_DATA";
 const ATTACHMENT_ID = 42;
 const CACHE_DIRECTORY = `${DATA_DIRECTORY}/llm-for-zotero-mineru/${ATTACHMENT_ID}`;
 
+test("loads references when MinerU classifies the heading as a page header", async () => {
+  const fullMarkdown = [
+    "## V. CONCLUSION",
+    "",
+    "Conclusion text.",
+    "",
+    "[1] First paper",
+    "",
+    "[2] Second paper",
+  ].join("\n");
+  const files = validFiles(fullMarkdown);
+  files[`${CACHE_DIRECTORY}/content_list.json`] = {
+    text: JSON.stringify([
+      { type: "text", text: "V. CONCLUSION", text_level: 2 },
+      { type: "text", text: "Conclusion text." },
+      { type: "ref_text", text: "[1] First paper" },
+      { type: "ref_text", text: "[2] Second paper" },
+      { type: "header", text: "REFERENCES" },
+    ]),
+    revision: "content-list-v1",
+  };
+
+  const result = await loadMineruReferences(ATTACHMENT_ID, createPorts(files));
+
+  assert.deepEqual(
+    result.entries.map(({ sourceLabel, lookupText }) => ({
+      sourceLabel,
+      lookupText,
+    })),
+    [
+      { sourceLabel: "1", lookupText: "First paper" },
+      { sourceLabel: "2", lookupText: "Second paper" },
+    ],
+  );
+});
+
 test("loads references only from the validated current attachment MinerU cache", async () => {
   const fullMarkdown = "## References\n[1] First paper\n[2] Second paper";
   const files = validFiles(fullMarkdown);
@@ -73,6 +109,16 @@ test("distinguishes an ungenerated cache from a partially missing cache", async 
       error instanceof MinerUContractError &&
       error.code === "md-cache-incomplete" &&
       assert.deepEqual(error.filenames, ["manifest.json"]) === undefined,
+  );
+
+  const missingContentList = validFiles("## References\n[1] First");
+  delete missingContentList[`${CACHE_DIRECTORY}/content_list.json`];
+  await assert.rejects(
+    loadMineruReferences(ATTACHMENT_ID, createPorts(missingContentList)),
+    (error) =>
+      error instanceof MinerUContractError &&
+      error.code === "md-cache-incomplete" &&
+      assert.deepEqual(error.filenames, ["content_list.json"]) === undefined,
   );
 });
 
@@ -292,7 +338,35 @@ test("rejects a MinerU cache that changes while fingerprints are computed", asyn
   );
 });
 
-test("never probes legacy Markdown or a fallback source", async () => {
+test("includes the semantic content list in the source fingerprint", async () => {
+  const fullMarkdown = "## References\n[1] First";
+  const firstFiles = validFiles(fullMarkdown);
+  const secondFiles = validFiles(fullMarkdown);
+  const contentListPath = `${CACHE_DIRECTORY}/content_list.json`;
+  secondFiles[contentListPath] = {
+    text: JSON.stringify([
+      { type: "ref_text", text: "[1] First" },
+      { type: "footer", text: "Page 1" },
+    ]),
+    revision: "content-list-v2",
+  };
+  const firstPorts = createPorts(firstFiles);
+  const secondPorts = createPorts(secondFiles);
+
+  const first = await loadMineruReferences(ATTACHMENT_ID, {
+    ...firstPorts,
+    sha256: async (text) => text,
+  });
+  const second = await loadMineruReferences(ATTACHMENT_ID, {
+    ...secondPorts,
+    sha256: async (text) => text,
+  });
+
+  assert.equal(first.fullMdSha256, second.fullMdSha256);
+  assert.notEqual(first.sourceFingerprint, second.sourceFingerprint);
+});
+
+test("reads only the validated MinerU cache contract", async () => {
   const fullMarkdown = "## References\n[1] First";
   const files = validFiles(fullMarkdown);
   const base = createPorts(files);
@@ -318,6 +392,7 @@ test("never probes legacy Markdown or a fallback source", async () => {
     [...inspected].sort(),
     [
       `${CACHE_DIRECTORY}/_llm_source.json`,
+      `${CACHE_DIRECTORY}/content_list.json`,
       `${CACHE_DIRECTORY}/full.md`,
       `${CACHE_DIRECTORY}/manifest.json`,
     ].sort(),
@@ -348,6 +423,15 @@ function validFiles(fullMarkdown: string): Record<string, MinerUReadResult> {
         sections: [{ charStart: 0, charEnd: fullMarkdown.length }],
       }),
       revision: "manifest-v1",
+    },
+    [`${CACHE_DIRECTORY}/content_list.json`]: {
+      text: JSON.stringify(
+        fullMarkdown
+          .split(/\r\n|\r|\n/u)
+          .filter((line) => /^\s*(?:\[\d+\]|\d+[.)])\s+/u.test(line))
+          .map((text) => ({ type: "ref_text", text: text.trimStart() })),
+      ),
+      revision: "content-list-v1",
     },
   };
 }

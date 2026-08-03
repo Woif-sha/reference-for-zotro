@@ -7,23 +7,28 @@ import {
 } from "../../src/domain/reference";
 import { parseReferenceEntries } from "../../src/mineru/reference-parser";
 
-test("parses the exact References heading and preserves Markdown encounter order", () => {
+test("parses semantic MinerU Reference blocks in encounter order", () => {
+  const first = "[1] First paper\ncontinued metadata";
+  const tenth = "[10] Tenth paper";
+  const ninth = "[9] Ninth paper";
   const fullMarkdown = [
     "# Paper",
     "",
     "## References",
     "",
-    "[1] First paper",
-    "continued metadata",
+    first,
     "",
-    "[10] Tenth paper",
-    "[9] Ninth paper",
+    tenth,
+    ninth,
     "",
     "## Appendix",
     "[99] Not a reference",
   ].join("\n");
 
-  const entries = parseReferenceEntries(fullMarkdown);
+  const entries = parseReferenceEntries(
+    fullMarkdown,
+    contentList(first, tenth, ninth),
+  );
 
   assert.deepEqual(
     entries.map(({ ordinal, sourceLabel, lookupText }) => ({
@@ -41,17 +46,47 @@ test("parses the exact References heading and preserves Markdown encounter order
       { ordinal: 2, sourceLabel: "9", lookupText: "Ninth paper" },
     ],
   );
-  assert.equal(entries[0]?.rawMarkdown, "[1] First paper\ncontinued metadata");
+  assert.equal(entries[0]?.rawMarkdown, first);
   assert.equal(
     fullMarkdown.slice(entries[0]?.charStart, entries[0]?.charEnd),
     entries[0]?.rawMarkdown,
   );
 });
 
-test("treats carriage-return line endings as Markdown lines", () => {
-  const entries = parseReferenceEntries(
-    "# Paper\r  ### LITERATURE CITED  \r1) First\rcontinued\r2. Second",
+test("does not require a Markdown heading when MinerU typed the Reference blocks", () => {
+  const first = "[1] First paper";
+  const second = "[2] Second paper";
+  const markdown = ["## V. CONCLUSION", "Conclusion text.", first, second].join(
+    "\n\n",
   );
+  const semanticBlocks = JSON.stringify([
+    { type: "text", text: "V. CONCLUSION", text_level: 2 },
+    { type: "text", text: "Conclusion text." },
+    { type: "ref_text", text: first },
+    { type: "ref_text", text: second },
+    { type: "header", text: "REFERENCES" },
+  ]);
+
+  const entries = parseReferenceEntries(markdown, semanticBlocks);
+
+  assert.deepEqual(
+    entries.map(({ sourceLabel, lookupText }) => ({
+      sourceLabel,
+      lookupText,
+    })),
+    [
+      { sourceLabel: "1", lookupText: "First paper" },
+      { sourceLabel: "2", lookupText: "Second paper" },
+    ],
+  );
+});
+
+test("preserves carriage returns and supports numeric entry markers", () => {
+  const first = "1) First\rcontinued";
+  const second = "2. Second";
+  const markdown = `# Paper\r${first}\r${second}`;
+
+  const entries = parseReferenceEntries(markdown, contentList(first, second));
 
   assert.deepEqual(
     entries.map(({ sourceLabel, lookupText }) => ({
@@ -65,82 +100,60 @@ test("treats carriage-return line endings as Markdown lines", () => {
   );
 });
 
-test("accepts only the four exact References heading names at levels one through six", () => {
-  const cases = [
-    "# References",
-    "## reference",
-    "### BIBLIOGRAPHY",
-    "###### Literature Cited",
-  ];
+test("preserves exact Reference text and source offsets", () => {
+  const rawReference =
+    "[123456] **Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued";
+  const markdown = `Preface\n\n${rawReference}\n\nFooter`;
 
-  for (const heading of cases) {
-    assert.equal(
-      parseReferenceEntries(`${heading}\n[1] Entry`)[0]?.lookupText,
-      "Entry",
-    );
-  }
-  assertMinerUCode(
-    () => parseReferenceEntries("## References and notes\n[1] Entry"),
-    "references-heading-missing",
-  );
-});
+  const [entry] = parseReferenceEntries(markdown, contentList(rawReference));
 
-test("keeps deeper headings inside References and stops at the next peer heading", () => {
-  const markdown = [
-    "# Paper",
-    "## References",
-    "[1] Entry",
-    "### Supplemental note",
-    "continuation",
-    "## Acknowledgements",
-    "[2] Outside",
-  ].join("\n");
-
-  const [entry] = parseReferenceEntries(markdown);
-
-  assert.equal(entry?.lookupText, "Entry\n### Supplemental note\ncontinuation");
-});
-
-test("preserves raw Markdown while removing only the marker from lookup text", () => {
-  const markdown =
-    "## References\n  [123456] **Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued";
-
-  const [entry] = parseReferenceEntries(markdown);
-
-  assert.equal(
-    entry?.rawMarkdown,
-    "[123456] **Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued",
-  );
+  assert.equal(entry?.rawMarkdown, rawReference);
   assert.equal(
     entry?.lookupText,
     "**Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued",
   );
-  assert.equal(
-    markdown.slice(entry?.charStart, entry?.charEnd),
-    entry?.rawMarkdown,
-  );
+  assert.equal(markdown.slice(entry?.charStart, entry?.charEnd), rawReference);
 });
 
-test("fails the entire parse for ambiguous or unsupported References structures", () => {
-  const cases: readonly [string, MinerUErrorCode][] = [
-    ["# Paper", "references-heading-missing"],
+test("rejects invalid content lists and inconsistent Reference structures", () => {
+  const cases: readonly [string, string, MinerUErrorCode][] = [
+    ["# Paper", "[]", "references-section-empty"],
     [
-      "## References\n[1] One\n## Bibliography\n[2] Two",
-      "references-heading-ambiguous",
-    ],
-    ["## References\n \n", "references-section-empty"],
-    ["## References\n[1] One\n2. Two", "references-marker-mixed"],
-    ["## References\npreface\n[1] One", "references-prefix-unparsed"],
-    [
-      "## References\nAuthor. Title. 2024.",
+      "Author. Title. 2024.",
+      contentList("Author. Title. 2024."),
       "references-entry-structure-unsupported",
+    ],
+    [
+      "[1] One\n2. Two",
+      contentList("[1] One", "2. Two"),
+      "references-marker-mixed",
+    ],
+    [
+      "[1] Actual",
+      contentList("[1] Different"),
+      "references-entry-structure-unsupported",
+    ],
+    ["# Paper", "not json", "md-cache-invalid"],
+    ["# Paper", "{}", "md-cache-invalid"],
+    ["# Paper", "[null]", "md-cache-invalid"],
+    [
+      "# Paper",
+      JSON.stringify([{ type: "ref_text", text: "" }]),
+      "md-cache-invalid",
     ],
   ];
 
-  for (const [markdown, code] of cases) {
-    assertMinerUCode(() => parseReferenceEntries(markdown), code);
+  for (const [markdown, semanticBlocks, code] of cases) {
+    assertMinerUCode(
+      () => parseReferenceEntries(markdown, semanticBlocks),
+      code,
+    );
   }
 });
+
+function contentList(...references: readonly string[]): string {
+  return JSON.stringify(references.map((text) => ({ type: "ref_text", text })));
+}
 
 function assertMinerUCode(
   operation: () => unknown,

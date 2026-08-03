@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Validate and publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package version
+        run: >-
+          node -e "const version = require('./package.json').version;
+          const expected = 'v' + version;
+          if (process.env.GITHUB_REF_NAME !== expected) {
+            console.error('Release tag must equal ' + expected);
+            process.exit(1);
+          }"
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check types
+        run: npm run typecheck
+
+      - name: Lint source and tests
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Check workflow formatting
+        run: npx prettier --check ".github/workflows/*.yml"
+
+      - name: Build production XPI
+        run: npm run build
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$GITHUB_REF_NAME"
+          assets=(
+            build/reference-for-zotero.xpi
+            build/update.json
+          )
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+            gh release edit "$tag" --title "$tag" --draft=false
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --verify-tag \
+              --title "$tag" \
+              --generate-notes
+          fi

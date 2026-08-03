@@ -130,6 +130,75 @@ test("close metadata candidates remain ambiguous instead of selecting provider o
   );
 });
 
+test("exact title year and ordered authors confirm duplicate publication records for Primary result selection", () => {
+  const title =
+    "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title,
+      authors: ["Bai", "Deng", "Cao"],
+      year: 2024,
+    },
+    [
+      candidate({
+        sourceRecordID: "10.1109/mlcad62225.2024.10740261",
+        identifiers: { doi: "10.1109/mlcad62225.2024.10740261" },
+        title,
+        authors: ["Bai", "Deng", "Cao"].map((family) => ({ family })),
+        publicationYear: 2024,
+      }),
+      candidate({
+        sourceRecordID: "10.1145/3670474.3685965",
+        identifiers: { doi: "10.1145/3670474.3685965" },
+        title,
+        authors: ["Bai", "Deng", "Cao"].map((family) => ({ family })),
+        publicationYear: 2024,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "confirmed");
+  assert.equal(result.candidates.length, 2);
+  assert.ok(
+    result.candidates.every(({ matchedFields }) =>
+      ["title", "first-author", "authors", "year"].every((field) =>
+        matchedFields.includes(field),
+      ),
+    ),
+  );
+});
+
+test("different DOI records remain ambiguous when any ordered author list conflicts", () => {
+  const title = "A Jointly Published Paper";
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title,
+      authors: ["Smith", "Jones"],
+      year: 2024,
+    },
+    [
+      candidate({
+        sourceRecordID: "10.1000/one",
+        identifiers: { doi: "10.1000/one" },
+        title,
+        authors: [{ family: "Smith" }, { family: "Jones" }],
+        publicationYear: 2024,
+      }),
+      candidate({
+        sourceRecordID: "10.1000/two",
+        identifiers: { doi: "10.1000/two" },
+        title,
+        authors: [{ family: "Smith" }, { family: "Other" }],
+        publicationYear: 2024,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "ambiguous");
+});
+
 test("same exact DOI from multiple registrars remains one confirmed identity with all provenances", () => {
   const reference: MatchablePaper = {
     identifiers: { doi: "10.1000/shared" },

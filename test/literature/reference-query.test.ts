@@ -65,3 +65,17 @@ test("IEEE-style references keep real authors, conference venue, and publication
   );
   assert.equal(doiReference.year, 2024);
 });
+
+test("joint ACM IEEE proceedings entries preserve the exact title year and ordered authors", () => {
+  const result = parseReferenceQuery(
+    "T. Bai, Z. Deng, and P. Cao, “Cell library characterization for composite current source models based on gaussian process regression and active learning,” in Proceedings of the 2024 ACM/IEEE International Symposium on Machine Learning for CAD, 2024, pp. 1–7.",
+  );
+
+  assert.equal(
+    result.title,
+    "Cell library characterization for composite current source models based on gaussian process regression and active learning",
+  );
+  assert.deepEqual(result.authors, ["Bai", "Deng", "Cao"]);
+  assert.equal(result.year, 2024);
+  assert.equal(result.channel, "conference");
+});

@@ -180,6 +180,94 @@ test("traditional literature falls back to DataCite only after Crossref has no c
   assert.ok(seen[1]?.includes("api.datacite.org"));
 });
 
+test("duplicate publication records with exact title year and authors select one verified Primary result", async () => {
+  const title =
+    "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input) => {
+      const url = String(input);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1109/mlcad62225.2024.10740261",
+                title: [title],
+                author: [
+                  { family: "Bai", given: "Tao" },
+                  { family: "Deng", given: "Zeyuan" },
+                  { family: "Cao", given: "Peng" },
+                ],
+                published: { "date-parts": [[2024, 9, 9]] },
+                "container-title": [
+                  "2024 ACM/IEEE 6th Symposium on Machine Learning for CAD (MLCAD)",
+                ],
+                URL: "https://doi.org/10.1109/mlcad62225.2024.10740261",
+              },
+              {
+                DOI: "10.1145/3670474.3685965",
+                title: [title],
+                author: [
+                  { family: "Bai", given: "Tao" },
+                  { family: "Deng", given: "Zeyuan" },
+                  { family: "Cao", given: "Peng" },
+                ],
+                published: { "date-parts": [[2024, 9, 9]] },
+                "container-title": [
+                  "Proceedings of the 2024 ACM/IEEE International Symposium on Machine Learning for CAD",
+                ],
+                URL: "https://doi.org/10.1145/3670474.3685965",
+                link: [
+                  {
+                    URL: "https://dl.acm.org/doi/pdf/10.1145/3670474.3685965",
+                    "content-version": "vor",
+                    "intended-application": "similarity-checking",
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      if (url === "https://doi.org/10.1109/mlcad62225.2024.10740261") {
+        const response = new Response("<html></html>");
+        Object.defineProperty(response, "url", {
+          value: "https://ieeexplore.ieee.org/document/10740261/",
+        });
+        return response;
+      }
+      if (url === "https://doi.org/10.1145/3670474.3685965") {
+        const response = new Response("blocked", { status: 403 });
+        Object.defineProperty(response, "url", {
+          value: "https://dl.acm.org/doi/10.1145/3670474.3685965",
+        });
+        return response;
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    }),
+  );
+
+  const result = await gateway.resolveReference({
+    identifiers: {},
+    title,
+    authors: ["Bai", "Deng", "Cao"],
+    year: 2024,
+    venue: "2024 ACM/IEEE International Symposium on Machine Learning for CAD",
+    channel: "conference",
+  });
+
+  assert.equal(result.status, "resolved");
+  assert.equal(
+    result.primaryResult.landingURL,
+    "https://dl.acm.org/doi/10.1145/3670474.3685965",
+  );
+  assert.equal(
+    result.primaryResult.fullTextURL,
+    "https://dl.acm.org/doi/pdf/10.1145/3670474.3685965",
+  );
+  assert.equal(result.candidates.length, 2);
+});
+
 test("DataCite string publisher is retained as venue metadata", async () => {
   const gateway = createRelatedLiteratureGateway(
     ports(async (input) => {

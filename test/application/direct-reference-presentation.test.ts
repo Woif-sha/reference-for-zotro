@@ -9,7 +9,7 @@ import {
 import type { RelatedLiteratureGateway } from "../../src/literature/gateway";
 
 test("trusted-title presentation invalidates previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 5);
+  assert.equal(PROVIDER_QUERY_VERSION, 6);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -98,4 +98,58 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
   assert.match(paper.venue ?? "", /^Proceedings of the 2019 Conference/u);
   assert.equal(paper.year, "2019");
   assert.equal(paper.abstract, "BERT abstract.");
+});
+
+test("unresolved references display only the parsed paper title", async () => {
+  const lookupText =
+    "S. M. Ebrahimiapour, B. Ghavami, H. Mousavi, M. Raji, Z. Fang, and L. Shannon, “Aadam: A fast, accurate, and versatile aging-aware cell library delay model using feed-forward neural network,” in Proceedings of the 39th International Conference on Computer-Aided Design, 2020, pp. 1–9.";
+  const abortController = new AbortController();
+  const context: ResolutionContext = {
+    paper: {
+      identity: {
+        libraryID: 1,
+        attachmentID: 2,
+        attachmentKey: "ATTACHMENT",
+        parentItemKey: "PARENT",
+      },
+      sourceFingerprint: "fingerprint",
+      entries: [],
+    },
+    token: {
+      libraryID: 1,
+      attachmentID: 2,
+      attachmentKey: "ATTACHMENT",
+      parentItemKey: "PARENT",
+      sourceFingerprint: "fingerprint",
+      generation: 1,
+    },
+    signal: abortController.signal,
+  };
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: async () => ({
+      status: "unresolved",
+      reason: "no-candidate",
+      outcomes: [{ source: "crossref", status: "no-candidate" }],
+    }),
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    10,
+    lookupText,
+    gateway,
+    () => {
+      throw new Error("not used");
+    },
+    context,
+  );
+
+  assert.equal(
+    paper.title,
+    "Aadam: A fast, accurate, and versatile aging-aware cell library delay model using feed-forward neural network",
+  );
+  assert.doesNotMatch(paper.title, /Ebrahimiapour|Proceedings|2020/u);
 });

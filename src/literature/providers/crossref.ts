@@ -103,6 +103,7 @@ function parseCrossrefWork(
       ...(asString(author.given) ? { given: asString(author.given) } : {}),
     }))
     .filter(({ family }) => family.length > 0);
+  const fullTextURL = findVersionOfRecordURL(work.link);
   return {
     source: "crossref",
     sourceRecordID,
@@ -118,9 +119,29 @@ function parseCrossrefWork(
     citationCount: asNumber(work["is-referenced-by-count"]) ?? null,
     canonicalURL: doi ? `https://doi.org/${encodeURI(doi)}` : null,
     landingURL: asString(work.URL) ?? null,
+    ...(fullTextURL ? { fullTextURL } : {}),
     matchedFields: [],
     rawProvenance: [`crossref:${sourceRecordID}`],
   };
+}
+
+function findVersionOfRecordURL(value: unknown): string | undefined {
+  return asArray(value)
+    .map(asRecord)
+    .filter((link): link is Record<string, unknown> => link !== undefined)
+    .filter(
+      (link) => asString(link["content-version"])?.toLowerCase() === "vor",
+    )
+    .map((link) => ({
+      url: asString(link.URL),
+      contentType: asString(link["content-type"])?.toLowerCase(),
+    }))
+    .find(
+      ({ url, contentType }) =>
+        url?.startsWith("https://") &&
+        (contentType?.includes("application/pdf") ||
+          /(?:\.pdf(?:$|[?#])|\/pdf\/)/iu.test(url)),
+    )?.url;
 }
 
 function contractError(message: string): ProviderError {

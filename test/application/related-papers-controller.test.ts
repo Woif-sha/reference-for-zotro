@@ -170,7 +170,7 @@ test("unsupported References structure blocks both relationship paths with actio
   assert.equal(citationCalls, 0);
 });
 
-test("only a resolved Primary result can open the browser", async () => {
+test("resolved papers open their Primary result and unresolved papers search Google by title", async () => {
   const opened: string[] = [];
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
@@ -188,16 +188,26 @@ test("only a resolved Primary result can open the browser", async () => {
         title: "Ambiguous paper",
         status: "ambiguous",
       },
+      {
+        id: "reference:2",
+        ordinal: 2,
+        title: "Still matching",
+        status: "matching",
+      },
     ],
     loadCitingPapers: async () => [],
     openURL: (url) => opened.push(url),
   });
   await controller.refreshAsync();
 
-  controller.openPrimaryResult("reference:1");
-  controller.openPrimaryResult("reference:0");
+  controller.openPaper("reference:1");
+  controller.openPaper("reference:2");
+  controller.openPaper("reference:0");
 
-  assert.deepEqual(opened, ["https://doi.org/10.1000/one"]);
+  assert.deepEqual(opened, [
+    "https://www.google.com/search?q=Ambiguous%20paper",
+    "https://doi.org/10.1000/one",
+  ]);
 });
 
 test("selecting a resolved DOI paper lazily loads and publishes its Abstract", async () => {

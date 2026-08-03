@@ -46,6 +46,7 @@ export type ScholarlyCandidate = Readonly<{
   citationCount: number | null;
   canonicalURL: string | null;
   landingURL: string | null;
+  fullTextURL?: string;
   matchedFields: readonly string[];
   rawProvenance: readonly string[];
 }>;

@@ -42,7 +42,7 @@ import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 const PROVIDER_SCHEMA_VERSION = 2;
-export const PROVIDER_QUERY_VERSION = 5;
+export const PROVIDER_QUERY_VERSION = 6;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -177,17 +177,18 @@ export async function resolveReferenceEntry(
   context: ResolutionContext,
 ): Promise<ReaderPaper> {
   const stable = extractStableIdentifiers(lookupText);
+  const query = parseReferenceQuery(lookupText);
+  const displayTitle = query.title?.trim() || lookupText.trim();
   const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
   if (malformedIdentifier) {
     return unresolvedPaper(
       ordinal,
-      lookupText,
+      displayTitle,
       `Invalid ${malformedIdentifier} format`,
       "invalid-identifier",
     );
   }
   const deterministic = resolveDeterministicLandingPage(stable);
-  const query = parseReferenceQuery(lookupText);
 
   if (!query.identifiers.doi && deterministic.status === "confirmed") {
     const landing = await loadDirectLandingPage(
@@ -208,12 +209,12 @@ export async function resolveReferenceEntry(
           context: gatewayContext(context),
         });
         if (resolution.status === "resolved") {
-          return resolutionToReaderPaper(ordinal, lookupText, resolution);
+          return resolutionToReaderPaper(ordinal, displayTitle, resolution);
         }
       }
       return directLandingToReaderPaper(
         ordinal,
-        query.title || lookupText,
+        displayTitle,
         landing.url,
         deterministic.matchedBy,
         landing.metadata,
@@ -221,7 +222,7 @@ export async function resolveReferenceEntry(
     }
     return unresolvedPaper(
       ordinal,
-      lookupText,
+      displayTitle,
       "Landing page is unreachable",
       "unreachable",
     );
@@ -232,7 +233,7 @@ export async function resolveReferenceEntry(
     signal: context.signal,
     context: gatewayContext(context),
   });
-  return resolutionToReaderPaper(ordinal, lookupText, resolution);
+  return resolutionToReaderPaper(ordinal, displayTitle, resolution);
 }
 
 function currentPaperIdentifiers(context: ResolutionContext): {

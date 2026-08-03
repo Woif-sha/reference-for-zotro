@@ -57,7 +57,7 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
       setCitationLimit() {},
       selectPaper() {},
       refresh() {},
-      openPrimaryResult() {},
+      openPaper() {},
     },
   });
 
@@ -94,7 +94,7 @@ test("Reader section renders Reference entries in source order and selects Citat
     setCitationLimit() {},
     selectPaper() {},
     refresh() {},
-    openPrimaryResult() {},
+    openPaper() {},
   };
 
   const mounted = mountReaderSection({
@@ -215,7 +215,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     refresh() {
       actions.push("refresh");
     },
-    openPrimaryResult(paperID) {
+    openPaper(paperID) {
       actions.push(`open:${paperID}`);
     },
   };
@@ -336,13 +336,14 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
     "select:citing-1",
     "select:citing-1",
     "open:citing-1",
+    "open:citing-2",
     "refresh",
   ]);
 
   mounted.destroy();
 });
 
-test("Reader section opens only a confirmed reachable title on Ctrl+left-click", () => {
+test("Reader section delegates Ctrl+left-click for resolved and unresolved titles", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const actions: string[] = [];
   const state: ReaderSectionState = {
@@ -373,7 +374,7 @@ test("Reader section opens only a confirmed reachable title on Ctrl+left-click",
     setCitationLimit() {},
     selectPaper: (paperID) => actions.push(`select:${paperID}`),
     refresh() {},
-    openPrimaryResult: (paperID) => actions.push(`open:${paperID}`),
+    openPaper: (paperID) => actions.push(`open:${paperID}`),
   };
   const mounted = mountReaderSection({
     body: dom.window.document.body,
@@ -387,6 +388,10 @@ test("Reader section opens only a confirmed reachable title on Ctrl+left-click",
   );
   assert.ok(reachable);
   assert.ok(unverified);
+  assert.equal(
+    unverified.closest("[data-paper-id]")?.querySelector(".rfz-paper-status"),
+    null,
+  );
 
   reachable.dispatchEvent(
     new dom.window.MouseEvent("click", {
@@ -417,7 +422,7 @@ test("Reader section opens only a confirmed reachable title on Ctrl+left-click",
     }),
   );
 
-  assert.deepEqual(actions, ["open:reachable"]);
+  assert.deepEqual(actions, ["open:reachable", "open:unverified"]);
   mounted.destroy();
 });
 
@@ -455,7 +460,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
         listener?.(state);
       },
       refresh() {},
-      openPrimaryResult() {},
+      openPaper() {},
     },
   });
 
@@ -511,7 +516,7 @@ test("only Resolved references and Citing papers open a detail card", () => {
         listener?.(state);
       },
       refresh() {},
-      openPrimaryResult() {},
+      openPaper() {},
     },
   });
 
@@ -525,7 +530,7 @@ test("only Resolved references and Citing papers open a detail card", () => {
   mounted.destroy();
 });
 
-test("Reader section distinguishes invalid identifiers from unreachable landing pages", () => {
+test("Reader section keeps unresolved rows title-only while retaining actionable invalid identifier status", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const state: ReaderSectionState = {
     ...readyState(),
@@ -553,7 +558,7 @@ test("Reader section distinguishes invalid identifiers from unreachable landing 
       setCitationLimit() {},
       selectPaper() {},
       refresh() {},
-      openPrimaryResult() {},
+      openPaper() {},
     },
   });
 
@@ -561,7 +566,13 @@ test("Reader section distinguishes invalid identifiers from unreachable landing 
     [...dom.window.document.querySelectorAll(".rfz-paper-status")].map(
       (status) => status.textContent,
     ),
-    ["Invalid identifier", "Landing page unreachable"],
+    ["Invalid identifier"],
+  );
+  assert.equal(
+    dom.window.document.querySelector(
+      '[data-paper-id="unreachable"] .rfz-paper-status',
+    ),
+    null,
   );
   mounted.destroy();
 });
@@ -578,7 +589,7 @@ test("Reader section translates only text selected inside the extension UI", asy
     setCitationLimit() {},
     selectPaper() {},
     refresh() {},
-    openPrimaryResult() {},
+    openPaper() {},
     async translateSelection(text) {
       translated.push(text);
       return "第一篇参考文献";
@@ -629,7 +640,7 @@ test("a translation failure disables only UI translation for the mounted section
       setCitationLimit() {},
       selectPaper() {},
       refresh() {},
-      openPrimaryResult() {},
+      openPaper() {},
       async translateSelection() {
         translationCalls += 1;
         throw new Error("Paper Translate service unavailable");

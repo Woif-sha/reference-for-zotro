@@ -182,7 +182,7 @@ authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_met
 2. PMID/PMCID/arXiv 等同 scheme 的稳定标识符；
 3. 同一 provider 的 `sourceRecordID`。
 
-没有共同稳定标识符时，`normalizedTitle + firstAuthorFamily + year` 只能用于候选聚类，不能证明同一论文。标识符冲突的记录不得合并。
+没有共同稳定标识符时，`normalizedTitle + firstAuthorFamily + year` 通常只能用于候选聚类，不能证明同一论文。唯一例外是联合出版的多个正式记录：每个候选都必须有自己的稳定标识符，并且规范化题名、年份、非空的有序作者姓氏序列与输入完全一致；此时保留全部记录交给 Primary result 选择。任一作者缺失或冲突时仍为歧义，标识符冲突的记录不得合并。
 
 ### 确认规则
 
@@ -208,7 +208,7 @@ total       = 0.65 * titleScore + 0.25 * authorScore + 0.10 * yearScore
 - 双方都有年份时差值不超过 1；
 - `total >= 0.85`。
 
-最高候选与第二名差值必须 `>= 0.08` 才能唯一确认。没有合格候选为 `no_candidate`；有合格候选但差值不足为 `ambiguous_candidate`。这些阈值是项目的首发保守策略，需要固定 fixture 测试；provider relevance score 和返回顺序不参与确认。
+最高候选与第二名差值必须 `>= 0.08` 才能唯一确认。多个精确题名/年份候选仅在全部具有稳定标识符且有序作者姓氏序列也与输入完全一致时，作为联合出版记录共同确认；否则仍为 `ambiguous_candidate`。没有合格候选为 `no_candidate`。这些阈值是项目的首发保守策略，需要固定 fixture 测试；provider relevance score 和返回顺序不参与确认。
 
 ## Primary result
 
@@ -239,7 +239,7 @@ citation count        0.5
 HTTPS landing page    1
 ```
 
-abstract 不计分。先排除 unreachable，再按 authority 降序、completeness 降序、source 名称和 sourceRecordID 升序稳定打破平局。数据库返回顺序不是 tie-break。
+abstract 不计分。先排除 unreachable，再按 authority 降序；同一 authority 下优先选择 provider 明确给出安全 HTTPS version-of-record PDF 的记录，然后按 completeness 降序、source 名称和 sourceRecordID 升序稳定打破平局。全文 URL 只作为可下载原文的选择证据，UI 仍打开 Paper landing page。数据库返回顺序不是 tie-break。
 
 ### Reachability
 
@@ -251,12 +251,12 @@ DOI candidate 的 canonical URL 固定为 `https://doi.org/{doi}`。DOI Foundati
 - 10 秒超时，最多 5 次 redirect；
 - 不发送 cookie、认证 token 或机构凭据；
 - 禁止 HTTPS 降级到 HTTP；
-- 最终响应必须为 2xx，且 URL 为 HTTPS；
+- 最终响应必须为 2xx，或为已安全跳转到出版社 HTTPS 页后的 401/403；最终 URL 必须为 HTTPS；
 - `Content-Type` 明确是 PDF 或最终 URL 是直接文件下载时拒绝；
 - 每次最多读取 64 KiB，验证完成即停止，不解析正文；
-- 401、403、404、410、429、5xx、循环 redirect、超时均不是 `reachable`。
+- DOI 已安全跳转到最终出版社 HTTPS 页面后，401/403 可确认落地页存在，但只视为受访问控制；404、410、429、5xx、循环 redirect、超时均不是 `reachable`。
 
-保存 `canonicalURL` 和最终 `landingURL`。Ctrl+左键只打开已经验证的 `landingURL`。无法验证时保留 candidate provenance，但不得成为 Primary result。
+保存 `canonicalURL` 和最终 `landingURL`。已解析论文的 Ctrl+左键只打开已经验证的 `landingURL`；未解析、歧义或落地页不可达的条目只显示解析出的论文题名，Ctrl+左键打开 `https://www.google.com/search?q=<encoded title>`。Google 搜索只是用户显式触发的题名检索，不得伪装成 Primary result。无法验证时保留 candidate provenance，但不得成为 Primary result。
 
 ## Citations 排序与 10/30/50
 

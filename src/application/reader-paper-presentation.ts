@@ -9,7 +9,7 @@ import type { ReaderPaper } from "../reader/mountReaderSection";
 
 export function resolutionToReaderPaper(
   ordinal: number,
-  lookupText: string,
+  displayTitle: string,
   resolution: ReferenceResolution,
 ): ReaderPaper {
   if (resolution.status === "resolved") {
@@ -23,7 +23,7 @@ export function resolutionToReaderPaper(
   if (resolution.status === "ambiguous") {
     return unresolvedPaper(
       ordinal,
-      lookupText,
+      displayTitle,
       "Multiple candidates have indistinguishable evidence",
       "ambiguous",
       formatCandidateDiagnostics(resolution.candidates),
@@ -33,7 +33,7 @@ export function resolutionToReaderPaper(
   if (resolution.status === "unresolved") {
     return unresolvedPaper(
       ordinal,
-      lookupText,
+      displayTitle,
       resolution.reason === "no-candidate"
         ? "No confirmed candidate"
         : resolution.reason === "incomplete-metadata"
@@ -54,7 +54,7 @@ export function resolutionToReaderPaper(
     .join("; ");
   return unresolvedPaper(
     ordinal,
-    lookupText,
+    displayTitle,
     codes || "Related-literature provider failed",
     "failed",
   );

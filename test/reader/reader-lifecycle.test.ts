@@ -43,7 +43,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
         setCitationLimit() {},
         selectPaper() {},
         refresh() {},
-        openPrimaryResult() {},
+        openPaper() {},
         dispose: () => destroyed.push(attachmentItemID),
       };
     },

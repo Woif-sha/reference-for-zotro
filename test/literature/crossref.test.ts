@@ -28,3 +28,48 @@ test("Crossref search does not turn a parsed venue into a hard result filter", a
     "High performance 4nm finfet platform 2021",
   );
 });
+
+test("Crossref retains only a safe HTTPS version-of-record full text URL", async () => {
+  const [candidate] = await searchCrossref(
+    {
+      title: "Cell Library Characterization",
+      firstAuthor: "Bai",
+      year: 2024,
+    },
+    {
+      fetch: async () =>
+        Response.json({
+          message: {
+            items: [
+              {
+                DOI: "10.1145/example",
+                title: ["Cell Library Characterization"],
+                author: [{ family: "Bai", given: "Tao" }],
+                published: { "date-parts": [[2024]] },
+                "container-title": ["MLCAD"],
+                URL: "https://doi.org/10.1145/example",
+                link: [
+                  {
+                    URL: "https://publisher.example/supplement.pdf",
+                    "content-version": "am",
+                  },
+                  {
+                    URL: "http://publisher.example/paper.pdf",
+                    "content-version": "vor",
+                  },
+                  {
+                    URL: "https://publisher.example/paper.pdf",
+                    "content-version": "vor",
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      clock: { now: () => new Date("2026-08-03T00:00:00.000Z") },
+      scheduler: { sleep: async () => {} },
+    },
+  );
+
+  assert.equal(candidate?.fullTextURL, "https://publisher.example/paper.pdf");
+});

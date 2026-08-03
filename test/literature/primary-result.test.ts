@@ -74,6 +74,18 @@ test("registration metadata authority wins, then completeness breaks equal-autho
   );
 });
 
+test("safe version-of-record full text evidence breaks equal-authority ties", () => {
+  const withoutFullText = option("crossref", "a-without-full-text");
+  const withFullText = option("crossref", "z-with-full-text", {
+    fullTextURL: "https://publisher.example/paper.pdf",
+  });
+
+  assert.equal(
+    selectPrimaryResult([withoutFullText, withFullText])?.sourceRecordID,
+    "z-with-full-text",
+  );
+});
+
 test("Primary result requires a non-empty title and stable identity", () => {
   assert.equal(
     selectPrimaryResult([

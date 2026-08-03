@@ -225,12 +225,16 @@ export class RelatedPapersController implements ReaderSectionController {
     }
   }
 
-  openPrimaryResult(paperID: string): void {
+  openPaper(paperID: string): void {
     const paper = [...this.state.references, ...this.state.citingPapers].find(
       (candidate) => candidate.id === paperID,
     );
-    if (!canOpenPrimaryResult(paper)) return;
-    this.ports.openURL(paper.primaryResultURL);
+    if (!paper || paper.status === "matching") return;
+    this.ports.openURL(
+      canOpenPrimaryResult(paper)
+        ? paper.primaryResultURL
+        : `https://www.google.com/search?q=${encodeURIComponent(paper.title)}`,
+    );
   }
 
   async translateSelection(text: string): Promise<string> {

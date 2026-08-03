@@ -32,6 +32,8 @@ export function selectPrimaryResult(
     .sort(
       (left, right) =>
         AUTHORITY[right.candidate.source] - AUTHORITY[left.candidate.source] ||
+        Number(Boolean(right.candidate.fullTextURL)) -
+          Number(Boolean(left.candidate.fullTextURL)) ||
         completeness(right.candidate) - completeness(left.candidate) ||
         left.candidate.source.localeCompare(right.candidate.source) ||
         left.candidate.sourceRecordID.localeCompare(

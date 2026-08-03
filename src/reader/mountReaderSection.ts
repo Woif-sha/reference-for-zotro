@@ -75,7 +75,7 @@ export interface ReaderSectionController {
   setCitationLimit(limit: 10 | 30 | 50): void;
   selectPaper(paperID: string): void;
   refresh(): void;
-  openPrimaryResult(paperID: string): void;
+  openPaper(paperID: string): void;
   translateSelection?(text: string): Promise<string>;
 }
 
@@ -177,18 +177,10 @@ export function mountReaderSection(options: {
     const paperID =
       title.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
     if (!paperID) return;
-    const state = controller.getState();
-    const paper = [...state.references, ...state.citingPapers].find(
-      (candidate) => candidate.id === paperID,
-    );
     const mouseEvent = event as MouseEvent;
     if (mouseEvent.ctrlKey || mouseEvent.metaKey) {
-      if (
-        mouseEvent.ctrlKey &&
-        mouseEvent.button === 0 &&
-        canOpenPrimaryResult(paper)
-      ) {
-        controller.openPrimaryResult(paperID);
+      if (mouseEvent.ctrlKey && mouseEvent.button === 0) {
+        controller.openPaper(paperID);
       }
       return;
     }
@@ -334,8 +326,14 @@ function renderContent(
   return `<ol class="rfz-paper-list">
     ${papers
       .map((paper) => {
+        const metadata = [paper.authors, paper.venue, paper.year]
+          .filter(Boolean)
+          .join(" · ");
         const status =
-          paper.status === "resolved"
+          paper.status === "resolved" ||
+          paper.status === "unresolved" ||
+          paper.status === "ambiguous" ||
+          paper.status === "unreachable"
             ? ""
             : `<span class="rfz-paper-status">${escapeHTML(
                 paper.statusText ?? statusLabel(paper.status),
@@ -346,11 +344,7 @@ function renderContent(
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div>
             <div class="rfz-paper-title" data-paper-title="">${escapeHTML(
               paper.title,
-            )}</div><small>${escapeHTML(
-              [paper.authors, paper.venue, paper.year]
-                .filter(Boolean)
-                .join(" · "),
-            )}</small>${status}
+            )}</div>${metadata ? `<small>${escapeHTML(metadata)}</small>` : ""}${status}
           </div>
         </li>`;
       })

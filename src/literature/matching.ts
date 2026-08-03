@@ -1,6 +1,7 @@
-import type {
-  ScholarlyCandidate,
-  ScholarlyIdentifiers,
+import {
+  hasStableIdentifier,
+  type ScholarlyCandidate,
+  type ScholarlyIdentifiers,
 } from "./providers/types";
 import { decodeHTML } from "entities";
 
@@ -100,6 +101,36 @@ export function matchScholarlyCandidates(
     );
 
   if (eligible.length === 0) return { status: "no-candidate" };
+  const exactBibliographicRecords = eligible.filter(
+    ({ exactTitleAndYear }) => exactTitleAndYear,
+  );
+  if (
+    exactBibliographicRecords.length > 1 &&
+    exactBibliographicRecords.every(
+      ({ candidate, authorsExactlyMatch }) =>
+        authorsExactlyMatch && hasStableIdentifier(candidate.identifiers),
+    )
+  ) {
+    const records = exactBibliographicRecords.map(
+      ({ candidate, authorScore, firstAuthorMatches }) =>
+        withMatchedFields(
+          candidate,
+          metadataMatchedFields(
+            paper,
+            candidate,
+            authorScore,
+            firstAuthorMatches,
+          ),
+        ),
+    );
+    return {
+      status: "confirmed",
+      candidate: records[0],
+      candidates: records,
+      matchedBy: "metadata",
+      score: 1,
+    };
+  }
   const matched = eligible.map(
     ({ candidate, authorScore, firstAuthorMatches }) =>
       withMatchedFields(
@@ -183,6 +214,7 @@ function scoreMetadata(
   hasExpectedAuthors: boolean;
   firstAuthorMatches: boolean;
   exactTitleAndYear: boolean;
+  authorsExactlyMatch: boolean;
   titleFormattingMatches: boolean;
   yearDifference: number | null;
   total: number;
@@ -191,14 +223,14 @@ function scoreMetadata(
     wordBigrams(normalizeText(paper.title ?? "")),
     wordBigrams(normalizeText(candidate.title ?? "")),
   );
-  const expectedAuthors = new Set(
-    paper.authors.map(normalizeFamilyName).filter(Boolean),
-  );
-  const actualAuthors = new Set(
-    candidate.authors
-      .map(({ family }) => normalizeFamilyName(family))
-      .filter(Boolean),
-  );
+  const expectedAuthorSequence = paper.authors
+    .map(normalizeFamilyName)
+    .filter(Boolean);
+  const actualAuthorSequence = candidate.authors
+    .map(({ family }) => normalizeFamilyName(family))
+    .filter(Boolean);
+  const expectedAuthors = new Set(expectedAuthorSequence);
+  const actualAuthors = new Set(actualAuthorSequence);
   const authorScore = jaccard(expectedAuthors, actualAuthors);
   const hasExpectedAuthors = expectedAuthors.size > 0;
   const firstAuthorMatches =
@@ -206,6 +238,12 @@ function scoreMetadata(
     actualAuthors.size > 0 &&
     normalizeFamilyName(paper.authors[0] ?? "") ===
       normalizeFamilyName(candidate.authors[0]?.family ?? "");
+  const authorsExactlyMatch =
+    expectedAuthorSequence.length > 0 &&
+    expectedAuthorSequence.length === actualAuthorSequence.length &&
+    expectedAuthorSequence.every(
+      (author, index) => author === actualAuthorSequence[index],
+    );
   const expectedTitle = normalizeText(paper.title ?? "");
   const actualTitle = normalizeText(candidate.title ?? "");
   const titleEquivalent = expectedTitle === actualTitle;
@@ -237,6 +275,7 @@ function scoreMetadata(
     hasExpectedAuthors,
     firstAuthorMatches,
     exactTitleAndYear,
+    authorsExactlyMatch,
     titleFormattingMatches,
     yearDifference,
     total: exactTitleAndYear ? 1 : weightedTotal,

@@ -1,6 +1,6 @@
 # 第二阶段测试 XPI 验收说明
 
-本说明只适用于 `Reference for Zotero (Second-stage Test)` 1.1.0-beta.1。该 XPI 使用正式插件 ID 覆盖安装，但没有自动更新地址，也不对应 Git tag 或 GitHub Release。
+本说明只适用于 `Reference for Zotero (Second-stage Test)` 1.1.0-beta.1。该 XPI 使用正式插件 ID 覆盖安装。Zotero 的 bootstrap 插件清单校验要求保留 `update_url`，但本任务不发布对应的 `update-beta.json`、Git tag 或 GitHub Release，因此没有可供该测试包获取的自动更新元数据。
 
 ## 安装前
 
@@ -11,7 +11,7 @@
 
 ## 首次使用
 
-1. 运行 `npm ci`、`npm test`、`npm run build` 和 `npm run audit:scansci-xpi`，安装 `build/reference-for-zotero-second-stage-test.xpi` 后完全重启 Zotero。
+1. 运行 `npm ci`、`npm test`、`npm run build` 和 `npm run audit:scansci-xpi`。Windows 上可再运行 `pwsh -File test/xpi/zotero-installability.ps1 -XpiPath build/reference-for-zotero-second-stage-test.xpi -ZoteroPath <zotero.exe>`，确认真实 Zotero 接受清单；随后安装 XPI 并完全重启 Zotero。
 2. 打开真实论文 PDF，在 Reader 的 Related Papers 区域确认 References/Citations 与第一阶段详情功能仍正常。
 3. Download destination 默认是 `E:\paper`。使用 Change folder 可调用原生目录选择器；Reset 恢复默认目录，不会出现独立设置页。
 4. Check environment 只探测 Python 3.11+ 和精确锁定依赖。若依赖已满足则直接 Ready；否则先显示解释器、插件私有 venv、清华镜像、完整包版本/hash、动作与取消结果。

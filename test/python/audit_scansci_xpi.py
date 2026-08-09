@@ -51,6 +51,10 @@ FORBIDDEN_SUFFIXES = (
     ".pdf",
     ".log",
 )
+EXPECTED_UPDATE_URL = (
+    "https://github.com/Woif-sha/reference-for-zotro/"
+    "releases/latest/download/update-beta.json"
+)
 
 
 def main():
@@ -72,8 +76,11 @@ def main():
         raise SystemExit("XPI is not visibly marked as the second-stage test build")
     if manifest.get("version") != "1.1.0-beta.1":
         raise SystemExit("XPI test-build version is unexpected")
-    if "update_url" in zotero:
-        raise SystemExit("Test XPI must not advertise an automatic update channel")
+    if zotero.get("update_url") != EXPECTED_UPDATE_URL:
+        raise SystemExit(
+            "XPI is missing the update_url required by Zotero's bootstrap-addon "
+            "manifest validation"
+        )
     if zotero.get("strict_min_version") != "9.0.6" or zotero.get(
         "strict_max_version"
     ) != "9.0.*":

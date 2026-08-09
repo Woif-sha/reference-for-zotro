@@ -7,7 +7,8 @@ All notable changes to Reference for Zotero are documented in this file.
 ### Test build
 
 - Integrated References/Citations selection, audited legal-only single-paper downloads, private Python runtime preparation and the Zotero 9-validated Paper Translate UI flow.
-- Marked the artifact as a second-stage test build and removed its automatic update URL.
+- Marked the artifact as a second-stage test build, retained the update URL required by Zotero's bootstrap-addon manifest validation, and published no update metadata, tag or release.
+- Added an isolated real-Zotero installability check for the generated XPI.
 - Kept the institution-browser route disabled until a user-provided institution and publisher acceptance candidate completes strict-TLS, source, egress and installed-Zotero validation.
 
 ## [1.0.1] - 2026-08-03

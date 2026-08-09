@@ -1,5 +1,5 @@
 import { defineConfig } from "zotero-plugin-scaffold";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import pkg from "./package.json";
 
 export default defineConfig({
@@ -41,16 +41,6 @@ export default defineConfig({
       hash: false,
     },
     hooks: {
-      async "build:bundle"({ dist }) {
-        const manifestPath = `${dist}/addon/manifest.json`;
-        const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
-          applications?: { zotero?: { update_url?: string } };
-        };
-        if (manifest.applications?.zotero) {
-          delete manifest.applications.zotero.update_url;
-        }
-        await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-      },
       async "build:makeUpdateJSON"({ dist }) {
         await Promise.all([
           rm(`${dist}/update.json`, { force: true }),

@@ -468,32 +468,37 @@ export function mountReaderSection(options: {
     if (!selection || selection.rangeCount === 0) return;
     if (!selection.toString().trim()) return;
     const request = ++translationRequest;
-    root.querySelector("[data-translation]")?.remove();
-    const text = selectedAcademicText(selection, root, overlay);
-    if (!text) return;
+    clearTranslation(root, overlay);
+    const academicSelection = selectedAcademicSelection(
+      selection,
+      root,
+      overlay,
+    );
+    if (!academicSelection) return;
+    const { container, text } = academicSelection;
     const capability = controller.translationCapability?.() ?? {
       available: Boolean(controller.translateSelection),
       reason: "not-installed" as const,
     };
     if (!capability.available || !controller.translateSelection) {
       showTranslation(
-        root,
+        container,
         text,
         `UI translation unavailable: ${capability.available ? "incompatible-api" : capability.reason}`,
       );
       return;
     }
-    showTranslation(root, text, "Translating…");
+    showTranslation(container, text, "Translating…");
     void controller
       .translateSelection(text)
       .then((result) => {
         if (destroyed || request !== translationRequest) return;
-        showTranslation(root, text, result);
+        showTranslation(container, text, result);
       })
       .catch((error: unknown) => {
         if (destroyed || request !== translationRequest) return;
         showTranslation(
-          root,
+          container,
           text,
           error instanceof Error ? error.message : "UI translation unavailable",
         );
@@ -825,30 +830,37 @@ function isReaderPaperAction(
   );
 }
 
+function clearTranslation(...containers: HTMLElement[]): void {
+  for (const container of containers) {
+    container.querySelector("[data-translation]")?.remove();
+  }
+}
+
 function showTranslation(
-  root: HTMLElement,
+  container: HTMLElement,
   source: string,
   result: string,
 ): void {
-  root.querySelector("[data-translation]")?.remove();
-  const popover = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "aside");
+  container.querySelector("[data-translation]")?.remove();
+  const ownerDocument = container.ownerDocument;
+  const popover = ownerDocument.createElementNS(XHTML_NAMESPACE, "aside");
   popover.className = "rfz-translation";
   popover.dataset.translation = "";
-  const original = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
+  const original = ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   original.className = "rfz-translation-source";
   original.textContent = source;
-  const translated = root.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
+  const translated = ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   translated.dataset.translationResult = "";
   translated.textContent = result;
   popover.append(original, translated);
-  root.append(popover);
+  container.append(popover);
 }
 
-function selectedAcademicText(
+function selectedAcademicSelection(
   selection: Selection,
   root: HTMLElement,
   overlay: HTMLElement,
-): string | undefined {
+): { container: HTMLElement; text: string } | undefined {
   const text = selection.toString().trim();
   if (!text || selection.rangeCount !== 1) return undefined;
   const range = selection.getRangeAt(0);
@@ -867,7 +879,7 @@ function selectedAcademicText(
     const parent = node.parentElement;
     if (!parent?.closest("[data-translation-text]")) return undefined;
   }
-  return text;
+  return { container: startHost, text };
 }
 
 function selectionHost(

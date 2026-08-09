@@ -1065,6 +1065,74 @@ test("Reader section translates only text selected inside the extension UI", asy
   mounted.destroy();
 });
 
+test("Reader section renders detail translations inside the detail overlay", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  const ready = readyState();
+  const state: ReaderSectionState = {
+    ...ready,
+    selectedPaperID: "ref-1",
+    references: ready.references.map((paper) =>
+      paper.id === "ref-1"
+        ? { ...paper, abstract: "Selected abstract" }
+        : paper,
+    ),
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async translateSelection() {
+        return "译文";
+      },
+    },
+  });
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  const overlay = dom.window.document.querySelector("[data-reader-overlay]");
+  assert.ok(abstract);
+  assert.ok(overlay);
+  selectNodeContents(dom, abstract);
+
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const translation = dom.window.document.querySelector("[data-translation]");
+  assert.ok(translation);
+  assert.equal(translation.parentElement, overlay);
+  assert.equal(
+    translation.querySelector("[data-translation-result]")?.textContent,
+    "译文",
+  );
+
+  const listTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const root = dom.window.document.querySelector(".reference-for-zotero");
+  assert.ok(listTitle);
+  assert.ok(root);
+  selectNodeContents(dom, listTitle);
+  listTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const translations =
+    dom.window.document.querySelectorAll("[data-translation]");
+  assert.equal(translations.length, 1);
+  assert.equal(translations[0]?.parentElement, root);
+  mounted.destroy();
+});
+
 test("a translation failure ends only that request and the next selection can retry", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,

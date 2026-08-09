@@ -13,9 +13,12 @@
   "scripts": {
     "start": "zotero-plugin serve",
     "test": "node --test --test-concurrency=1 --test-timeout=60000 --import tsx test/**/*.test.ts",
+    "test:scansci-python": "python -B -m unittest discover -s test/python -p \"test_*.py\" -v",
+    "test:scansci-smoke": "tsx test/scansci/local-legal-smoke.ts",
+    "audit:scansci-xpi": "python -B test/python/audit_scansci_xpi.py",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && zotero-plugin build",
-    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json}\" eslint.config.js README.md CHANGELOG.md CONTRIBUTING.md PRIVACY.md SECURITY.md package.json tsconfig.json zotero-plugin.config.ts",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json,md}\" eslint.config.js README.md CHANGELOG.md CONTRIBUTING.md PRIVACY.md SECURITY.md package.json tsconfig.json zotero-plugin.config.ts",
     "lint": "eslint src test"
   },
   "repository": {

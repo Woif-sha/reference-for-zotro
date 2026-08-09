@@ -7,3 +7,11 @@ The bootstrapped Zotero plugin lifecycle and scaffold configuration follow the
 public patterns used by Zotero's Make It Red example and
 Woif-sha/paper-translate-for-zotero. Changes include the plugin identity,
 Zotero 9 compatibility boundary, Reader section lifecycle, and XPI contents.
+
+The packaged ScanSci compatibility module contains modified pure-Python
+fragments from scansci-pdf, Copyright 2024-2026 scansci-pdf contributors,
+licensed under Apache-2.0 and fixed to upstream commit
+5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5. The upstream commit contains no
+NOTICE file. Exact provenance and modifications are recorded in
+addon/python/reference_for_zotero_scansci/VENDORED-SOURCE.json and
+MODIFICATIONS.md; the Apache-2.0 text is packaged beside the module.

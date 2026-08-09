@@ -1,0 +1,75 @@
+{
+  "manifestVersion": 1,
+  "moduleVersion": "3.0.0",
+  "upstream": {
+    "repository": "Rimagination/scansci-pdf",
+    "commit": "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+    "license": "Apache-2.0",
+    "licensePath": "THIRD-PARTY-LICENSES/SCANSci-APACHE-2.0.txt",
+    "licenseSha256": "157476a42a347e0bf9f98e5b505b096f65d3d3261de985c633e9f81fc61281c4",
+    "localLicenseSha256": "4fb208640279448b3d07cb28a1fb8e9fb02f51f51becbd432ab26e58e06d211e",
+    "notice": "The upstream commit contains no NOTICE file. Attribution and modifications are recorded in the repository NOTICE and MODIFICATIONS.md."
+  },
+  "vendoredFiles": [
+    {
+      "localPath": "vendored/sources.py",
+      "localSha256": "c62d263d60077f3c8163e4a6a76415ad0b879e77e0079df374cafb0b427e67de",
+      "license": "Apache-2.0",
+      "fragments": [
+        {
+          "upstreamPath": "src/scansci_pdf/identifiers.py",
+          "upstreamSha256": "9f6af3f57e6c6b54d51cb7d5cd75a40d95f60bc957b2b669f5259bcaa3feba68",
+          "upstreamLines": "8-44,85-86",
+          "symbols": ["normalize_arxiv_id", "safe_filename"],
+          "dependencyReason": "Normalize an already-confirmed arXiv identifier and create a request-local automatic filename.",
+          "modifications": "Moved into the project namespace; removed DOI network validation; filename is prefixed by the audited source id."
+        },
+        {
+          "upstreamPath": "src/scansci_pdf/sources/arxiv.py",
+          "upstreamSha256": "618a9fcb7c8bc200b9ea2480425f93ccc32fc382b2ad5c4d6d7bbac9b7fc96ab",
+          "upstreamLines": "13-45",
+          "symbols": ["try_arxiv", "download_arxiv_pdf"],
+          "dependencyReason": "Construct the fixed official arXiv PDF route for an arXiv identifier.",
+          "modifications": "Retained URL construction only; replaced upstream network, PDF validation, atomic writer, exception swallowing, and result helpers with project-owned strict transport and protocol code."
+        },
+        {
+          "upstreamPath": "src/scansci_pdf/sources/europepmc.py",
+          "upstreamSha256": "e1bf0b237c4cc6e0cbcc212271c4e1f1b88459349e89fbddd98d1a0b58b387ee",
+          "upstreamLines": "52-75",
+          "symbols": ["try_pmc"],
+          "dependencyReason": "Resolve a DOI to PMCID through NCBI and construct the fixed official PMC PDF route.",
+          "modifications": "Excluded arbitrary Europe PMC full-text URLs; added strict identifier validation, HTTPS host rules, explicit errors, and request-local filenames."
+        }
+      ]
+    }
+  ],
+  "projectNamespaceFiles": ["vendored/__init__.py"],
+  "runtimeDependencies": {
+    "lockPath": "requirements.lock",
+    "packageIndex": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "installPolicy": "Private venv only; --isolated --require-hashes --only-binary=:all:; no trusted-host or fallback index.",
+    "packages": [
+      "requests==2.34.2",
+      "certifi==2026.7.22",
+      "charset-normalizer==3.4.9",
+      "idna==3.18",
+      "urllib3==2.7.0"
+    ],
+    "reason": "Complete direct and transitive closure for strict HTTPS streaming on the enabled arXiv and PMC routes."
+  },
+  "institutionBrowserDependencyGovernance": {
+    "status": "disabled-pending-acceptance",
+    "pythonLockPath": "institution-requirements.lock",
+    "browserPolicyPath": "browser-runtime-policy-v3.json",
+    "reason": "CloakBrowser Python packages and its external Chromium runtime are governed separately; neither is installed or launched while the institution route is disabled."
+  },
+  "excluded": [
+    "complete upstream tree",
+    "scansci_pdf package imports",
+    "_core and proprietary Cython sources",
+    ".pyd/.so/.dll/.dylib binaries",
+    "browser executables, profiles, cookies, tokens, and caches",
+    "Sci-Hub, LibGen, SciBban, Tor, proxy pools, vpnsci",
+    "generic publisher, batch, server, uploader, cache, index, and auto-rename code"
+  ]
+}

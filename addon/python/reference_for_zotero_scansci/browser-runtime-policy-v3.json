@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 3,
+  "routeID": "institution-browser",
+  "status": "disabled-pending-acceptance",
+  "python": {
+    "requirement": "cloakbrowser==0.4.11",
+    "lockPath": "institution-requirements.lock",
+    "packageIndex": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "privateVenvOnly": true,
+    "supportedArchitecture": "x64"
+  },
+  "binary": {
+    "vendor": "CloakBrowser",
+    "approximateDownloadBytes": 209715200,
+    "target": "<private-runtime>/cloakbrowser/chromium",
+    "automaticDownload": false,
+    "requiresSeparateUserConfirmation": true,
+    "confirmationMustDisplay": [
+      "vendor",
+      "source",
+      "approximateDownloadBytes",
+      "binaryLicense",
+      "target",
+      "signatureVerification"
+    ],
+    "source": "Must be pinned to the accepted vendor artifact URL",
+    "binaryLicense": "Must be resolved and displayed for the accepted vendor artifact",
+    "signatureVerification": "Must be pinned and implemented for the accepted vendor artifact"
+  }
+}

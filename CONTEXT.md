@@ -32,10 +32,6 @@ _Avoid_: First search result, Best guess
 The required Markdown representation of the current paper produced by the user's `llm-for-zotero` MinerU workflow. Relationship exploration does not start until a valid MinerU Markdown exists.
 _Avoid_: OCR output, parsed PDF
 
-**Authenticated enrichment**:
-Supplemental metadata or access evidence obtained through the user's institution-authorized session for a paper whose identity is already confirmed. It may enrich a paper but never establishes or changes that paper's identity.
-_Avoid_: Authenticated match, Identity confirmation
-
 **Download selection**:
 The ordered papers with confirmed identities that the user explicitly chooses for download in the current Reader section.
 _Avoid_: Text selection, Automatic download queue

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import sys
 from zipfile import ZipFile
@@ -29,6 +30,10 @@ FORBIDDEN_PARTS = {
     "shadercache",
     "local state",
     "cookies",
+    "diagnostics",
+    "scanscicache",
+    "test",
+    "tests",
     "venv",
     "pyproject.toml",
     ".git",
@@ -44,6 +49,7 @@ FORBIDDEN_SUFFIXES = (
     ".bin",
     ".zip",
     ".pdf",
+    ".log",
 )
 
 
@@ -56,11 +62,36 @@ def main():
 
     archive = archives[0]
     with ZipFile(archive) as package:
-        names = {name.rstrip("/") for name in package.namelist() if name.rstrip("/")}
+        names = {
+            name for name in package.namelist() if name and not name.endswith("/")
+        }
+        manifest = json.loads(package.read("manifest.json"))
+
+    zotero = manifest.get("applications", {}).get("zotero", {})
+    if manifest.get("name") != "Reference for Zotero (Second-stage Test)":
+        raise SystemExit("XPI is not visibly marked as the second-stage test build")
+    if manifest.get("version") != "1.1.0-beta.1":
+        raise SystemExit("XPI test-build version is unexpected")
+    if "update_url" in zotero:
+        raise SystemExit("Test XPI must not advertise an automatic update channel")
+    if zotero.get("strict_min_version") != "9.0.6" or zotero.get(
+        "strict_max_version"
+    ) != "9.0.*":
+        raise SystemExit("Test XPI Zotero compatibility range is unexpected")
 
     missing = sorted(REQUIRED_ASSETS - names)
     if missing:
         raise SystemExit(f"XPI is missing required ScanSci assets: {missing}")
+
+    unexpected_python = sorted(
+        name
+        for name in names
+        if name.startswith("python/") and name not in REQUIRED_ASSETS
+    )
+    if unexpected_python:
+        raise SystemExit(
+            f"XPI contains unregistered Python module assets: {unexpected_python}"
+        )
 
     forbidden = []
     for name in sorted(names):

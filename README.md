@@ -1,5 +1,7 @@
 # Reference for Zotero
 
+> 当前分支生成 `1.1.0-beta.1` 第二阶段测试构建，仅用于 Zotero 9 实机验收；不对应 Git tag、GitHub Release 或自动更新渠道。
+
 Reference for Zotero 是面向 Zotero 9 Reader 的相关文献插件。它从当前论文已有的 MinerU Markdown 中读取参考文献，并在 Reader 侧栏中提供文献解析、反向引用、详情卡片与可信落地页跳转。
 
 Reference for Zotero is a Zotero 9 Reader extension for exploring resolved references and citing papers without leaving the reading workflow.
@@ -27,12 +29,14 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 
 ## 安装
 
-1. 从 [GitHub Releases](https://github.com/Woif-sha/reference-for-zotro/releases/latest) 下载 `reference-for-zotero.xpi`。
+1. 从本分支执行 `npm ci && npm run build`，使用生成的 `build/reference-for-zotero-second-stage-test.xpi`；不要把该测试构建发布为 GitHub Release。
 2. 在 Zotero 中打开 **工具 → 插件**。
 3. 选择 **Install Plugin From File / 从文件安装插件**，选择下载的 XPI。
 4. 完全重启 Zotero。
 
 后续稳定版可通过插件更新地址获取 `update.json`。也可以下载新 XPI 后按相同步骤覆盖安装。
+
+第二阶段测试构建不包含 `update_url`，不会自动进入稳定版或 beta 更新渠道。完整首次使用与验收步骤见 [第二阶段测试 XPI 验收说明](docs/testing/second-stage-xpi.md)。
 
 ## 使用
 

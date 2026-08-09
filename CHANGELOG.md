@@ -2,6 +2,14 @@
 
 All notable changes to Reference for Zotero are documented in this file.
 
+## [1.1.0-beta.1] - 2026-08-09
+
+### Test build
+
+- Integrated References/Citations selection, audited legal-only single-paper downloads, private Python runtime preparation and the Zotero 9-validated Paper Translate UI flow.
+- Marked the artifact as a second-stage test build and removed its automatic update URL.
+- Kept the institution-browser route disabled until a user-provided institution and publisher acceptance candidate completes strict-TLS, source, egress and installed-Zotero validation.
+
 ## [1.0.1] - 2026-08-03
 
 ### Fixed

@@ -1082,6 +1082,7 @@ test("Reader section renders detail translations inside the detail overlay", asy
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
+      ...downloadControllerStubs(),
       getState: () => state,
       subscribe: () => () => {},
       selectTab() {},

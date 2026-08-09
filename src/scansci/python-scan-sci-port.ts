@@ -670,9 +670,14 @@ class PythonScanSciPort implements ScanSciPort {
         "Canonical final target must be an absolute Windows path",
       );
     }
-    const destination = await this.runtime.files.canonicalizeExisting(
-      normalizeWindowsPath(request.downloadDestination),
+    const requestedDestination = normalizeWindowsPath(
+      request.downloadDestination,
     );
+    if (!(await this.runtime.files.pathExists(requestedDestination))) {
+      await this.runtime.files.createDirectory(requestedDestination);
+    }
+    const destination =
+      await this.runtime.files.canonicalizeExisting(requestedDestination);
     const targetName = basenameWindows(request.canonicalFinalTarget);
     if (!targetName || targetName === "." || targetName === "..") {
       throw new Error("Canonical final target must name a file");

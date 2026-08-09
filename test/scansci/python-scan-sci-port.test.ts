@@ -653,7 +653,7 @@ test("visible login stays disabled until an institution route is audited and ena
   assert.equal(processCalls, 0);
 });
 
-test("one-paper download isolates Python output and exclusively commits the canonical target", async () => {
+test("one-paper download creates a missing destination, isolates Python output, and exclusively commits the canonical target", async () => {
   const requestID = "9d8937a4-d7d8-45c4-a8d4-1531632f7269";
   const requestDirectory = `E:\\paper\\ScanSciCache\\${requestID}`;
   const sourcePath = `${requestDirectory}\\2101.00001.pdf`;
@@ -743,7 +743,11 @@ test("one-paper download isolates Python output and exclusively commits the cano
       savedPath: "E:\\paper\\Audited arXiv paper.pdf",
     },
   );
-  assert.deepEqual(created, ["E:\\paper\\ScanSciCache", requestDirectory]);
+  assert.deepEqual(created, [
+    "E:\\paper",
+    "E:\\paper\\ScanSciCache",
+    requestDirectory,
+  ]);
   assert.deepEqual(copied, [
     [sourcePath, "E:\\paper\\Audited arXiv paper.pdf"],
   ]);

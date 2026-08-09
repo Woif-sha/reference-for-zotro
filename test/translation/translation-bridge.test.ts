@@ -109,13 +109,13 @@ test("compatible translation stays behind the bridge", async () => {
   );
 });
 
-test("the Zotero adapter uses the public PDFTranslate global and exact caller context", async () => {
+test("the Zotero adapter uses the public PaperTranslate global and exact caller context", async () => {
   const calls: unknown[][] = [];
   const originalZotero = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
   Object.defineProperty(globalThis, "Zotero", {
     configurable: true,
     value: {
-      PDFTranslate: {
+      PaperTranslate: {
         api: {
           getVersion: () => "2.4.6",
           translate: async (...args: unknown[]) => {
@@ -124,19 +124,12 @@ test("the Zotero adapter uses the public PDFTranslate global and exact caller co
           },
         },
       },
-      PaperTranslate: {
-        api: {
-          getVersion: () => "99.0.0",
-          translate: async () => {
-            throw new Error("wrong global");
-          },
-        },
-      },
     },
   });
 
   try {
     const bridge = createPaperTranslateBridge();
+    assert.deepEqual(bridge.capability(), { available: true });
     assert.equal(
       await bridge.translate("academic text", {
         pluginID: "referenceforzotero@woif-sha.github.io",

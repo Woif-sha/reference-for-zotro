@@ -15,6 +15,9 @@ const DISCONNECTED_DOWNLOAD_SETUP: DownloadFirstUseState = {
     error: "Institution browser policy is not connected",
   },
 };
+const TRANSLATION_POPOVER_GAP = 8;
+const TRANSLATION_POPOVER_MARGIN = 10;
+const TRANSLATION_POPOVER_WIDTH = 340;
 
 export type ReaderTab = "references" | "citations";
 export type ReaderPaperAction = "copy-title" | "copy-doi" | "google-search";
@@ -463,7 +466,7 @@ export function mountReaderSection(options: {
     if (!contextMenu.contains(event.target as Node)) closeContextMenu();
   };
   body.ownerDocument.addEventListener("click", onDocumentClick);
-  const onMouseUp = (): void => {
+  const onMouseUp = (event: MouseEvent): void => {
     const selection = body.ownerDocument.defaultView?.getSelection();
     if (!selection || selection.rangeCount === 0) return;
     if (!selection.toString().trim()) return;
@@ -473,9 +476,10 @@ export function mountReaderSection(options: {
       selection,
       root,
       overlay,
+      { x: event.clientX, y: event.clientY },
     );
     if (!academicSelection) return;
-    const { container, text } = academicSelection;
+    const { anchor, container, text } = academicSelection;
     const capability = controller.translationCapability?.() ?? {
       available: Boolean(controller.translateSelection),
       reason: "not-installed" as const,
@@ -483,22 +487,24 @@ export function mountReaderSection(options: {
     if (!capability.available || !controller.translateSelection) {
       showTranslation(
         container,
+        anchor,
         text,
         `UI translation unavailable: ${capability.available ? "incompatible-api" : capability.reason}`,
       );
       return;
     }
-    showTranslation(container, text, "Translating…");
+    showTranslation(container, anchor, text, "Translating…");
     void controller
       .translateSelection(text)
       .then((result) => {
         if (destroyed || request !== translationRequest) return;
-        showTranslation(container, text, result);
+        showTranslation(container, anchor, text, result);
       })
       .catch((error: unknown) => {
         if (destroyed || request !== translationRequest) return;
         showTranslation(
           container,
+          anchor,
           text,
           error instanceof Error ? error.message : "UI translation unavailable",
         );
@@ -838,6 +844,7 @@ function clearTranslation(...containers: HTMLElement[]): void {
 
 function showTranslation(
   container: HTMLElement,
+  anchor: TranslationAnchor,
   source: string,
   result: string,
 ): void {
@@ -854,13 +861,17 @@ function showTranslation(
   translated.textContent = result;
   popover.append(original, translated);
   container.append(popover);
+  positionTranslationPopover(popover, anchor);
 }
 
 function selectedAcademicSelection(
   selection: Selection,
   root: HTMLElement,
   overlay: HTMLElement,
-): { container: HTMLElement; text: string } | undefined {
+  fallbackAnchor: { x: number; y: number },
+):
+  | { anchor: TranslationAnchor; container: HTMLElement; text: string }
+  | undefined {
   const text = selection.toString().trim();
   if (!text || selection.rangeCount !== 1) return undefined;
   const range = selection.getRangeAt(0);
@@ -879,7 +890,72 @@ function selectedAcademicSelection(
     const parent = node.parentElement;
     if (!parent?.closest("[data-translation-text]")) return undefined;
   }
-  return { container: startHost, text };
+  return {
+    anchor: selectionAnchor(range, fallbackAnchor),
+    container: startHost,
+    text,
+  };
+}
+
+type TranslationAnchor = Pick<
+  DOMRect,
+  "bottom" | "height" | "left" | "top" | "width"
+>;
+
+function selectionAnchor(
+  range: Range,
+  fallback: { x: number; y: number },
+): TranslationAnchor {
+  const measured =
+    typeof range.getBoundingClientRect === "function"
+      ? range.getBoundingClientRect()
+      : undefined;
+  if (measured && (measured.width > 0 || measured.height > 0)) return measured;
+  return {
+    bottom: fallback.y,
+    height: 0,
+    left: fallback.x,
+    top: fallback.y,
+    width: 0,
+  };
+}
+
+function positionTranslationPopover(
+  popover: HTMLElement,
+  anchor: TranslationAnchor,
+): void {
+  const view = popover.ownerDocument.defaultView;
+  if (!view) return;
+  const bounds = popover.getBoundingClientRect();
+  const width =
+    bounds.width ||
+    Math.min(
+      TRANSLATION_POPOVER_WIDTH,
+      Math.max(0, view.innerWidth - TRANSLATION_POPOVER_MARGIN * 2),
+    );
+  const centeredLeft = anchor.left + (anchor.width - width) / 2;
+  const maximumLeft = Math.max(
+    TRANSLATION_POPOVER_MARGIN,
+    view.innerWidth - width - TRANSLATION_POPOVER_MARGIN,
+  );
+  const left = Math.min(
+    maximumLeft,
+    Math.max(TRANSLATION_POPOVER_MARGIN, centeredLeft),
+  );
+  const below = anchor.bottom + TRANSLATION_POPOVER_GAP;
+  const top =
+    below + bounds.height <= view.innerHeight - TRANSLATION_POPOVER_MARGIN
+      ? below
+      : Math.max(
+          TRANSLATION_POPOVER_MARGIN,
+          anchor.top - bounds.height - TRANSLATION_POPOVER_GAP,
+        );
+  Object.assign(popover.style, {
+    bottom: "auto",
+    left: `${Math.round(left)}px`,
+    right: "auto",
+    top: `${Math.round(top)}px`,
+  });
 }
 
 function selectionHost(
@@ -995,6 +1071,6 @@ const READER_STYLES = `
   .rfz-abstract { margin: 12px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
   .rfz-abstract strong { display: block; margin-bottom: 3px; font-size: 12px; }
   .rfz-abstract p { margin: 0; }
-  .rfz-translation { position: absolute; z-index: 20; right: 10px; bottom: 10px; width: min(340px, calc(100% - 20px)); padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
+  .rfz-translation { position: fixed; z-index: 20; width: min(340px, calc(100vw - 20px)); max-height: calc(100vh - 20px); overflow: auto; padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
   .rfz-translation-source { margin-bottom: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
 `;

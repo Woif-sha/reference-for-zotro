@@ -1099,7 +1099,17 @@ test("Reader section renders detail translations inside the detail overlay", asy
   const overlay = dom.window.document.querySelector("[data-reader-overlay]");
   assert.ok(abstract);
   assert.ok(overlay);
-  selectNodeContents(dom, abstract);
+  const selectionRange = selectNodeContents(dom, abstract);
+  Object.defineProperty(selectionRange, "getBoundingClientRect", {
+    configurable: true,
+    value: () => domRect({ top: 700, left: 900, width: 100, height: 20 }),
+  });
+  const getElementRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.matches("[data-translation]")
+      ? domRect({ top: 0, left: 0, width: 340, height: 100 })
+      : getElementRect.call(this);
+  };
 
   abstract.dispatchEvent(
     new dom.window.MouseEvent("mouseup", { bubbles: true }),
@@ -1109,6 +1119,10 @@ test("Reader section renders detail translations inside the detail overlay", asy
   const translation = dom.window.document.querySelector("[data-translation]");
   assert.ok(translation);
   assert.equal(translation.parentElement, overlay);
+  assert.equal((translation as HTMLElement).style.left, "674px");
+  assert.equal((translation as HTMLElement).style.top, "592px");
+  assert.equal((translation as HTMLElement).style.right, "auto");
+  assert.equal((translation as HTMLElement).style.bottom, "auto");
   assert.equal(
     translation.querySelector("[data-translation-result]")?.textContent,
     "译文",
@@ -1478,12 +1492,13 @@ test("destroying the section prevents a late translation UI commit", async () =>
   );
 });
 
-function selectNodeContents(dom: JSDOM, node: Node): void {
+function selectNodeContents(dom: JSDOM, node: Node): Range {
   const range = dom.window.document.createRange();
   range.selectNodeContents(node);
   const selection = dom.window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
+  return range;
 }
 
 function domRect(options: {

@@ -87,7 +87,10 @@ export function createZoteroScanSciRuntime(
   return {
     runProcess: runZoteroSubprocess,
     ensureModuleAssets() {
-      materialization ??= materializeModuleAssets(options);
+      materialization ??= materializeModuleAssets(options).catch((error) => {
+        materialization = undefined;
+        throw error;
+      });
       return materialization;
     },
     files: {
@@ -199,6 +202,7 @@ async function materializeModuleAssets(
 async function runZoteroSubprocess(
   request: PythonProcessRequest,
 ): Promise<PythonProcessResult> {
+  if (request.signal?.aborted) throw abortError();
   const { Subprocess } = ChromeUtils.importESModule(
     "resource://gre/modules/Subprocess.sys.mjs",
   ) as { Subprocess: SubprocessModule };
@@ -220,6 +224,7 @@ async function runZoteroSubprocess(
   const stderr = readAll(process.stderr, MAX_STDERR_CHARACTERS);
   const wait = process.wait();
   const timeout = createTimeout(request.timeoutMilliseconds);
+  const abort = createAbortWait(request.signal);
   try {
     if (!process.stdin.write)
       throw new Error("Subprocess stdin is unavailable");
@@ -228,7 +233,13 @@ async function runZoteroSubprocess(
     const outcome = await Promise.race([
       wait.then((result) => ({ kind: "exit" as const, result })),
       timeout.promise.then(() => ({ kind: "timeout" as const })),
+      abort.promise.then(() => ({ kind: "abort" as const })),
     ]);
+    if (outcome.kind === "abort") {
+      await process.kill();
+      await wait.catch(() => undefined);
+      throw abortError();
+    }
     if (outcome.kind === "timeout") {
       await process.kill();
       await wait;
@@ -251,6 +262,7 @@ async function runZoteroSubprocess(
     throw error;
   } finally {
     timeout.cancel();
+    abort.cancel();
   }
 }
 
@@ -281,6 +293,31 @@ function createTimeout(milliseconds: number): {
       if (timer !== undefined) clearTimeout(timer);
     },
   };
+}
+
+function createAbortWait(signal?: AbortSignal): {
+  promise: Promise<void>;
+  cancel(): void;
+} {
+  let listener: (() => void) | undefined;
+  return {
+    promise: new Promise((resolve) => {
+      if (!signal) return;
+      if (signal.aborted) {
+        resolve();
+        return;
+      }
+      listener = resolve;
+      signal.addEventListener("abort", listener, { once: true });
+    }),
+    cancel() {
+      if (listener) signal?.removeEventListener("abort", listener);
+    },
+  };
+}
+
+function abortError(): Error {
+  return new DOMException("The operation was aborted", "AbortError");
 }
 
 function isAbsoluteCommand(command: string): boolean {

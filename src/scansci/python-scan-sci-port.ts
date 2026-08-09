@@ -59,6 +59,25 @@ const LOCKED_DEPENDENCIES = [
   ["idna", "idna", "3.18"],
   ["urllib3", "urllib3", "2.7.0"],
 ] as const;
+const LOCKED_PACKAGE_HASHES = [
+  ["2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"],
+  ["62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775"],
+  [
+    "6366a16e1a25018694d6a5d784d09b046edc9eac40ea2b54065c3052672516a1",
+    "1d22856ffbe153a602df38e4a5464f0b748a54002e0d69ac6d2ad0a197cc99ec",
+    "4b3dac63058cc36820b0dd072f89898604e2d39686fe05321729d00d8ac185a0",
+    "78fa18e436a1a0e58dbd7e02fc4473f3f32cceb12df9dfca542d075961c307d2",
+    "fe2c7201c642b7c308f1675355ad7ff7b66acfe3541625efe5a3ad38f29d6115",
+    "611057cc5d5c0afc743ba8be6bd828c17e0aaa8643f9d0a9b9bb7dea80eb8012",
+    "16b65ea0f2465b6fb52aa22de5eca612aa964ddfec00a912e26f4656cbef890b",
+    "40a126142a56b2dfc0aacbad1de8310cbf60da7656db0e6b16eebd48e3e93519",
+    "9b8e0f3107e2200b76f6054de99016eac3ee6762713587b36baaa7e4bd2ae177",
+    "19ac87f93086ce37b86e098888555c4b4bc48102279bae3350098c0ed664b501",
+    "68e5f26a1ad57ded6d1cfb85331d1c1a195314756471d97758c48498bb4dcdf5",
+  ],
+  ["7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2"],
+  ["9fb4c81ebbb1ce9531cce37674bbc6f1360472bc18ca9a553ede278ef7276897"],
+] as const;
 const CAPABILITY_PROBE_SCRIPT = `
 import importlib, importlib.metadata, json, platform, sys
 sys.dont_write_bytecode = True
@@ -91,6 +110,7 @@ export type PythonProcessRequest = Readonly<{
   timeoutMilliseconds: number;
   removeEnvironment: readonly string[];
   workingDirectory?: string;
+  signal?: AbortSignal;
 }>;
 
 export type PythonProcessResult = Readonly<{
@@ -145,7 +165,9 @@ class PythonScanSciPort implements ScanSciPort {
   async prepareRuntime(request: {
     allowInstall: boolean;
     executableOverride?: string;
+    signal?: AbortSignal;
   }): Promise<ScanSciRuntimePreparation> {
+    throwIfAborted(request.signal);
     const optionError = this.optionError();
     if (optionError) {
       return {
@@ -163,33 +185,48 @@ class PythonScanSciPort implements ScanSciPort {
       };
     }
 
+    const privateEnvironment = this.privateEnvironmentPath();
+    const privateEnvironmentExists =
+      await this.runtime.files.pathExists(privateEnvironment);
     const privateExecutable = this.privateEnvironmentExecutable();
     if (await this.runtime.files.pathExists(privateExecutable)) {
-      const privateCandidate = await this.probeExecutable(privateExecutable);
+      const privateCandidate = await this.probeExecutable(
+        privateExecutable,
+        request.signal,
+      );
       const prepared = await this.prepareFromCandidates(
         [privateCandidate],
         false,
         "private environment",
       );
       if (prepared.status === "ready") return prepared;
-      return {
-        status: "unavailable",
-        error: "The plugin private Python environment is incompatible",
-        candidates: prepared.candidates,
-      };
     }
 
-    const candidates = await this.probeDiscoveredCandidates();
+    if (request.allowInstall && executable) {
+      return this.prepareFromCandidates(
+        [await this.probeExecutable(executable, request.signal)],
+        true,
+        "configured override",
+        privateEnvironmentExists,
+        request.signal,
+      );
+    }
+
+    const candidates = await this.probeDiscoveredCandidates(request.signal);
     const automatic = await this.prepareFromCandidates(
       candidates,
       request.allowInstall,
       "automatic detection",
+      privateEnvironmentExists,
+      request.signal,
     );
     if (automatic.status !== "unavailable" || !executable) return automatic;
     return this.prepareFromCandidates(
-      [await this.probeExecutable(executable)],
+      [await this.probeExecutable(executable, request.signal)],
       request.allowInstall,
       "configured override",
+      privateEnvironmentExists,
+      request.signal,
     );
   }
 
@@ -360,13 +397,22 @@ class PythonScanSciPort implements ScanSciPort {
     return outcome;
   }
 
-  private async probeDiscoveredCandidates(): Promise<
-    readonly ProbedCandidate[]
-  > {
-    const commands = await this.discoverPythonCommands();
-    const candidates: ProbedCandidate[] = [];
-    for (const command of commands) {
-      candidates.push(await this.probeExecutable(command));
+  private async probeDiscoveredCandidates(
+    signal?: AbortSignal,
+  ): Promise<readonly ProbedCandidate[]> {
+    const discovery = await this.discoverPythonCommands(signal);
+    const candidates: ProbedCandidate[] = discovery.launcherFailure
+      ? [
+          {
+            status: "failed",
+            executable: "py launcher",
+            error: discovery.launcherFailure,
+          },
+        ]
+      : [];
+    for (const command of discovery.commands) {
+      throwIfAborted(signal);
+      candidates.push(await this.probeExecutable(command, signal));
     }
     return candidates;
   }
@@ -376,6 +422,8 @@ class PythonScanSciPort implements ScanSciPort {
     allowInstall: boolean,
     selectionReason:
       "configured override" | "automatic detection" | "private environment",
+    replacePrivateEnvironment = false,
+    signal?: AbortSignal,
   ): Promise<ScanSciRuntimePreparation> {
     const compatible = candidates
       .filter(
@@ -419,7 +467,7 @@ class PythonScanSciPort implements ScanSciPort {
           ),
       )
       .map((candidate) => candidate.result)
-      .sort(compareCapabilityCandidates)[0];
+      .sort(compareInstallCandidates)[0];
     if (!installBase) {
       return {
         status: "unavailable",
@@ -441,6 +489,8 @@ class PythonScanSciPort implements ScanSciPort {
       installBase,
       plan,
       reportedCandidates,
+      replacePrivateEnvironment,
+      signal,
     );
   }
 
@@ -454,6 +504,18 @@ class PythonScanSciPort implements ScanSciPort {
         "requirements.lock",
       ),
       dependencies: candidate.dependencies,
+      packages: LOCKED_DEPENDENCIES.map((dependency, index) => ({
+        name: dependency[0],
+        version: dependency[2],
+        sha256: [...(LOCKED_PACKAGE_HASHES[index] ?? [])],
+      })),
+      actions: [
+        `Create a private virtual environment with ${candidate.executable}`,
+        `Install the complete hash-locked package set from ${PACKAGE_INDEX}`,
+        "Leave the selected base Python and all global pip configuration unchanged",
+      ],
+      cancelResult:
+        "No environment is created or changed; downloads that require Python remain unavailable",
     };
   }
 
@@ -461,11 +523,24 @@ class PythonScanSciPort implements ScanSciPort {
     candidate: ParsedCapabilityResult,
     plan: ScanSciInstallPlan,
     candidates: readonly ScanSciRuntimeCandidate[],
+    replacePrivateEnvironment: boolean,
+    signal?: AbortSignal,
   ): Promise<ScanSciRuntimePreparation> {
     let ownsEnvironment = false;
     try {
       await this.runtime.ensureModuleAssets();
+      throwIfAborted(signal);
+      validateRequirementsLock(
+        plan.packages,
+        await this.runtime.files.readText(plan.requirementsLock),
+      );
       await this.runtime.files.createDirectory(this.options.privateRuntimeRoot);
+      if (
+        replacePrivateEnvironment &&
+        (await this.runtime.files.pathExists(plan.privateEnvironment))
+      ) {
+        await this.runtime.files.removeDirectory(plan.privateEnvironment);
+      }
       await this.runtime.files.createDirectoryExclusive(
         plan.privateEnvironment,
       );
@@ -474,6 +549,7 @@ class PythonScanSciPort implements ScanSciPort {
         candidate.executable,
         ["-E", "-s", "-m", "venv", plan.privateEnvironment],
         this.options.privateRuntimeRoot,
+        signal,
       );
       await this.runInstallProcess(
         this.privateEnvironmentExecutable(),
@@ -494,9 +570,11 @@ class PythonScanSciPort implements ScanSciPort {
           plan.requirementsLock,
         ],
         plan.privateEnvironment,
+        signal,
       );
       const installed = await this.probeExecutable(
         this.privateEnvironmentExecutable(),
+        signal,
       );
       if (
         installed.status !== "probed" ||
@@ -528,7 +606,7 @@ class PythonScanSciPort implements ScanSciPort {
       }
       return {
         status: "unavailable",
-        error: `ScanSci private environment installation failed: ${originalError(error)}${cleanup}`,
+        error: `ScanSci private environment installation failed; interpreter=${candidate.executable}; privateEnvironment=${plan.privateEnvironment}; packageIndex=${plan.packageIndex}: ${originalError(error)}${cleanup}`,
         candidates,
       };
     }
@@ -538,6 +616,7 @@ class PythonScanSciPort implements ScanSciPort {
     command: string,
     processArguments: readonly string[],
     workingDirectory: string,
+    signal?: AbortSignal,
   ): Promise<void> {
     const result = await this.runtime.runProcess({
       command,
@@ -546,6 +625,7 @@ class PythonScanSciPort implements ScanSciPort {
       timeoutMilliseconds: INSTALL_TIMEOUT_MILLISECONDS,
       removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
       workingDirectory,
+      signal,
     });
     if (result.timedOut)
       throw new Error("Python runtime installation timed out");
@@ -558,10 +638,11 @@ class PythonScanSciPort implements ScanSciPort {
   }
 
   private privateEnvironmentExecutable(): string {
-    return joinWindows(
-      joinWindows(this.options.privateRuntimeRoot, "venv"),
-      "Scripts\\python.exe",
-    );
+    return joinWindows(this.privateEnvironmentPath(), "Scripts\\python.exe");
+  }
+
+  private privateEnvironmentPath(): string {
+    return joinWindows(this.options.privateRuntimeRoot, "venv");
   }
 
   private optionError(): string | undefined {
@@ -610,29 +691,48 @@ class PythonScanSciPort implements ScanSciPort {
     };
   }
 
-  private async discoverPythonCommands(): Promise<readonly string[]> {
+  private async discoverPythonCommands(
+    signal?: AbortSignal,
+  ): Promise<
+    Readonly<{ commands: readonly string[]; launcherFailure?: string }>
+  > {
     const commands: string[] = [];
+    let launcherFailure: string | undefined;
     try {
+      throwIfAborted(signal);
       const launcher = await this.runtime.runProcess({
         command: "py",
         arguments: ["-0p"],
         stdin: "",
         timeoutMilliseconds: DISCOVERY_TIMEOUT_MILLISECONDS,
         removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
+        signal,
       });
-      if (!launcher.timedOut && launcher.exitCode === 0) {
+      if (launcher.timedOut) {
+        launcherFailure = "Python launcher enumeration timed out";
+      } else if (launcher.exitCode !== 0) {
+        const diagnostic = sanitizeDiagnostic(launcher.stderr);
+        launcherFailure = `Python launcher enumeration failed with exit code ${launcher.exitCode}${diagnostic ? `: ${diagnostic}` : ""}`;
+      } else {
         commands.push(...parsePythonLauncherPaths(launcher.stdout));
       }
-    } catch {
-      // PATH Python is still an explicit detection candidate.
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      launcherFailure = `Python launcher enumeration failed: ${originalError(error)}`;
     }
     commands.push("python");
-    return [
-      ...new Set(commands.map((command) => command.trim()).filter(Boolean)),
-    ];
+    return {
+      commands: [
+        ...new Set(commands.map((command) => command.trim()).filter(Boolean)),
+      ],
+      ...(launcherFailure ? { launcherFailure } : {}),
+    };
   }
 
-  private async probeExecutable(command: string): Promise<ProbedCandidate> {
+  private async probeExecutable(
+    command: string,
+    signal?: AbortSignal,
+  ): Promise<ProbedCandidate> {
     let process: PythonProcessResult;
     try {
       process = await this.runtime.runProcess({
@@ -641,8 +741,10 @@ class PythonScanSciPort implements ScanSciPort {
         stdin: `${JSON.stringify(protocolRequest("probe", {}))}\n`,
         timeoutMilliseconds: CAPABILITY_TIMEOUT_MILLISECONDS,
         removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
+        signal,
       });
     } catch (error) {
+      if (isAbortError(error)) throw error;
       return {
         status: "failed",
         executable: command,
@@ -1048,6 +1150,67 @@ function reportCandidates(
   );
 }
 
+function validateRequirementsLock(
+  expected: ScanSciInstallPlan["packages"],
+  rawLock: string,
+): void {
+  const logicalLines = rawLock
+    .replace(/\\\r?\n\s*/gu, " ")
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+  const actual = logicalLines.map((line) => {
+    const requirement = /^([A-Za-z0-9_.-]+)==([^\s]+)(.*)$/u.exec(line);
+    if (!requirement) throw new Error("ScanSci requirements lock is invalid");
+    const hashes = [
+      ...(requirement[3] ?? "").matchAll(
+        /(?:^|\s)--hash=sha256:([0-9a-f]{64})(?=\s|$)/gu,
+      ),
+    ].map((match) => match[1] ?? "");
+    const residue = (requirement[3] ?? "")
+      .replace(/(?:^|\s)--hash=sha256:[0-9a-f]{64}(?=\s|$)/gu, "")
+      .trim();
+    if (!hashes.length || residue) {
+      throw new Error("ScanSci requirements lock must be hash-only");
+    }
+    return {
+      name: requirement[1] ?? "",
+      version: requirement[2] ?? "",
+      sha256: hashes,
+    };
+  });
+  if (
+    actual.length !== expected.length ||
+    actual.some((pkg, index) => {
+      const planned = expected[index];
+      return (
+        !planned ||
+        pkg.name !== planned.name ||
+        pkg.version !== planned.version ||
+        pkg.sha256.length !== planned.sha256.length ||
+        pkg.sha256.some((hash, hashIndex) => hash !== planned.sha256[hashIndex])
+      );
+    })
+  ) {
+    throw new Error(
+      "ScanSci requirements lock does not match the confirmed installation plan",
+    );
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw abortError();
+}
+
+function abortError(): Error {
+  return new DOMException("The operation was aborted", "AbortError");
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
 function isSupportedPythonVersion(version: string): boolean {
   const [major = 0, minor = 0] = version
     .split(".")
@@ -1066,8 +1229,25 @@ function compareCapabilityCandidates(
   const versionOrder = compareVersions(right.pythonVersion, left.pythonVersion);
   return (
     versionOrder ||
-    left.executable.toLowerCase().localeCompare(right.executable.toLowerCase())
+    normalizeWindowsPath(left.executable)
+      .toLowerCase()
+      .localeCompare(normalizeWindowsPath(right.executable).toLowerCase())
   );
+}
+
+function compareInstallCandidates(
+  left: ParsedCapabilityResult,
+  right: ParsedCapabilityResult,
+): number {
+  const dependencyOrder =
+    unavailableDependencyCount(left) - unavailableDependencyCount(right);
+  return dependencyOrder || compareCapabilityCandidates(left, right);
+}
+
+function unavailableDependencyCount(candidate: ParsedCapabilityResult): number {
+  return candidate.dependencies.filter(
+    (dependency) => dependency.status !== "available",
+  ).length;
 }
 
 function compareVersions(left: string, right: string): number {

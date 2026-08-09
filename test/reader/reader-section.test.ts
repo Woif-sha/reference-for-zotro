@@ -1129,6 +1129,100 @@ test("a translation failure disables only UI translation for the mounted section
   mounted.destroy();
 });
 
+test("Reader download area exposes destination, confirmed runtime installation, and a disabled institution policy", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const body = dom.window.document.body;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSetup: {
+      downloadDestination: "E:\\paper",
+      usingDefaultDestination: true,
+      runtime: {
+        status: "needs-install",
+        candidates: [],
+        plan: {
+          baseExecutable: "C:\\Python312\\python.exe",
+          privateEnvironment: "C:\\profile\\rfz\\venv",
+          packageIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
+          requirementsLock: "C:\\addon\\requirements.lock",
+          dependencies: [],
+          packages: [
+            {
+              name: "requests",
+              version: "2.34.2",
+              sha256: ["a".repeat(64)],
+            },
+          ],
+          actions: ["Create private venv", "Install complete hash lock"],
+          cancelResult: "No environment is created or changed",
+        },
+      },
+      institutionLogin: {
+        status: "disabled",
+        policy: {
+          routeID: "institution-browser",
+          status: "disabled-pending-acceptance",
+          vendor: "CloakBrowser",
+          source: "Unresolved accepted vendor artifact URL",
+          approximateDownloadBytes: 209_715_200,
+          binaryLicense: "Unresolved binary license",
+          target: "<private-runtime>/cloakbrowser/chromium",
+          signatureVerification: "Unresolved signature verification",
+        },
+      },
+    },
+  };
+  let changeDestination = 0;
+  let install = 0;
+  let cancel = 0;
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async changeDownloadDestination() {
+        changeDestination += 1;
+      },
+      async installDownloadRuntime() {
+        install += 1;
+      },
+      cancelDownloadRuntimeInstallation() {
+        cancel += 1;
+      },
+    },
+  });
+
+  assert.equal(
+    body.querySelector("[data-download-destination]")?.textContent,
+    "E:\\paper",
+  );
+  assert.match(body.textContent ?? "", /requests==2\.34\.2/u);
+  assert.match(
+    body.textContent ?? "",
+    /https:\/\/pypi\.tuna\.tsinghua\.edu\.cn\/simple/u,
+  );
+  assert.match(body.textContent ?? "", /About 200 MiB/u);
+  const institutionButton = body.querySelector(
+    '[aria-label="Institution login unavailable"]',
+  ) as HTMLButtonElement | null;
+  assert.equal(institutionButton?.disabled, true);
+
+  (body.querySelector("[data-change-destination]") as HTMLElement)?.click();
+  (body.querySelector("[data-install-runtime]") as HTMLElement)?.click();
+  (body.querySelector("[data-cancel-runtime]") as HTMLElement)?.click();
+  assert.equal(changeDestination, 1);
+  assert.equal(install, 1);
+  assert.equal(cancel, 1);
+  mounted.destroy();
+});
+
 function selectNodeContents(dom: JSDOM, node: Node): void {
   const range = dom.window.document.createRange();
   range.selectNodeContents(node);

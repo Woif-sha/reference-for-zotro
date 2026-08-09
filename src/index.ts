@@ -5,6 +5,13 @@ import {
   type ReferenceForZoteroHandle,
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
+import { DownloadFirstUseCoordinator } from "./application/download-first-use";
+import { createScanSciDownloadDependencies } from "./application/scan-sci-download";
+import {
+  createZoteroDownloadFirstUsePorts,
+  zoteroPrivateRuntimeRoot,
+} from "./platform/zotero-download-first-use";
+import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -43,6 +50,7 @@ function defineRuntimeGlobal(name: string): void {
 
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
+  let downloadSetup: DownloadFirstUseCoordinator | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -71,13 +79,33 @@ function createRuntime() {
         await Promise.all(
           Zotero.getMainWindows().map((window) => onMainWindowLoad(window)),
         );
-        handle = startReferenceForZotero(createReaderControllerFactory());
+        const packagedRootURI = resolvePackagedRootURI();
+        const scanSci = createZoteroScanSciPort({
+          packagedRootURI,
+          privateRuntimeRoot: zoteroPrivateRuntimeRoot(),
+        });
+        downloadSetup = new DownloadFirstUseCoordinator(
+          createZoteroDownloadFirstUsePorts({
+            runtime: scanSci,
+            packagedRootURI,
+          }),
+        );
+        handle = startReferenceForZotero(
+          createReaderControllerFactory(
+            createScanSciDownloadDependencies({
+              runtime: scanSci,
+              setup: downloadSetup,
+            }),
+          ),
+        );
       },
       onMainWindowLoad,
       onMainWindowUnload,
       onShutdown(): void {
         handle?.shutdown();
         handle = undefined;
+        downloadSetup?.dispose();
+        downloadSetup = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });
@@ -85,4 +113,13 @@ function createRuntime() {
       },
     },
   };
+}
+
+function resolvePackagedRootURI(): string {
+  const value = (_globalThis as typeof _globalThis & { rootURI?: unknown })
+    .rootURI;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Cannot resolve the packaged add-on root URI");
+  }
+  return value;
 }

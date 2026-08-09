@@ -60,6 +60,13 @@ export type ScanSciInstallPlan = Readonly<{
   packageIndex: "https://pypi.tuna.tsinghua.edu.cn/simple";
   requirementsLock: string;
   dependencies: readonly ScanSciDependency[];
+  packages: readonly Readonly<{
+    name: string;
+    version: string;
+    sha256: readonly string[];
+  }>[];
+  actions: readonly string[];
+  cancelResult: string;
 }>;
 
 export type ScanSciRuntimeCandidate = Readonly<{
@@ -91,6 +98,7 @@ export interface ScanSciPort {
     request: Readonly<{
       allowInstall: boolean;
       executableOverride?: string;
+      signal?: AbortSignal;
     }>,
   ): Promise<ScanSciRuntimePreparation>;
   startVisibleLogin(

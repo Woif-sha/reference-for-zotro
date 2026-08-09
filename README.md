@@ -14,6 +14,8 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - 摘要缺失时仅在打开详情卡后按 DOI 延迟补全，避免批量请求。
 - `Ctrl + 左键` 打开经过确认的论文落地页。
 - 可选调用 Paper Translate 的公开接口翻译插件界面内选中的文字。
+- 在 Reader 下载区域显示当前保存目录；默认使用 `E:\paper`，也可通过 Windows 原生目录选择器修改或恢复默认值。
+- 按需探测 Python 3.11+；依赖缺失时先展示精确的私有 venv、清华镜像及 hash-lock 安装计划，只有确认后才安装。
 
 ## 运行要求
 
@@ -42,6 +44,10 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - 再次单击题名或卡片关闭按钮：关闭详情卡。
 - `Ctrl + 左键`：在浏览器打开已验证的学术落地页。
 - **Refresh**：跳过当前缓存并重新解析。
+- **Change folder**：选择 Download destination；插件不会创建独立设置页。
+- **Check environment**：只探测 Python 和精确锁定依赖；若需要安装，会先显示完整计划和取消结果。
+
+机构登录入口目前明确处于禁用状态：在具体机构与 publisher 路线完成 vendor、binary license、签名、strict-TLS/egress 和 Windows/Zotero 验收前，插件不会下载约 200 MiB 的 CloakBrowser Chromium runtime，也不会启动登录浏览器。
 
 ## 数据与匹配
 

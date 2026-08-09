@@ -1,5 +1,9 @@
 import type { ReferenceEntry } from "../domain/reference";
 import type { PaperIdentity, SessionToken } from "../domain/literature";
+import {
+  DEFAULT_DOWNLOAD_DESTINATION,
+  type DownloadFirstUseController,
+} from "./download-first-use";
 import type {
   ReaderPaper,
   ReaderPaperAction,
@@ -63,6 +67,7 @@ export interface RelatedPapersPorts {
     paper: ReaderPaper & { status: "resolved" },
   ): Promise<SinglePaperDownloadResult>;
   revealDownloadedFile?(savedPath: string): void;
+  downloadSetup?: DownloadFirstUseController;
   copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
@@ -80,6 +85,7 @@ export class RelatedPapersController implements ReaderSectionController {
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: false,
+    downloadSetup: defaultDownloadSetupState(),
   };
   private readonly listeners = new Set<(state: ReaderSectionState) => void>();
   private readonly sessions = new PaperSessionCoordinator();
@@ -90,6 +96,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private loadGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
+  private unsubscribeDownloadSetup?: () => void;
 
   constructor(
     private readonly attachmentItemID: number,
@@ -98,7 +105,12 @@ export class RelatedPapersController implements ReaderSectionController {
     this.state = {
       ...this.state,
       downloadAvailable: Boolean(ports.downloadPaper),
+      downloadSetup:
+        ports.downloadSetup?.getState() ?? defaultDownloadSetupState(),
     };
+    this.unsubscribeDownloadSetup = ports.downloadSetup?.subscribe(
+      (downloadSetup) => this.update({ downloadSetup }),
+    );
   }
 
   getState(): ReaderSectionState {
@@ -252,6 +264,34 @@ export class RelatedPapersController implements ReaderSectionController {
     );
     if (result?.status !== "downloaded") return;
     this.ports.revealDownloadedFile?.(result.savedPath);
+  }
+
+  changeDownloadDestination(): Promise<void> {
+    return (
+      this.ports.downloadSetup?.changeDownloadDestination() ?? Promise.resolve()
+    );
+  }
+
+  resetDownloadDestination(): void {
+    this.ports.downloadSetup?.resetDownloadDestination();
+  }
+
+  checkDownloadRuntime(): Promise<void> {
+    return this.ports.downloadSetup?.checkRuntime() ?? Promise.resolve();
+  }
+
+  choosePythonExecutable(): Promise<void> {
+    return (
+      this.ports.downloadSetup?.choosePythonExecutable() ?? Promise.resolve()
+    );
+  }
+
+  installDownloadRuntime(): Promise<void> {
+    return this.ports.downloadSetup?.installRuntime() ?? Promise.resolve();
+  }
+
+  cancelDownloadRuntimeInstallation(): void {
+    this.ports.downloadSetup?.cancelRuntimeInstallation();
   }
 
   selectPaper(paperID: string): void {
@@ -417,6 +457,8 @@ export class RelatedPapersController implements ReaderSectionController {
     this.cancelDownloads();
     this.sessions.dispose();
     this.ports.dispose?.();
+    this.unsubscribeDownloadSetup?.();
+    this.unsubscribeDownloadSetup = undefined;
     this.listeners.clear();
     this.context = undefined;
   }
@@ -599,6 +641,18 @@ export class RelatedPapersController implements ReaderSectionController {
   private assertActive(): void {
     if (this.disposed) throw new Error("RelatedPapersController is disposed");
   }
+}
+
+function defaultDownloadSetupState(): ReaderSectionState["downloadSetup"] {
+  return {
+    downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
+    usingDefaultDestination: true,
+    runtime: { status: "unchecked" },
+    institutionLogin: {
+      status: "unavailable",
+      error: "Institution browser policy is not connected",
+    },
+  };
 }
 
 function searchURL(

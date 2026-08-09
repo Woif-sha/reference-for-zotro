@@ -12,7 +12,11 @@ test("resolved paper presentation retains provider record, retrieval time and ma
       source: "crossref",
       sourceRecordID: "10.1000/example",
       retrievedAt: "2026-07-30T00:00:00.000Z",
-      identifiers: { doi: "10.1000/example" },
+      identifiers: {
+        doi: "10.1000/example",
+        arxiv: "2101.00001",
+        pmcid: "PMC1234",
+      },
       title: "Example",
       authors: [{ family: "Smith", given: "Ada" }],
       publicationDate: "2024-01-01",
@@ -35,6 +39,8 @@ test("resolved paper presentation retains provider record, retrieval time and ma
   assert.deepEqual(paper.matchedFields, ["doi"]);
   assert.equal(paper.metadataIncomplete, false);
   assert.deepEqual(paper.rawProvenance, ["crossref:10.1000/example"]);
+  assert.equal(paper.arxivID, "2101.00001");
+  assert.equal(paper.pmcid, "PMC1234");
 });
 
 test("cache preserves permitted Abstracts and omits Crossref Abstracts", () => {

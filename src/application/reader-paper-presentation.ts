@@ -89,6 +89,8 @@ export function candidateToReaderPaper(
     primaryResultURL: candidate.landingURL,
     matchedBy,
     doi: candidate.identifiers.doi,
+    arxivID: candidate.identifiers.arxiv,
+    pmcid: candidate.identifiers.pmcid,
     abstract: stripMarkup(candidate.abstract),
     abstractSource: candidate.abstractSource,
     citationCount: candidate.citationCount ?? undefined,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   SCANSCI_SCHEMA_VERSION,
@@ -8,6 +9,14 @@ import {
   createPythonScanSciPort,
   type PythonScanSciRuntime,
 } from "../../src/scansci/python-scan-sci-port";
+
+const REQUIREMENTS_LOCK = await readFile(
+  new URL(
+    "../../addon/python/reference_for_zotero_scansci/requirements.lock",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("one-time Python override is used only after automatic detection fails", async () => {
   const calls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
@@ -158,6 +167,101 @@ test("automatic detection selects the highest compatible Python from launcher an
   );
 });
 
+test("installation candidate selection prefers dependency completeness before Python version", async () => {
+  const runtime = runtimeWith(async (request) => {
+    if (request.command === "py") {
+      return {
+        exitCode: 0,
+        stdout:
+          " -V:3.13 *        C:\\Python313\\python.exe\r\n" +
+          " -V:3.12          D:\\Python312\\python.exe\r\n",
+        stderr: "",
+        timedOut: false,
+      };
+    }
+    if (request.command === "python") {
+      return { exitCode: 1, stdout: "", stderr: "missing", timedOut: false };
+    }
+    const missing =
+      request.command === "C:\\Python313\\python.exe"
+        ? new Set(["requests", "certifi"])
+        : new Set(["requests"]);
+    return probeResultWithDependencies({
+      executable: request.command,
+      pythonVersion:
+        request.command === "C:\\Python313\\python.exe" ? "3.13.1" : "3.12.10",
+      missing,
+    });
+  });
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const preparation = await port.prepareRuntime({ allowInstall: false });
+  assert.equal(preparation.status, "needs-install");
+  if (preparation.status !== "needs-install") return;
+  assert.equal(preparation.plan.baseExecutable, "D:\\Python312\\python.exe");
+});
+
+test("equally compatible Python candidates use a normalized absolute path tie-break", async () => {
+  const runtime = runtimeWith(async (request) => {
+    if (request.command === "py") {
+      return {
+        exitCode: 0,
+        stdout:
+          " -V:3.12 *        D:/Zulu/./python.exe\r\n" +
+          " -V:3.12          C:\\Alpha\\python.exe\r\n",
+        stderr: "",
+        timedOut: false,
+      };
+    }
+    if (request.command === "python") {
+      return { exitCode: 1, stdout: "", stderr: "missing", timedOut: false };
+    }
+    return probeResult({
+      executable: request.command,
+      pythonVersion: "3.12.10",
+      architecture: "x64",
+    });
+  });
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const preparation = await port.prepareRuntime({ allowInstall: false });
+  assert.equal(preparation.status, "ready");
+  if (preparation.status !== "ready") return;
+  assert.equal(preparation.capability.executable, "C:\\Alpha\\python.exe");
+});
+
+test("launcher enumeration failure remains visible while PATH probing continues", async () => {
+  const runtime = runtimeWith(async (request) =>
+    request.command === "py"
+      ? {
+          exitCode: 2,
+          stdout: "",
+          stderr: "launcher registry is unavailable",
+          timedOut: false,
+        }
+      : {
+          exitCode: 1,
+          stdout: "",
+          stderr: "python is not on PATH",
+          timedOut: false,
+        },
+  );
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const preparation = await port.prepareRuntime({ allowInstall: false });
+
+  assert.equal(preparation.status, "unavailable");
+  if (preparation.status !== "unavailable") return;
+  assert.deepEqual(
+    preparation.candidates.map(({ executable }) => executable),
+    ["py launcher", "python"],
+  );
+  assert.match(
+    preparation.candidates[0]?.error ?? "",
+    /exit code 2: launcher registry is unavailable/u,
+  );
+});
+
 test("capability reports missing dependencies after automatic detection and the one-time override fail", async () => {
   const calls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
   const runtime = runtimeWith(async (request) => {
@@ -201,6 +305,28 @@ test("capability reports missing dependencies after automatic detection and the 
     ],
   );
   assert.deepEqual(
+    result.plan.packages.map((pkg) => [
+      pkg.name,
+      pkg.version,
+      pkg.sha256.length,
+    ]),
+    [
+      ["requests", "2.34.2", 1],
+      ["certifi", "2026.7.22", 1],
+      ["charset-normalizer", "3.4.9", 11],
+      ["idna", "3.18", 1],
+      ["urllib3", "2.7.0", 1],
+    ],
+  );
+  assert.ok(
+    result.plan.packages.every((pkg) =>
+      pkg.sha256.every((hash) => /^[0-9a-f]{64}$/u.test(hash)),
+    ),
+  );
+  assert.deepEqual(result.plan.packages, packagesFromLock(REQUIREMENTS_LOCK));
+  assert.match(result.plan.actions.join(" "), /private virtual environment/u);
+  assert.match(result.plan.cancelResult, /No environment is created/u);
+  assert.deepEqual(
     calls.map((call) => call.command),
     ["py", "python", "D:\\Python\\Python3.12\\python.exe"],
   );
@@ -231,7 +357,11 @@ test("confirmed runtime preparation creates a private venv and installs only the
           architecture: "x64",
         });
       }
-      return missingDependencyProbeResult(request.command);
+      return missingDependencyProbeResult(
+        request.command === "python"
+          ? "D:\\Python\\Python3.12\\python.exe"
+          : request.command,
+      );
     },
     files: {
       async pathExists() {
@@ -246,8 +376,8 @@ test("confirmed runtime preparation creates a private venv and installs only the
       async createDirectoryExclusive(path) {
         created.push(path);
       },
-      async readText() {
-        return sourceRules();
+      async readText(path) {
+        return runtimeAsset(path);
       },
       async copyExclusiveContained() {},
       async removeDirectory() {},
@@ -270,6 +400,10 @@ test("confirmed runtime preparation creates a private venv and installs only the
     "C:\\profile\\reference-for-zotero\\python\\venv",
   ]);
   assert.equal(assetsPrepared, 1);
+  assert.equal(calls[0]?.command, "D:\\Python\\Python3.12\\python.exe");
+  assert.ok(
+    calls.every((call) => call.command !== "py" && call.command !== "python"),
+  );
   const venvCall = calls.find((call) => call.arguments.includes("venv"));
   assert.deepEqual(venvCall?.arguments, [
     "-E",
@@ -302,6 +436,194 @@ test("confirmed runtime preparation creates a private venv and installs only the
   assert.equal(
     pipCall?.workingDirectory,
     "C:\\profile\\reference-for-zotero\\python\\venv",
+  );
+});
+
+test("installation stops before creating a venv when the packaged lock differs from the confirmed plan", async () => {
+  const created: string[] = [];
+  const calls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
+  const runtime: PythonScanSciRuntime = {
+    async ensureModuleAssets() {},
+    async runProcess(request) {
+      calls.push(request);
+      return missingDependencyProbeResult(request.command);
+    },
+    files: {
+      async pathExists() {
+        return false;
+      },
+      async canonicalizeExisting(path) {
+        return path;
+      },
+      async createDirectory(path) {
+        created.push(path);
+      },
+      async createDirectoryExclusive(path) {
+        created.push(path);
+      },
+      async readText(path) {
+        return path.endsWith("requirements.lock")
+          ? REQUIREMENTS_LOCK.replace("requests==2.34.2", "requests==2.34.1")
+          : sourceRules();
+      },
+      async copyExclusiveContained() {},
+      async removeDirectory() {},
+    },
+    nextRequestID: () => "00000000-0000-4000-8000-000000000000",
+  };
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const result = await port.prepareRuntime({
+    allowInstall: true,
+    executableOverride: "D:\\Python\\Python3.12\\python.exe",
+  });
+
+  assert.equal(result.status, "unavailable");
+  if (result.status !== "unavailable") return;
+  assert.match(result.error, /does not match the confirmed installation plan/u);
+  assert.deepEqual(created, []);
+  assert.equal(calls.length, 1);
+});
+
+test("a stale private venv is removed only after renewed installation confirmation", async () => {
+  const privateEnvironment = "C:\\profile\\reference-for-zotero\\python\\venv";
+  const privatePython = `${privateEnvironment}\\Scripts\\python.exe`;
+  const removed: string[] = [];
+  const created: string[] = [];
+  const calls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
+  let privateReady = false;
+  const runtime: PythonScanSciRuntime = {
+    async ensureModuleAssets() {},
+    async runProcess(request) {
+      calls.push(request);
+      if (request.arguments.includes("venv")) {
+        return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+      }
+      if (request.arguments.includes("pip")) {
+        privateReady = true;
+        return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+      }
+      if (request.command === privatePython) {
+        return privateReady
+          ? probeResult({
+              executable: privatePython,
+              pythonVersion: "3.12.10",
+              architecture: "x64",
+            })
+          : {
+              exitCode: 1,
+              stdout: "",
+              stderr: "incomplete venv",
+              timedOut: false,
+            };
+      }
+      return missingDependencyProbeResult(
+        request.command === "python"
+          ? "D:\\Python\\Python3.12\\python.exe"
+          : request.command,
+      );
+    },
+    files: {
+      async pathExists(path) {
+        return path === privateEnvironment || path === privatePython;
+      },
+      async canonicalizeExisting(path) {
+        return path;
+      },
+      async createDirectory(path) {
+        created.push(path);
+      },
+      async createDirectoryExclusive(path) {
+        created.push(path);
+      },
+      async readText(path) {
+        return runtimeAsset(path);
+      },
+      async copyExclusiveContained() {},
+      async removeDirectory(path) {
+        removed.push(path);
+      },
+    },
+    nextRequestID: () => "00000000-0000-4000-8000-000000000000",
+  };
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const plan = await port.prepareRuntime({ allowInstall: false });
+  assert.equal(plan.status, "needs-install");
+  assert.equal(removed.length, 0);
+  assert.equal(created.length, 0);
+
+  const installed = await port.prepareRuntime({ allowInstall: true });
+  assert.equal(installed.status, "ready");
+  assert.deepEqual(removed, [privateEnvironment]);
+  assert.ok(created.includes(privateEnvironment));
+});
+
+test("a mirror failure reports the selected interpreter, venv, mirror, and original pip error without fallback", async () => {
+  const calls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
+  const runtime: PythonScanSciRuntime = {
+    async ensureModuleAssets() {},
+    async runProcess(request) {
+      calls.push(request);
+      if (request.arguments.includes("venv")) {
+        return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
+      }
+      if (request.arguments.includes("pip")) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: "TUNA mirror refused the wheel",
+          timedOut: false,
+        };
+      }
+      return missingDependencyProbeResult(request.command);
+    },
+    files: {
+      async pathExists() {
+        return false;
+      },
+      async canonicalizeExisting(path) {
+        return path;
+      },
+      async createDirectory() {},
+      async createDirectoryExclusive() {},
+      async readText(path) {
+        return runtimeAsset(path);
+      },
+      async copyExclusiveContained() {},
+      async removeDirectory() {},
+    },
+    nextRequestID: () => "00000000-0000-4000-8000-000000000000",
+  };
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+
+  const result = await port.prepareRuntime({
+    allowInstall: true,
+    executableOverride: "D:\\Python\\Python3.12\\python.exe",
+  });
+  assert.equal(result.status, "unavailable");
+  if (result.status !== "unavailable") return;
+  assert.match(
+    result.error,
+    /interpreter=D:\\Python\\Python3\.12\\python\.exe/u,
+  );
+  assert.match(result.error, /privateEnvironment=.*\\venv/u);
+  assert.match(
+    result.error,
+    /packageIndex=https:\/\/pypi\.tuna\.tsinghua\.edu\.cn\/simple/u,
+  );
+  assert.match(result.error, /TUNA mirror refused the wheel/u);
+  assert.equal(
+    calls.filter((call) => call.arguments.includes("pip")).length,
+    1,
+  );
+  assert.ok(
+    calls.every(
+      (call) =>
+        !call.arguments.some((argument) =>
+          /pypi\.org|trusted-host/iu.test(argument),
+        ),
+    ),
   );
 });
 
@@ -892,6 +1214,39 @@ function missingDependencyProbeResult(executable: string) {
   };
 }
 
+function probeResultWithDependencies(input: {
+  executable: string;
+  pythonVersion: string;
+  missing: ReadonlySet<string>;
+}) {
+  return {
+    exitCode: 0,
+    stdout: `${JSON.stringify({
+      schemaVersion: 3,
+      sourceRulesVersion: 3,
+      operation: "probe",
+      ok: true,
+      result: {
+        executable: input.executable,
+        pythonVersion: input.pythonVersion,
+        architecture: "x64",
+        moduleVersion: "3.0.0",
+        dependencies: availableDependencies().map((dependency) =>
+          input.missing.has(dependency.name)
+            ? { ...dependency, installedVersion: undefined, status: "missing" }
+            : dependency,
+        ),
+        features: {
+          onePaperDownload: "unavailable",
+          visibleLogin: "disabled",
+        },
+      },
+    })}\n`,
+    stderr: "",
+    timedOut: false as const,
+  };
+}
+
 function availableDependencies() {
   return [
     ["requests", "2.34.2"],
@@ -942,6 +1297,29 @@ function downloadOptions() {
     privateRuntimeRoot: "C:\\profile\\reference-for-zotero\\python",
     hostArchitecture: "x64" as const,
   };
+}
+
+function runtimeAsset(path: string): string {
+  return path.endsWith("requirements.lock") ? REQUIREMENTS_LOCK : sourceRules();
+}
+
+function packagesFromLock(lock: string) {
+  return lock
+    .replace(/\\\r?\n\s*/gu, " ")
+    .split(/\r?\n/gu)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const requirement = /^([A-Za-z0-9_.-]+)==([^\s]+)(.*)$/u.exec(line);
+      assert.ok(requirement);
+      return {
+        name: requirement[1] ?? "",
+        version: requirement[2] ?? "",
+        sha256: [
+          ...(requirement[3] ?? "").matchAll(/sha256:([0-9a-f]{64})/gu),
+        ].map((match) => match[1] ?? ""),
+      };
+    });
 }
 
 async function prepareReady(

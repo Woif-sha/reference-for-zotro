@@ -1309,6 +1309,96 @@ test("Reader download area exposes destination, confirmed runtime installation, 
   mounted.destroy();
 });
 
+test("Reader projects the WebVPN to IEEE route only as an acceptance candidate", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const body = dom.window.document.body;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSetup: {
+      downloadDestination: "E:\\paper",
+      usingDefaultDestination: true,
+      runtime: {
+        status: "ready",
+        capability: {
+          status: "available",
+          executable: "C:\\Python312\\python.exe",
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+          moduleVersion: "3.0.0",
+          schemaVersion: 3,
+          sourceRulesVersion: 3,
+          selectionReason: "automatic detection",
+          dependencies: [],
+          features: {
+            onePaperDownload: "available",
+            batchDownload: "available",
+            visibleLogin: "disabled",
+          },
+          routes: [
+            {
+              routeID: "open-access",
+              status: "available",
+              sources: ["arxiv", "pmc"],
+              operations: ["downloadOne", "downloadBatch"],
+            },
+            {
+              routeID: "institution-webvpn/ieee/one-click-single",
+              status: "candidate",
+              reason: "real-world-route-audit-pending",
+              operations: ["visibleLogin", "downloadOne"],
+            },
+          ],
+          sidecar: {
+            protocol: "reference-for-zotero.scansci-sidecar",
+            contractVersion: "1.0.0",
+            resultSchemaVersion: "1.0.0",
+            upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+            dirty: false,
+          },
+        },
+      },
+      institutionLogin: {
+        status: "disabled",
+        policy: {
+          routeID: "institution-browser",
+          status: "disabled-pending-acceptance",
+          vendor: "CloakBrowser",
+          source: "Unresolved accepted vendor artifact URL",
+          approximateDownloadBytes: 209_715_200,
+          binaryLicense: "Unresolved binary license",
+          target: "<private-runtime>/cloakbrowser/chromium",
+          signatureVerification: "Unresolved signature verification",
+        },
+      },
+    },
+  };
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.match(
+    body.textContent ?? "",
+    /Candidate · WebVPN → IEEE requires real-world acceptance/u,
+  );
+  const button = body.querySelector(
+    '[aria-label="Institution login candidate requires acceptance"]',
+  ) as HTMLButtonElement | null;
+  assert.equal(button?.disabled, true);
+  assert.doesNotMatch(body.textContent ?? "", /supported|available ✓/iu);
+  mounted.destroy();
+});
+
 test("an unavailable Paper Translate capability is explicit without calling translate", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,

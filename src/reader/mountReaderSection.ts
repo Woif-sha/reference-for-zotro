@@ -579,12 +579,22 @@ function renderDownloadSetup(state: DownloadFirstUseState): string {
             : runtime.status === "installing"
               ? `<span class="rfz-setup-status">Installing private environment…</span><small>${escapeHTML(runtime.plan.privateEnvironment)}</small>`
               : `<span class="rfz-setup-error" role="alert">${escapeHTML(runtime.error)}</span><div class="rfz-setup-actions">${runtime.retryPlan ? '<button type="button" data-install-runtime="" data-focus-key="retry-runtime">Retry installation</button>' : '<button type="button" data-check-runtime="" data-focus-key="check-runtime">Check again</button>'}${runtime.allowExecutableSelection ? '<button type="button" data-choose-python="" data-focus-key="choose-python">Choose python.exe once</button>' : ""}</div>`;
+  const institutionCandidate =
+    runtime.status === "ready" &&
+    runtime.capability.routes.some(
+      (route) =>
+        route.routeID === "institution-webvpn/ieee/one-click-single" &&
+        route.status === "candidate",
+    );
   const institution =
     state.institutionLogin.status === "loading-policy"
       ? `<span class="rfz-setup-status">Loading packaged browser policy…</span>`
       : state.institutionLogin.status === "unavailable"
         ? `<span class="rfz-setup-error" role="alert">${escapeHTML(state.institutionLogin.error)}</span>`
-        : renderInstitutionPolicy(state.institutionLogin.policy);
+        : renderInstitutionPolicy(
+            state.institutionLogin.policy,
+            institutionCandidate,
+          );
   return `<section class="rfz-download-setup" data-download-setup="" data-no-translation="">
     <div class="rfz-setup-row">
       <strong>Save to</strong><code data-download-destination="">${escapeHTML(state.downloadDestination)}</code>
@@ -623,14 +633,21 @@ function renderInstitutionPolicy(
     DownloadFirstUseState["institutionLogin"],
     { status: "disabled" }
   >["policy"],
+  candidate: boolean,
 ): string {
   const sizeMiB = Math.round(policy.approximateDownloadBytes / (1024 * 1024));
-  return `<span class="rfz-setup-status">Unavailable pending an audited institution/publisher route</span>
+  const status = candidate
+    ? "Candidate · WebVPN → IEEE requires real-world acceptance"
+    : "Unavailable pending an audited institution/publisher route";
+  const buttonLabel = candidate
+    ? "Institution login candidate requires acceptance"
+    : "Institution login unavailable";
+  return `<span class="rfz-setup-status">${status}</span>
     <details class="rfz-install-plan"><summary>Browser runtime confirmation requirements</summary>
       <dl><dt>Vendor</dt><dd>${escapeHTML(policy.vendor)}</dd><dt>Source</dt><dd>${escapeHTML(policy.source)}</dd><dt>Size</dt><dd>About ${sizeMiB} MiB</dd><dt>Binary license</dt><dd>${escapeHTML(policy.binaryLicense)}</dd><dt>Target</dt><dd>${escapeHTML(policy.target)}</dd><dt>Signature verification</dt><dd>${escapeHTML(policy.signatureVerification)}</dd></dl>
       <p>No browser runtime will be downloaded and no login browser will start while these values remain unresolved.</p>
     </details>
-    <button type="button" disabled="" aria-label="Institution login unavailable">Institution login unavailable</button>`;
+    <button type="button" disabled="" aria-label="${buttonLabel}">${candidate ? "Institution login candidate" : "Institution login unavailable"}</button>`;
 }
 
 function renderContent(

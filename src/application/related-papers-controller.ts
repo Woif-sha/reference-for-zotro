@@ -37,6 +37,11 @@ export type SinglePaperDownloadResult =
   | Readonly<{ status: "downloaded"; savedPath: string }>
   | Readonly<{ status: "failed"; error: string }>;
 
+export type PaperDownloadProgress = Readonly<{
+  paperID: string;
+  result: SinglePaperDownloadResult;
+}>;
+
 export interface RelatedPapersPorts {
   loadPaper(
     attachmentItemID: number,
@@ -65,9 +70,13 @@ export interface RelatedPapersPorts {
   ): Promise<void>;
   translationCapability?(): TranslationCapability;
   translateSelection?(text: string, attachmentItemID: number): Promise<string>;
-  downloadPaper?(
-    paper: ReaderPaper & { status: "resolved" },
-  ): Promise<SinglePaperDownloadResult>;
+  downloadPapers?(
+    request: Readonly<{
+      papers: readonly (ReaderPaper & { status: "resolved" })[];
+      signal: AbortSignal;
+      onProgress(progress: PaperDownloadProgress): void;
+    }>,
+  ): Promise<readonly PaperDownloadProgress[]>;
   revealDownloadedFile?(savedPath: string): void;
   downloadSetup?: DownloadFirstUseController;
   copyText?(text: string): void;
@@ -93,7 +102,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private readonly sessions = new PaperSessionCoordinator();
   private loadController?: AbortController;
   private persistController?: AbortController;
-  private downloadRun?: { invalidated: boolean };
+  private downloadRun?: { invalidated: boolean; controller: AbortController };
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private context?: ResolutionContext;
@@ -106,7 +115,7 @@ export class RelatedPapersController implements ReaderSectionController {
   ) {
     this.state = {
       ...this.state,
-      downloadAvailable: Boolean(ports.downloadPaper),
+      downloadAvailable: Boolean(ports.downloadPapers),
       downloadSetup:
         ports.downloadSetup?.getState() ?? defaultDownloadSetupState(),
     };
@@ -208,7 +217,7 @@ export class RelatedPapersController implements ReaderSectionController {
     if (
       this.state.downloadInProgress ||
       this.state.downloadSelection.length === 0 ||
-      !this.ports.downloadPaper
+      !this.ports.downloadPapers
     ) {
       return;
     }
@@ -228,7 +237,7 @@ export class RelatedPapersController implements ReaderSectionController {
       );
     if (snapshot.length === 0) return;
 
-    const run = { invalidated: false };
+    const run = { invalidated: false, controller: new AbortController() };
     this.downloadRun = run;
     this.update({
       downloadInProgress: true,
@@ -239,18 +248,35 @@ export class RelatedPapersController implements ReaderSectionController {
     });
 
     try {
-      for (const { entry, paper } of snapshot) {
-        if (!this.downloadIsCurrent(run)) return;
+      for (const { entry } of snapshot) {
         this.replaceDownload(entry, { status: "downloading" });
-        let result: SinglePaperDownloadResult;
-        try {
-          result = await this.ports.downloadPaper(paper);
-        } catch (error) {
+      }
+      const results = await this.ports.downloadPapers({
+        papers: snapshot.map(({ paper }) => paper),
+        signal: run.controller.signal,
+        onProgress: ({ paperID, result }) => {
           if (!this.downloadIsCurrent(run)) return;
-          result = { status: "failed", error: originalError(error) };
+          const selected = snapshot.find(({ paper }) => paper.id === paperID);
+          if (selected) this.replaceDownload(selected.entry, result);
+        },
+      });
+      if (!this.downloadIsCurrent(run)) return;
+      for (const { paperID, result } of results) {
+        const selected = snapshot.find(({ paper }) => paper.id === paperID);
+        if (selected) this.replaceDownload(selected.entry, result);
+      }
+    } catch (error) {
+      if (!this.downloadIsCurrent(run)) return;
+      for (const { entry } of snapshot) {
+        const current = this.state.paperDownloads.find((download) =>
+          sameSelectionEntry(download, entry),
+        );
+        if (current?.status === "downloading") {
+          this.replaceDownload(entry, {
+            status: "failed",
+            error: originalError(error),
+          });
         }
-        if (!this.downloadIsCurrent(run)) return;
-        this.replaceDownload(entry, result);
       }
     } finally {
       if (this.downloadRun === run) {
@@ -631,7 +657,9 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   private cancelDownloads(): void {
-    if (this.downloadRun) this.downloadRun.invalidated = true;
+    if (!this.downloadRun) return;
+    this.downloadRun.invalidated = true;
+    this.downloadRun.controller.abort();
   }
 
   private findPaper(paperID: string): ReaderPaper | undefined {

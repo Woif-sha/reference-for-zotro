@@ -1,8 +1,12 @@
 import {
   SCANSCI_SCHEMA_VERSION,
+  SCANSCI_SIDECAR_CONTRACT_VERSION,
+  SCANSCI_SIDECAR_PROTOCOL,
+  SCANSCI_SIDECAR_RESULT_SCHEMA_VERSION,
   SCANSCI_SOURCE_RULES_VERSION,
-  type OnePaperDownloadRequest,
   type OnePaperDownloadResult,
+  type PaperDownloadItemResult,
+  type PaperDownloadRequest,
   type ScanSciArchitecture,
   type ScanSciCapability,
   type ScanSciDependency,
@@ -12,6 +16,18 @@ import {
   type ScanSciRuntimePreparation,
   type VisibleLoginResult,
 } from "./scan-sci-port";
+import {
+  createSidecarRequest,
+  parseDownloadBatchPayload,
+  parseDownloadOnePayload,
+  parseProbePayload,
+  parseSidecarMessage,
+  protocolPaper,
+  type SidecarDownloadResult,
+  type SidecarMessage,
+  type SidecarOperation,
+  type SidecarProbe,
+} from "./sidecar-protocol";
 
 const CAPABILITY_TIMEOUT_MILLISECONDS = 10_000;
 const DISCOVERY_TIMEOUT_MILLISECONDS = 5_000;
@@ -98,9 +114,8 @@ for distribution, import_name, expected in locked:
     dependencies.append(item)
 machine = platform.machine().lower()
 architecture = "x64" if machine in ("amd64", "x86_64") else "arm64" if machine in ("arm64", "aarch64") else "x86" if machine in ("x86", "i386", "i686") else machine
-available = sys.version_info >= (3, 11) and all(item["status"] == "available" for item in dependencies)
-result = {"executable": str(__import__("pathlib").Path(sys.executable).resolve()), "pythonVersion": platform.python_version(), "architecture": architecture, "moduleVersion": "3.0.0", "dependencies": dependencies, "features": {"onePaperDownload": "available" if available else "unavailable", "visibleLogin": "disabled"}}
-print(json.dumps({"schemaVersion": 3, "sourceRulesVersion": 3, "operation": "probe", "ok": True, "result": result}, separators=(",", ":")))
+result = {"executable": str(__import__("pathlib").Path(sys.executable).resolve()), "pythonVersion": platform.python_version(), "architecture": architecture, "dependencies": dependencies}
+print(json.dumps(result, separators=(",", ":")))
 `.trim();
 
 export type PythonProcessRequest = Readonly<{
@@ -111,6 +126,7 @@ export type PythonProcessRequest = Readonly<{
   removeEnvironment: readonly string[];
   workingDirectory?: string;
   signal?: AbortSignal;
+  onStdoutLine?(line: string): void | Promise<void>;
 }>;
 
 export type PythonProcessResult = Readonly<{
@@ -118,6 +134,8 @@ export type PythonProcessResult = Readonly<{
   stdout: string;
   stderr: string;
   timedOut: boolean;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }>;
 
 export interface PythonScanSciFileSystem {
@@ -173,6 +191,15 @@ class PythonScanSciPort implements ScanSciPort {
       return {
         status: "unavailable",
         error: optionError,
+        candidates: [],
+      };
+    }
+    try {
+      await this.runtime.ensureModuleAssets();
+    } catch (error) {
+      return {
+        status: "unavailable",
+        error: `ScanSci sidecar assets are unavailable: ${originalError(error)}`,
         candidates: [],
       };
     }
@@ -240,75 +267,76 @@ class PythonScanSciPort implements ScanSciPort {
         error: "Visible login must be initiated by an explicit user action",
       };
     }
-    const optionError = this.optionError();
-    if (optionError) return { status: "failed", error: optionError };
-    let rules: SourceRules;
     try {
-      await this.runtime.ensureModuleAssets();
-      rules = await this.loadSourceRules();
+      const executable = await this.requireReadyExecutable();
+      const requestID = this.nextRequestID();
+      await this.invokeSidecar(
+        executable,
+        requestID,
+        "visibleLogin",
+        { routeId: request.routeID, userInitiated: true },
+        DEFAULT_DOWNLOAD_TIMEOUT_MILLISECONDS,
+      );
+      await this.requireReadyExecutable();
+      return { status: "ready", routeID: request.routeID };
     } catch (error) {
       return { status: "failed", error: originalError(error) };
     }
-    const route = rules.routes.find(
-      (candidate) => candidate.id === request.routeID,
-    );
-    if (!route || route.kind !== "institution") {
-      return {
-        status: "failed",
-        error: `Unknown institution route: ${request.routeID}`,
-      };
-    }
-    if (!route.enabled) {
-      return {
-        status: "failed",
-        error:
-          route.disabledReason ?? `Institution route ${route.id} is disabled`,
-      };
-    }
-    return {
-      status: "failed",
-      error: `Institution route ${route.id} has no accepted runtime implementation`,
-    };
   }
 
-  async downloadOnePaper(
-    request: OnePaperDownloadRequest,
-  ): Promise<OnePaperDownloadResult> {
+  async downloadPapers(
+    request: PaperDownloadRequest,
+  ): Promise<readonly PaperDownloadItemResult[]> {
+    if (request.items.length === 0) return [];
+    if (request.items.length > 500) {
+      throw new Error("ScanSci batch cannot contain more than 500 papers");
+    }
+    if (
+      new Set(request.items.map(({ itemID }) => itemID)).size !==
+      request.items.length
+    ) {
+      throw new Error("ScanSci download item ids must be unique");
+    }
     let requestDirectory: string | undefined;
     let requestDirectoryOwned = false;
     let canonicalOwnedRequestDirectory: string | undefined;
-    let committedPath: string | undefined;
-    let outcome: OnePaperDownloadResult;
+    let completedNormally = false;
+    const outcomes = new Map<string, OnePaperDownloadResult>();
+    const sidecarOutcomes = new Map<string, SidecarDownloadResult>();
+    const committed = new Set<string>();
     try {
-      const paths = await this.resolveDownloadPaths(request);
-      const preparation = this.activeExecutable
-        ? undefined
-        : await this.prepareRuntime({ allowInstall: false });
-      if (preparation && preparation.status !== "ready") {
+      throwIfAborted(request.signal);
+      const paths = await Promise.all(
+        request.items.map(async (item) => ({
+          item,
+          paths: await this.resolveDownloadPaths(
+            request.downloadDestination,
+            item.canonicalFinalTarget,
+          ),
+        })),
+      );
+      const destination = paths[0]?.paths.destination;
+      if (!destination)
+        throw new Error("ScanSci download destination is missing");
+      if (
+        paths.some(
+          ({ paths: current }) =>
+            !sameWindowsPath(current.destination, destination),
+        )
+      ) {
         throw new Error(
-          preparation.status === "needs-install"
-            ? "ScanSci runtime dependencies require confirmed installation"
-            : preparation.error,
+          "All ScanSci batch items must use one download destination",
         );
       }
-      const executable =
-        this.activeExecutable ??
-        (preparation?.status === "ready"
-          ? preparation.capability.executable
-          : undefined);
-      if (!executable) throw new Error("ScanSci runtime is not ready");
+      const executable = await this.requireReadyExecutable(request.signal);
       const timeoutMilliseconds =
         request.timeoutMilliseconds ?? DEFAULT_DOWNLOAD_TIMEOUT_MILLISECONDS;
       if (!Number.isFinite(timeoutMilliseconds) || timeoutMilliseconds <= 0) {
         throw new Error("ScanSci download timeout must be positive");
       }
-      await this.runtime.ensureModuleAssets();
       const rules = await this.loadSourceRules();
-      const requestID = this.runtime.nextRequestID();
-      if (!REQUEST_ID_PATTERN.test(requestID)) {
-        throw new Error("ScanSci request id is invalid");
-      }
-      const cacheRoot = joinWindows(paths.destination, "ScanSciCache");
+      const requestID = this.nextRequestID();
+      const cacheRoot = joinWindows(destination, "ScanSciCache");
       requestDirectory = joinWindows(cacheRoot, requestID);
       await this.runtime.files.createDirectory(cacheRoot);
       await this.runtime.files.createDirectoryExclusive(requestDirectory);
@@ -322,53 +350,113 @@ class PythonScanSciPort implements ScanSciPort {
       }
       canonicalOwnedRequestDirectory = canonicalRequestDirectory;
 
-      const process = await this.runtime.runProcess({
-        command: executable,
-        arguments: [
-          "-E",
-          "-s",
-          joinWindows(this.options.moduleRoot, "bridge.py"),
-        ],
-        stdin: `${JSON.stringify(
-          protocolRequest("download-one", {
-            paper: protocolPaper(request.paper),
-            outputDirectory: requestDirectory,
-            policy: FORCED_POLICY,
-          }),
-        )}\n`,
-        timeoutMilliseconds,
-        removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
-        workingDirectory: requestDirectory,
-      });
-      if (process.timedOut) throw new Error("ScanSci download timed out");
-      if (process.exitCode !== 0) {
-        const diagnostic = sanitizeDiagnostic(process.stderr);
-        throw new Error(
-          `ScanSci Python process failed with exit code ${process.exitCode}${
-            diagnostic ? `: ${diagnostic}` : ""
-          }`,
+      const bySidecarID = new Map(
+        paths.map(({ item, paths: itemPaths }, index) => [
+          `item-${index + 1}`,
+          { item, paths: itemPaths },
+        ]),
+      );
+      const operation =
+        request.items.length === 1 ? "downloadOne" : "downloadBatch";
+      const params =
+        operation === "downloadOne"
+          ? {
+              paper: protocolPaper(request.items[0]!.paper),
+              outputDir: requestDirectory,
+            }
+          : {
+              items: [...bySidecarID].map(([itemId, { item }]) => ({
+                itemId,
+                paper: protocolPaper(item.paper),
+              })),
+              outputDir: requestDirectory,
+            };
+      let expectedProgressSequence = 1;
+      const progress = async (message: SidecarMessage): Promise<void> => {
+        if (message.type !== "progress") return;
+        if (
+          message.payload.sequence !== expectedProgressSequence ||
+          message.payload.total !== bySidecarID.size
+        ) {
+          throw new Error("ScanSci sidecar batch progress sequence is invalid");
+        }
+        expectedProgressSequence += 1;
+        const target = bySidecarID.get(message.payload.itemID);
+        if (!target || outcomes.has(target.item.itemID)) {
+          throw new Error(
+            "ScanSci sidecar emitted duplicate or unknown batch progress",
+          );
+        }
+        sidecarOutcomes.set(message.payload.itemID, message.payload.result);
+        const result = await this.finalizeDownload(
+          message.payload.result,
+          target.item,
+          target.paths,
+          canonicalRequestDirectory,
+          rules,
         );
-      }
-      const response = parseProtocolResponse(process.stdout, "download-one");
-      const result = parseDownloadResult(response.result);
-      validateLegalSource(result.source, rules);
-      const canonicalOutput = await this.runtime.files.canonicalizeExisting(
-        result.outputPath,
+        outcomes.set(target.item.itemID, result);
+        if (result.status === "downloaded") committed.add(target.item.itemID);
+        request.onProgress?.({ itemID: target.item.itemID, result });
+      };
+      const payload = await this.invokeSidecar(
+        executable,
+        requestID,
+        operation,
+        params,
+        timeoutMilliseconds,
+        requestDirectory,
+        request.signal,
+        progress,
       );
-      if (!isContainedWindowsPath(canonicalRequestDirectory, canonicalOutput)) {
-        throw new Error("ScanSci output escaped its request directory");
+      completedNormally = true;
+      if (operation === "downloadOne") {
+        const target = bySidecarID.get("item-1")!;
+        const result = await this.finalizeDownload(
+          parseDownloadOnePayload(payload),
+          target.item,
+          target.paths,
+          canonicalRequestDirectory,
+          rules,
+        );
+        outcomes.set(target.item.itemID, result);
+        if (result.status === "downloaded") committed.add(target.item.itemID);
+        request.onProgress?.({ itemID: target.item.itemID, result });
+      } else {
+        const finalItems = parseDownloadBatchPayload(payload);
+        if (
+          finalItems.length !== bySidecarID.size ||
+          outcomes.size !== bySidecarID.size
+        ) {
+          throw new Error("ScanSci sidecar batch did not complete every paper");
+        }
+        for (const finalItem of finalItems) {
+          const target = bySidecarID.get(finalItem.itemID);
+          if (
+            !target ||
+            !sameSidecarResult(
+              finalItem.result,
+              sidecarOutcomes.get(finalItem.itemID),
+            )
+          ) {
+            throw new Error(
+              "ScanSci sidecar batch completion disagrees with progress",
+            );
+          }
+        }
       }
-      await this.runtime.files.copyExclusiveContained(
-        canonicalOutput,
-        paths.destination,
-        paths.finalTarget,
-      );
-      committedPath = paths.finalTarget;
-      outcome = { status: "downloaded", savedPath: committedPath };
     } catch (error) {
-      outcome = { status: "failed", error: originalError(error) };
+      if (isAbortError(error)) throw error;
+      if (error instanceof SidecarOperationError) completedNormally = true;
+      const failed = { status: "failed", error: originalError(error) } as const;
+      for (const item of request.items) {
+        if (!outcomes.has(item.itemID)) {
+          outcomes.set(item.itemID, failed);
+          request.onProgress?.({ itemID: item.itemID, result: failed });
+        }
+      }
     }
-    if (requestDirectory && requestDirectoryOwned) {
+    if (requestDirectory && requestDirectoryOwned && completedNormally) {
       try {
         const cleanupPath =
           await this.runtime.files.canonicalizeExisting(requestDirectory);
@@ -381,20 +469,185 @@ class PythonScanSciPort implements ScanSciPort {
         await this.runtime.files.removeDirectory(cleanupPath);
       } catch (error) {
         const cleanupError = `ScanSci request cleanup failed: ${originalError(error)}`;
-        if (committedPath) {
-          return {
-            status: "downloaded",
-            savedPath: committedPath,
-            cleanupWarning: cleanupError,
-          };
+        for (const [itemID, result] of outcomes) {
+          if (result.status === "downloaded" && committed.has(itemID)) {
+            outcomes.set(itemID, { ...result, cleanupWarning: cleanupError });
+          } else if (result.status === "failed") {
+            outcomes.set(itemID, {
+              status: "failed",
+              error: `${result.error}; ${cleanupError}`,
+            });
+          }
         }
-        return {
-          status: "failed",
-          error: cleanupError,
-        };
       }
     }
-    return outcome;
+    return request.items.map((item) => ({
+      itemID: item.itemID,
+      result:
+        outcomes.get(item.itemID) ??
+        ({ status: "failed", error: "ScanSci returned no result" } as const),
+    }));
+  }
+
+  private async finalizeDownload(
+    sidecarResult: SidecarDownloadResult,
+    item: PaperDownloadRequest["items"][number],
+    paths: Readonly<{ destination: string; finalTarget: string }>,
+    requestDirectory: string,
+    rules: SourceRules,
+  ): Promise<OnePaperDownloadResult> {
+    if (
+      sidecarResult.identifier.toLowerCase() !==
+      paperIdentifier(item.paper).toLowerCase()
+    ) {
+      return {
+        status: "failed",
+        error: "ScanSci result identifier does not match the requested paper",
+      };
+    }
+    if (sidecarResult.status === "failed") {
+      return {
+        status: "failed",
+        error: `${sidecarResult.error.code}: ${sidecarResult.error.message}`,
+      };
+    }
+    try {
+      validateLegalSource(
+        {
+          id: sidecarResult.sourceEvidence.source,
+          url: sidecarResult.sourceEvidence.sourceURL,
+          egressHosts: sidecarResult.sourceEvidence.egressHosts,
+        },
+        rules,
+      );
+      const relativePath = sidecarRelativePath(sidecarResult.relativePath);
+      const output = await this.runtime.files.canonicalizeExisting(
+        joinWindows(requestDirectory, relativePath),
+      );
+      if (!isContainedWindowsPath(requestDirectory, output)) {
+        throw new Error("ScanSci output escaped its request directory");
+      }
+      await this.runtime.files.copyExclusiveContained(
+        output,
+        paths.destination,
+        paths.finalTarget,
+      );
+      return { status: "downloaded", savedPath: paths.finalTarget };
+    } catch (error) {
+      return { status: "failed", error: originalError(error) };
+    }
+  }
+
+  private nextRequestID(): string {
+    const requestID = this.runtime.nextRequestID();
+    if (!REQUEST_ID_PATTERN.test(requestID)) {
+      throw new Error("ScanSci request id is invalid");
+    }
+    return requestID;
+  }
+
+  private async requireReadyExecutable(signal?: AbortSignal): Promise<string> {
+    if (this.activeExecutable) {
+      const refreshed = await this.probeExecutable(
+        this.activeExecutable,
+        signal,
+      );
+      if (
+        refreshed.status !== "probed" ||
+        candidateIncompatibility(
+          refreshed.result,
+          this.options.hostArchitecture,
+        )
+      ) {
+        const error =
+          refreshed.status === "failed"
+            ? refreshed.error
+            : candidateIncompatibility(
+                refreshed.result,
+                this.options.hostArchitecture,
+              );
+        this.activeExecutable = undefined;
+        throw new Error(
+          `ScanSci runtime probe failed before operation: ${error}`,
+        );
+      }
+      return refreshed.result.executable;
+    }
+    const preparation = await this.prepareRuntime({
+      allowInstall: false,
+      signal,
+    });
+    if (preparation.status !== "ready") {
+      throw new Error(
+        preparation.status === "needs-install"
+          ? "ScanSci runtime dependencies require confirmed installation"
+          : preparation.error,
+      );
+    }
+    return preparation.capability.executable;
+  }
+
+  private async invokeSidecar(
+    executable: string,
+    requestID: string,
+    operation: SidecarOperation,
+    params: Readonly<Record<string, unknown>>,
+    timeoutMilliseconds: number,
+    workingDirectory?: string,
+    signal?: AbortSignal,
+    onMessage?: (message: SidecarMessage) => void | Promise<void>,
+  ): Promise<unknown> {
+    const request = createSidecarRequest(requestID, operation, params);
+    let completion: Extract<SidecarMessage, { type: "complete" }> | undefined;
+    let consumedLines = 0;
+    const consume = async (line: string): Promise<void> => {
+      if (!line.trim()) return;
+      if (completion) {
+        throw new Error("ScanSci sidecar emitted data after completion");
+      }
+      consumedLines += 1;
+      const message = parseSidecarMessage(line, { requestID, operation });
+      if (message.type === "complete") completion = message;
+      await onMessage?.(message);
+    };
+    const process = await this.runtime.runProcess({
+      command: executable,
+      arguments: [
+        "-E",
+        "-s",
+        joinWindows(this.options.moduleRoot, "sidecar.py"),
+      ],
+      stdin: `${JSON.stringify(request)}\n`,
+      timeoutMilliseconds,
+      removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
+      ...(workingDirectory ? { workingDirectory } : {}),
+      ...(signal ? { signal } : {}),
+      onStdoutLine: consume,
+    });
+    if (process.stdoutTruncated || process.stderrTruncated) {
+      throw new Error("ScanSci sidecar exceeded its bounded output budget");
+    }
+    if (process.timedOut) throw new Error("ScanSci sidecar timed out");
+    if (process.exitCode !== 0) {
+      const diagnostic = sanitizeDiagnostic(process.stderr);
+      throw new Error(
+        `ScanSci sidecar failed with exit code ${process.exitCode}${
+          diagnostic ? `: ${diagnostic}` : ""
+        }`,
+      );
+    }
+    if (consumedLines === 0) {
+      for (const line of process.stdout.split(/\r?\n/u)) await consume(line);
+    }
+    if (!completion) {
+      throw new Error("ScanSci sidecar exited without a completion message");
+    }
+    if (!completion.ok) {
+      throw new SidecarOperationError(
+        `${completion.error.code}: ${sanitizeDiagnostic(completion.error.message)}`,
+      );
+    }
+    return completion.payload;
   }
 
   private async probeDiscoveredCandidates(
@@ -528,7 +781,6 @@ class PythonScanSciPort implements ScanSciPort {
   ): Promise<ScanSciRuntimePreparation> {
     let ownsEnvironment = false;
     try {
-      await this.runtime.ensureModuleAssets();
       throwIfAborted(signal);
       validateRequirementsLock(
         plan.packages,
@@ -660,30 +912,29 @@ class PythonScanSciPort implements ScanSciPort {
   }
 
   private async resolveDownloadPaths(
-    request: OnePaperDownloadRequest,
+    downloadDestination: string,
+    canonicalFinalTarget: string,
   ): Promise<Readonly<{ destination: string; finalTarget: string }>> {
-    if (!isAbsoluteWindowsPath(request.downloadDestination)) {
+    if (!isAbsoluteWindowsPath(downloadDestination)) {
       throw new Error("Download destination must be an absolute Windows path");
     }
-    if (!isAbsoluteWindowsPath(request.canonicalFinalTarget)) {
+    if (!isAbsoluteWindowsPath(canonicalFinalTarget)) {
       throw new Error(
         "Canonical final target must be an absolute Windows path",
       );
     }
-    const requestedDestination = normalizeWindowsPath(
-      request.downloadDestination,
-    );
+    const requestedDestination = normalizeWindowsPath(downloadDestination);
     if (!(await this.runtime.files.pathExists(requestedDestination))) {
       await this.runtime.files.createDirectory(requestedDestination);
     }
     const destination =
       await this.runtime.files.canonicalizeExisting(requestedDestination);
-    const targetName = basenameWindows(request.canonicalFinalTarget);
+    const targetName = basenameWindows(canonicalFinalTarget);
     if (!targetName || targetName === "." || targetName === "..") {
       throw new Error("Canonical final target must name a file");
     }
     const targetParent = await this.runtime.files.canonicalizeExisting(
-      dirnameWindows(normalizeWindowsPath(request.canonicalFinalTarget)),
+      dirnameWindows(normalizeWindowsPath(canonicalFinalTarget)),
     );
     if (!isContainedWindowsPath(destination, targetParent)) {
       throw new Error(
@@ -743,7 +994,7 @@ class PythonScanSciPort implements ScanSciPort {
       process = await this.runtime.runProcess({
         command,
         arguments: ["-I", "-B", "-c", CAPABILITY_PROBE_SCRIPT],
-        stdin: `${JSON.stringify(protocolRequest("probe", {}))}\n`,
+        stdin: "",
         timeoutMilliseconds: CAPABILITY_TIMEOUT_MILLISECONDS,
         removeEnvironment: PROXY_ENVIRONMENT_VARIABLES,
         signal,
@@ -774,10 +1025,39 @@ class PythonScanSciPort implements ScanSciPort {
       };
     }
     try {
-      const response = parseProtocolResponse(process.stdout, "probe");
+      if (process.stdoutTruncated || process.stderrTruncated) {
+        throw new Error("Python runtime inspection exceeded its output budget");
+      }
+      const result = parseRuntimeInspection(process.stdout);
+      if (
+        result.dependencies.some(
+          (dependency) => dependency.status !== "available",
+        )
+      ) {
+        return { status: "probed", result };
+      }
+      const payload = await this.invokeSidecar(
+        result.executable,
+        this.nextRequestID(),
+        "probe",
+        {},
+        CAPABILITY_TIMEOUT_MILLISECONDS,
+        undefined,
+        signal,
+      );
+      const sidecar = parseProbePayload(payload);
+      if (
+        !sameWindowsPath(sidecar.executable, result.executable) ||
+        sidecar.pythonVersion !== result.pythonVersion ||
+        sidecar.architecture !== result.architecture
+      ) {
+        throw new Error(
+          "ScanSci sidecar runtime identity changed during probe",
+        );
+      }
       return {
         status: "probed",
-        result: parseCapabilityResult(response.result),
+        result: { ...result, sidecar },
       };
     } catch (error) {
       return {
@@ -789,53 +1069,12 @@ class PythonScanSciPort implements ScanSciPort {
   }
 }
 
-function protocolRequest(operation: string, request: unknown) {
-  return {
-    schemaVersion: SCANSCI_SCHEMA_VERSION,
-    sourceRulesVersion: SCANSCI_SOURCE_RULES_VERSION,
-    operation,
-    request,
-  };
-}
-
-function parseProtocolResponse(
-  stdout: string,
-  expectedOperation: string,
-): { result: unknown } {
-  const lines = stdout.split(/\r?\n/u).filter((line) => line.length > 0);
-  if (lines.length !== 1) {
-    throw new Error("Python stdout must contain exactly one protocol message");
-  }
-  const parsed: unknown = JSON.parse(lines[0] ?? "");
-  if (!isRecord(parsed)) throw new Error("Python protocol response is invalid");
-  if (parsed.schemaVersion !== SCANSCI_SCHEMA_VERSION) {
-    throw new Error("Python protocol schema version is incompatible");
-  }
-  if (parsed.sourceRulesVersion !== SCANSCI_SOURCE_RULES_VERSION) {
-    throw new Error("Python source-rules version is incompatible");
-  }
-  if (parsed.operation !== expectedOperation) {
-    throw new Error("Python protocol operation failed");
-  }
-  if (parsed.ok !== true) {
-    if (isRecord(parsed.error) && typeof parsed.error.message === "string") {
-      throw new Error(sanitizeDiagnostic(parsed.error.message));
-    }
-    throw new Error("Python protocol operation failed");
-  }
-  return { result: parsed.result };
-}
-
 type ParsedCapabilityResult = {
   executable: string;
   pythonVersion: string;
   architecture: ScanSciArchitecture;
-  moduleVersion: string;
   dependencies: readonly ScanSciDependency[];
-  features: {
-    onePaperDownload: "available" | "unavailable";
-    visibleLogin: "available" | "disabled";
-  };
+  sidecar?: SidecarProbe;
 };
 
 type ProbedCandidate =
@@ -861,7 +1100,12 @@ type DownloadSourceEvidence = Readonly<{
   egressHosts: readonly string[];
 }>;
 
-function parseCapabilityResult(value: unknown): ParsedCapabilityResult {
+function parseRuntimeInspection(stdout: string): ParsedCapabilityResult {
+  const lines = stdout.split(/\r?\n/u).filter((line) => line.length > 0);
+  if (lines.length !== 1) {
+    throw new Error("Python runtime inspection must emit exactly one message");
+  }
+  const value: unknown = JSON.parse(lines[0] ?? "");
   if (!isRecord(value)) throw new Error("Python capability result is invalid");
   const architecture = value.architecture;
   if (
@@ -875,13 +1119,7 @@ function parseCapabilityResult(value: unknown): ParsedCapabilityResult {
     typeof value.executable !== "string" ||
     !isAbsoluteWindowsPath(value.executable) ||
     typeof value.pythonVersion !== "string" ||
-    value.moduleVersion !== "3.0.0" ||
-    !Array.isArray(value.dependencies) ||
-    !isRecord(value.features) ||
-    (value.features.onePaperDownload !== "available" &&
-      value.features.onePaperDownload !== "unavailable") ||
-    (value.features.visibleLogin !== "available" &&
-      value.features.visibleLogin !== "disabled")
+    !Array.isArray(value.dependencies)
   ) {
     throw new Error("Python capability result is incomplete");
   }
@@ -925,12 +1163,7 @@ function parseCapabilityResult(value: unknown): ParsedCapabilityResult {
     executable: value.executable,
     pythonVersion: value.pythonVersion,
     architecture,
-    moduleVersion: value.moduleVersion,
     dependencies,
-    features: {
-      onePaperDownload: value.features.onePaperDownload,
-      visibleLogin: value.features.visibleLogin,
-    },
   };
 }
 
@@ -995,31 +1228,6 @@ function parseSourceRules(value: unknown): SourceRules {
   };
 }
 
-function parseDownloadResult(value: unknown): Readonly<{
-  source: DownloadSourceEvidence;
-  outputPath: string;
-}> {
-  if (
-    !isRecord(value) ||
-    typeof value.outputPath !== "string" ||
-    !isRecord(value.source) ||
-    typeof value.source.id !== "string" ||
-    typeof value.source.url !== "string" ||
-    !Array.isArray(value.source.egressHosts) ||
-    !value.source.egressHosts.every((host) => typeof host === "string")
-  ) {
-    throw new Error("ScanSci download result is invalid");
-  }
-  return {
-    outputPath: value.outputPath,
-    source: {
-      id: value.source.id,
-      url: value.source.url,
-      egressHosts: value.source.egressHosts as string[],
-    },
-  };
-}
-
 function validateLegalSource(
   source: DownloadSourceEvidence,
   rules: SourceRules,
@@ -1059,20 +1267,53 @@ function validateLegalSource(
   }
 }
 
-function protocolPaper(paper: OnePaperDownloadRequest["paper"]) {
-  if (!paper.title.trim()) throw new Error("Confirmed paper title is required");
-  if (!paper.doi && !paper.arxivID && !paper.pmcid) {
+function paperIdentifier(
+  paper: PaperDownloadRequest["items"][number]["paper"],
+): string {
+  const identifier = paper.doi ?? paper.arxivID ?? paper.pmcid;
+  if (!identifier) {
     throw new Error("Confirmed paper requires DOI, arXiv id, or PMCID");
   }
-  return {
-    title: paper.title,
-    ...(paper.doi ? { doi: paper.doi } : {}),
-    ...(paper.arxivID ? { arxivID: paper.arxivID } : {}),
-    ...(paper.pmcid ? { pmcid: paper.pmcid } : {}),
-    ...(paper.primaryResultURL
-      ? { primaryResultURL: paper.primaryResultURL }
-      : {}),
-  };
+  return identifier;
+}
+
+function sidecarRelativePath(value: string): string {
+  if (
+    !value ||
+    /^[A-Za-z]:/u.test(value) ||
+    value.startsWith("/") ||
+    value.startsWith("\\")
+  ) {
+    throw new Error("ScanSci sidecar returned an absolute output path");
+  }
+  const segments = value.replace(/\\/gu, "/").split("/");
+  if (
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === "." ||
+        segment === ".." ||
+        segment.includes(":") ||
+        containsControlCharacter(segment),
+    )
+  ) {
+    throw new Error("ScanSci sidecar returned an invalid relative output path");
+  }
+  return segments.join("\\");
+}
+
+function containsControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
+}
+
+function sameSidecarResult(
+  left: SidecarDownloadResult,
+  right: SidecarDownloadResult | undefined,
+): boolean {
+  return right !== undefined && JSON.stringify(left) === JSON.stringify(right);
 }
 
 function availableCapability(
@@ -1080,16 +1321,28 @@ function availableCapability(
   selectionReason:
     "configured override" | "automatic detection" | "private environment",
 ): ScanSciCapability {
+  if (!result.sidecar) {
+    throw new Error("ScanSci sidecar capability is unavailable");
+  }
   return {
     status: "available",
     executable: result.executable,
     pythonVersion: result.pythonVersion,
     architecture: result.architecture,
-    moduleVersion: result.moduleVersion,
+    moduleVersion: result.sidecar.applicationVersion,
     dependencies: result.dependencies,
     features: {
       onePaperDownload: "available",
-      visibleLogin: result.features.visibleLogin,
+      batchDownload: "available",
+      visibleLogin: "disabled",
+    },
+    routes: result.sidecar.routes,
+    sidecar: {
+      protocol: SCANSCI_SIDECAR_PROTOCOL,
+      contractVersion: SCANSCI_SIDECAR_CONTRACT_VERSION,
+      resultSchemaVersion: SCANSCI_SIDECAR_RESULT_SCHEMA_VERSION,
+      upstreamRevision: result.sidecar.upstreamRevision,
+      dirty: false,
     },
     schemaVersion: SCANSCI_SCHEMA_VERSION,
     sourceRulesVersion: SCANSCI_SOURCE_RULES_VERSION,
@@ -1114,8 +1367,8 @@ function candidateIncompatibility(
   ) {
     return "Python dependencies are missing or incompatible";
   }
-  if (candidate.features.onePaperDownload !== "available") {
-    return "Python one-paper download capability is unavailable";
+  if (!candidate.sidecar) {
+    return "Versioned ScanSci sidecar capability is unavailable";
   }
   return undefined;
 }
@@ -1131,7 +1384,7 @@ function candidateBaseIncompatibility(
     return `Python architecture ${candidate.architecture} does not match host architecture ${hostArchitecture}`;
   }
   if (
-    candidate.features.onePaperDownload !== "available" &&
+    !candidate.sidecar &&
     candidate.dependencies.every(
       (dependency) => dependency.status === "available",
     )
@@ -1338,6 +1591,8 @@ function joinWindows(left: string, right: string): string {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
+
+class SidecarOperationError extends Error {}
 
 function originalError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

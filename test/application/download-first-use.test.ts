@@ -251,7 +251,7 @@ function portsWith(options: {
     async startVisibleLogin() {
       throw new Error("Institution login must remain disabled");
     },
-    async downloadOnePaper() {
+    async downloadPapers() {
       throw new Error("Download is outside this first-use test");
     },
   };
@@ -295,7 +295,29 @@ function readyPreparation(
       dependencies: [],
       features: {
         onePaperDownload: "available",
+        batchDownload: "available",
         visibleLogin: "disabled",
+      },
+      routes: [
+        {
+          routeID: "open-access",
+          status: "available",
+          sources: ["arxiv", "pmc"],
+          operations: ["downloadOne", "downloadBatch"],
+        },
+        {
+          routeID: "institution-webvpn/ieee/one-click-single",
+          status: "candidate",
+          reason: "real-world-route-audit-pending",
+          operations: ["visibleLogin", "downloadOne"],
+        },
+      ],
+      sidecar: {
+        protocol: "reference-for-zotero.scansci-sidecar",
+        contractVersion: "1.0.0",
+        resultSchemaVersion: "1.0.0",
+        upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+        dirty: false,
       },
     },
   };

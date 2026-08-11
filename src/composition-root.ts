@@ -48,7 +48,7 @@ const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
 export type ReaderDownloadDependencies = Readonly<{
-  downloadPaper?: NonNullable<RelatedPapersPorts["downloadPaper"]>;
+  downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
   downloadSetup?: DownloadFirstUseController;
 }>;
 
@@ -165,8 +165,8 @@ export function createReaderControllerFactory(
             itemID,
           });
         },
-        ...(downloadDependencies.downloadPaper
-          ? { downloadPaper: downloadDependencies.downloadPaper }
+        ...(downloadDependencies.downloadPapers
+          ? { downloadPapers: downloadDependencies.downloadPapers }
           : {}),
         ...(downloadDependencies.downloadSetup
           ? { downloadSetup: downloadDependencies.downloadSetup }

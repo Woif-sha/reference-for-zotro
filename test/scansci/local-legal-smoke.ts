@@ -81,15 +81,22 @@ if (preparation.status !== "ready") {
 }
 const capability = preparation.capability;
 const target = path.join(destination, `RFZ legal smoke ${arxivID}.pdf`);
-const result = await port.downloadOnePaper({
-  paper: {
-    title: `RFZ legal smoke ${arxivID}`,
-    arxivID,
-    primaryResultURL: `https://arxiv.org/abs/${arxivID}`,
-  },
+const [download] = await port.downloadPapers({
+  items: [
+    {
+      itemID: "legal-smoke",
+      paper: {
+        title: `RFZ legal smoke ${arxivID}`,
+        arxivID,
+        primaryResultURL: `https://arxiv.org/abs/${arxivID}`,
+      },
+      canonicalFinalTarget: target,
+    },
+  ],
   downloadDestination: destination,
-  canonicalFinalTarget: target,
 });
+if (!download) throw new Error("ScanSci returned no smoke-test result");
+const result = download.result;
 if (result.status !== "downloaded") throw new Error(result.error);
 process.stdout.write(`${JSON.stringify({ capability, result })}\n`);
 

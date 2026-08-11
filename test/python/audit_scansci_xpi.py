@@ -71,6 +71,9 @@ def main():
             name for name in package.namelist() if name and not name.endswith("/")
         }
         manifest = json.loads(package.read("manifest.json"))
+        production_javascript = package.read(
+            "chrome/content/scripts/referenceforzotero.js"
+        ).decode("utf-8")
 
     zotero = manifest.get("applications", {}).get("zotero", {})
     if manifest.get("name") != "Reference for Zotero (Second-stage Test)":
@@ -100,6 +103,26 @@ def main():
         raise SystemExit(
             f"XPI contains unregistered Python module assets: {unexpected_python}"
         )
+
+    required_protocol_markers = {
+        "reference-for-zotero.scansci-sidecar",
+        "sidecar.py",
+        "downloadOne",
+        "downloadBatch",
+        "visibleLogin",
+    }
+    missing_protocol_markers = sorted(
+        marker
+        for marker in required_protocol_markers
+        if marker not in production_javascript
+    )
+    if missing_protocol_markers:
+        raise SystemExit(
+            "XPI production adapter is missing sidecar protocol markers: "
+            f"{missing_protocol_markers}"
+        )
+    if '"download-one"' in production_javascript:
+        raise SystemExit("XPI production adapter still contains the legacy bridge protocol")
 
     forbidden = []
     for name in sorted(names):

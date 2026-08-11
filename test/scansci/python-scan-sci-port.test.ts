@@ -70,15 +70,7 @@ test("one-time Python override is used only after automatic detection fails", as
   assert.equal(probeCall.command, "D:\\Python\\Python3.12\\python.exe");
   assert.deepEqual(probeCall.arguments.slice(0, 3), ["-I", "-B", "-c"]);
   assert.match(probeCall.arguments[3] ?? "", /LOCKED|locked =/u);
-  assert.equal(
-    probeCall.stdin,
-    `${JSON.stringify({
-      schemaVersion: 3,
-      sourceRulesVersion: 3,
-      operation: "probe",
-      request: {},
-    })}\n`,
-  );
+  assert.equal(probeCall.stdin, "");
   assert.equal(probeCall.timeoutMilliseconds, 10_000);
   assert.deepEqual(probeCall.removeEnvironment, [
     "ALL_PROXY",
@@ -344,6 +336,13 @@ test("confirmed runtime preparation creates a private venv and installs only the
     },
     async runProcess(request) {
       calls.push(request);
+      if (request.arguments.at(-1)?.endsWith("sidecar.py")) {
+        return sidecarProbeResult(request, {
+          executable: request.command,
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+        });
+      }
       if (
         request.arguments.includes("venv") ||
         request.arguments.includes("pip")
@@ -496,6 +495,13 @@ test("a stale private venv is removed only after renewed installation confirmati
     async ensureModuleAssets() {},
     async runProcess(request) {
       calls.push(request);
+      if (request.arguments.at(-1)?.endsWith("sidecar.py")) {
+        return sidecarProbeResult(request, {
+          executable: request.command,
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+        });
+      }
       if (request.arguments.includes("venv")) {
         return { exitCode: 0, stdout: "", stderr: "", timedOut: false };
       }
@@ -631,7 +637,11 @@ test("visible login stays disabled until an institution route is audited and ena
   let processCalls = 0;
   const runtime = runtimeWith(async () => {
     processCalls += 1;
-    throw new Error("must not start Python for a disabled route");
+    return probeResult({
+      executable: "D:\\Python\\Python3.12\\python.exe",
+      pythonVersion: "3.12.10",
+      architecture: "x64",
+    });
   }, sourceRules());
   const port = createPythonScanSciPort(runtime, {
     moduleRoot: "C:\\addon\\python\\reference_for_zotero_scansci",
@@ -642,15 +652,15 @@ test("visible login stays disabled until an institution route is audited and ena
   assert.deepEqual(
     await port.startVisibleLogin({
       userInitiated: true,
-      routeID: "institution-browser",
+      routeID: "institution-webvpn/ieee/one-click-single",
     }),
     {
       status: "failed",
       error:
-        "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance",
+        "route-candidate: The institution route remains a candidate until its real-world audit passes.",
     },
   );
-  assert.equal(processCalls, 0);
+  assert.ok(processCalls >= 1);
 });
 
 test("one-paper download creates a missing destination, isolates Python output, and exclusively commits the canonical target", async () => {
@@ -665,36 +675,44 @@ test("one-paper download creates a missing destination, isolates Python output, 
     async ensureModuleAssets() {},
     async runProcess(request) {
       processCalls.push(request);
-      const input = JSON.parse(request.stdin || "{}") as {
-        operation?: string;
-      };
-      if (input.operation === "probe") {
+      if (request.arguments.includes("-c")) {
         return probeResult({
           executable: request.command,
           pythonVersion: "3.12.10",
           architecture: "x64",
         });
       }
-      assert.equal(input.operation, "download-one");
-      return {
-        exitCode: 0,
-        stdout: `${JSON.stringify({
-          schemaVersion: 3,
-          sourceRulesVersion: 3,
-          operation: "download-one",
-          ok: true,
-          result: {
-            source: {
-              id: "arxiv",
-              url: "https://arxiv.org/pdf/2101.00001.pdf",
-              egressHosts: ["arxiv.org"],
-            },
-            outputPath: sourcePath,
-          },
-        })}\n`,
-        stderr: "",
-        timedOut: false,
+      const input = JSON.parse(request.stdin || "{}") as {
+        requestId: string;
+        operation?: string;
       };
+      if (input.operation === "probe") {
+        return sidecarProbeResult(request, {
+          executable: request.command,
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+        });
+      }
+      assert.equal(input.operation, "downloadOne");
+      return sidecarComplete(
+        { requestId: input.requestId, operation: input.operation },
+        {
+          result: {
+            schemaVersion: "1.0.0",
+            status: "downloaded",
+            identifier: "2101.00001",
+            sourceEvidence: {
+              routeId: "open-access",
+              source: "arxiv",
+              sourceUrl: "https://arxiv.org/pdf/2101.00001.pdf",
+              egressHosts: ["arxiv.org"],
+              legal: true,
+            },
+            relativePath: "2101.00001.pdf",
+            error: null,
+          },
+        },
+      );
     },
     files: {
       async pathExists() {
@@ -729,7 +747,7 @@ test("one-paper download creates a missing destination, isolates Python output, 
   await prepareReady(port);
 
   assert.deepEqual(
-    await port.downloadOnePaper({
+    await downloadOne(port, {
       paper: {
         title: "Audited arXiv paper",
         arxivID: "2101.00001",
@@ -754,27 +772,22 @@ test("one-paper download creates a missing destination, isolates Python output, 
   assert.deepEqual(removed, [requestDirectory]);
 
   const downloadCall = processCalls.find((call) =>
-    call.stdin.includes('"operation":"download-one"'),
+    call.stdin.includes('"operation":"downloadOne"'),
   );
   assert.ok(downloadCall);
   assert.equal(downloadCall.workingDirectory, requestDirectory);
   assert.deepEqual(JSON.parse(downloadCall.stdin), {
-    schemaVersion: 3,
-    sourceRulesVersion: 3,
-    operation: "download-one",
-    request: {
+    protocol: "reference-for-zotero.scansci-sidecar",
+    contractVersion: "1.0.0",
+    resultSchemaVersion: "1.0.0",
+    requestId: requestID,
+    operation: "downloadOne",
+    params: {
       paper: {
         title: "Audited arXiv paper",
         arxivID: "2101.00001",
-        primaryResultURL: "https://arxiv.org/abs/2101.00001",
       },
-      outputDirectory: requestDirectory,
-      policy: {
-        strategy: "legal_only",
-        scihubEnabled: false,
-        useTor: false,
-        useVpnsci: false,
-      },
+      outputDir: requestDirectory,
     },
   });
   assert.deepEqual(downloadCall.removeEnvironment, [
@@ -803,28 +816,51 @@ test("one-paper download creates a missing destination, isolates Python output, 
   ]);
 });
 
-test("an ordinary Python download failure is returned and its request directory is cleaned", async () => {
-  const requestID = "ddf2670d-b7a0-423d-98b1-e54e148b87ee";
+test("multi-paper download invokes one sidecar batch and consumes per-paper progress", async () => {
+  const requestID = "7d62f649-5ed2-47d3-b8bf-50e8c50857be";
+  const requestDirectory = `E:\\paper\\ScanSciCache\\${requestID}`;
+  const processCalls: Parameters<PythonScanSciRuntime["runProcess"]>[0][] = [];
+  const copied: Array<readonly [string, string]> = [];
   const removed: string[] = [];
   const runtime = runtimeWithDownload(
     async (request) => {
-      const input = JSON.parse(request.stdin) as { operation: string };
-      if (input.operation === "probe") {
-        return probeResult({
-          executable: request.command,
-          pythonVersion: "3.12.10",
-          architecture: "x64",
-        });
+      processCalls.push(request);
+      const input = JSON.parse(request.stdin) as {
+        requestId: string;
+        operation: string;
+      };
+      assert.equal(input.operation, "downloadBatch");
+      const downloaded = sidecarDownloadedResult(
+        "2101.00001",
+        "arxiv_2101.00001.pdf",
+      );
+      const failed = {
+        schemaVersion: "1.0.0",
+        status: "failed",
+        identifier: "PMC9999",
+        sourceEvidence: null,
+        relativePath: null,
+        error: { code: "no-pdf", message: "No audited PDF was found" },
+      };
+      const messages = [
+        sidecarProgress(input, 1, 2, "item-1", downloaded),
+        sidecarProgress(input, 2, 2, "item-2", failed),
+        sidecarCompletionMessage(input, {
+          total: 2,
+          downloaded: 1,
+          failed: 1,
+          results: [
+            { itemId: "item-1", result: downloaded },
+            { itemId: "item-2", result: failed },
+          ],
+        }),
+      ];
+      for (const message of messages) {
+        await request.onStdoutLine?.(JSON.stringify(message));
       }
       return {
         exitCode: 0,
-        stdout: `${JSON.stringify({
-          schemaVersion: 3,
-          sourceRulesVersion: 3,
-          operation: "download-one",
-          ok: false,
-          error: { code: "network", message: "Publisher returned 403" },
-        })}\n`,
+        stdout: `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`,
         stderr: "",
         timedOut: false,
       };
@@ -832,12 +868,83 @@ test("an ordinary Python download failure is returned and its request directory 
     requestID,
     removed,
   );
+  runtime.files.copyExclusiveContained = async (source, _root, target) => {
+    copied.push([source, target]);
+  };
+  const port = createPythonScanSciPort(runtime, downloadOptions());
+  await prepareReady(port);
+  const progress: unknown[] = [];
+
+  const result = await port.downloadPapers({
+    items: [
+      {
+        itemID: "arxiv-paper",
+        paper: { title: "arXiv paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\arXiv paper.pdf",
+      },
+      {
+        itemID: "pmc-paper",
+        paper: { title: "PMC paper", pmcid: "PMC9999" },
+        canonicalFinalTarget: "E:\\paper\\PMC paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+    onProgress: (current) => progress.push(current),
+  });
+
+  assert.equal(
+    processCalls.filter((call) =>
+      call.stdin.includes('"operation":"downloadBatch"'),
+    ).length,
+    1,
+  );
+  assert.deepEqual(result, [
+    {
+      itemID: "arxiv-paper",
+      result: {
+        status: "downloaded",
+        savedPath: "E:\\paper\\arXiv paper.pdf",
+      },
+    },
+    {
+      itemID: "pmc-paper",
+      result: {
+        status: "failed",
+        error: "no-pdf: No audited PDF was found",
+      },
+    },
+  ]);
+  assert.deepEqual(progress, result);
+  assert.deepEqual(copied, [
+    [`${requestDirectory}\\arxiv_2101.00001.pdf`, "E:\\paper\\arXiv paper.pdf"],
+  ]);
+  assert.deepEqual(removed, [requestDirectory]);
+});
+
+test("an ordinary Python download failure is returned and its request directory is cleaned", async () => {
+  const requestID = "ddf2670d-b7a0-423d-98b1-e54e148b87ee";
+  const removed: string[] = [];
+  const runtime = runtimeWithDownload(
+    async (request) => {
+      const input = JSON.parse(request.stdin) as {
+        requestId: string;
+        operation: string;
+      };
+      return sidecarComplete(input, undefined, {
+        code: "network",
+        message: "Publisher returned 403",
+        retryable: false,
+      });
+    },
+    requestID,
+    removed,
+  );
   const port = createPythonScanSciPort(runtime, downloadOptions());
   await prepareReady(port);
 
-  assert.deepEqual(await port.downloadOnePaper(downloadRequest()), {
+  assert.deepEqual(await downloadOne(port, downloadRequest()), {
     status: "failed",
-    error: "Publisher returned 403",
+    error: "network: Publisher returned 403",
   });
   assert.deepEqual(removed, [`E:\\paper\\ScanSciCache\\${requestID}`]);
 });
@@ -865,7 +972,7 @@ test("process diagnostics are bounded and redact URL queries and secret fields",
   const port = createPythonScanSciPort(runtime, downloadOptions());
   await prepareReady(port);
 
-  const result = await port.downloadOnePaper(downloadRequest());
+  const result = await downloadOne(port, downloadRequest());
 
   assert.equal(result.status, "failed");
   if (result.status !== "failed") return;
@@ -918,7 +1025,7 @@ test("prohibited, unknown, and non-HTTPS sources never reach the final commit", 
     const port = createPythonScanSciPort(runtime, downloadOptions());
     await prepareReady(port);
 
-    assert.deepEqual(await port.downloadOnePaper(downloadRequest()), {
+    assert.deepEqual(await downloadOne(port, downloadRequest()), {
       status: "failed",
       error: current.error,
     });
@@ -937,7 +1044,7 @@ test("canonical final target and Python output must remain inside their authorit
     downloadOptions(),
   );
   assert.deepEqual(
-    await outsideTargetPort.downloadOnePaper({
+    await downloadOne(outsideTargetPort, {
       ...downloadRequest(),
       canonicalFinalTarget: "E:\\outside\\Paper.pdf",
     }),
@@ -948,7 +1055,7 @@ test("canonical final target and Python output must remain inside their authorit
   );
   assert.equal(processCalls, 0);
   assert.deepEqual(
-    await outsideTargetPort.downloadOnePaper({
+    await downloadOne(outsideTargetPort, {
       ...downloadRequest(),
       downloadDestination: "\\\\?\\E:\\paper",
       canonicalFinalTarget: "\\\\?\\E:\\paper\\Paper.pdf",
@@ -977,13 +1084,10 @@ test("canonical final target and Python output must remain inside their authorit
     downloadOptions(),
   );
   await prepareReady(outsideOutputPort);
-  assert.deepEqual(
-    await outsideOutputPort.downloadOnePaper(downloadRequest()),
-    {
-      status: "failed",
-      error: "ScanSci output escaped its request directory",
-    },
-  );
+  assert.deepEqual(await downloadOne(outsideOutputPort, downloadRequest()), {
+    status: "failed",
+    error: "ScanSci sidecar returned an invalid relative output path",
+  });
 });
 
 test("an exclusive-copy race fails without overwrite or automatic renaming", async () => {
@@ -1009,7 +1113,7 @@ test("an exclusive-copy race fails without overwrite or automatic renaming", asy
   const port = createPythonScanSciPort(runtime, downloadOptions());
   await prepareReady(port);
 
-  assert.deepEqual(await port.downloadOnePaper(downloadRequest()), {
+  assert.deepEqual(await downloadOne(port, downloadRequest()), {
     status: "failed",
     error: "Destination already exists",
   });
@@ -1036,7 +1140,7 @@ test("a request-directory collision never deletes the pre-existing directory", a
   const port = createPythonScanSciPort(runtime, downloadOptions());
   await prepareReady(port);
 
-  assert.deepEqual(await port.downloadOnePaper(downloadRequest()), {
+  assert.deepEqual(await downloadOne(port, downloadRequest()), {
     status: "failed",
     error: "request directory already exists",
   });
@@ -1062,7 +1166,7 @@ test("a cleanup failure preserves the committed result and remains explicit", as
   const port = createPythonScanSciPort(runtime, downloadOptions());
   await prepareReady(port);
 
-  assert.deepEqual(await port.downloadOnePaper(downloadRequest()), {
+  assert.deepEqual(await downloadOne(port, downloadRequest()), {
     status: "downloaded",
     savedPath: "E:\\paper\\Audited arXiv paper.pdf",
     cleanupWarning:
@@ -1074,9 +1178,44 @@ function runtimeWith(
   runProcess: PythonScanSciRuntime["runProcess"],
   rules = "",
 ): PythonScanSciRuntime {
+  const identities = new Map<
+    string,
+    Readonly<{
+      executable: string;
+      pythonVersion: string;
+      architecture: string;
+    }>
+  >();
   return {
     async ensureModuleAssets() {},
-    runProcess,
+    async runProcess(request) {
+      if (request.arguments.at(-1)?.endsWith("sidecar.py")) {
+        const protocol = JSON.parse(request.stdin) as {
+          requestId: string;
+          operation: string;
+        };
+        if (protocol.operation === "visibleLogin") {
+          return sidecarComplete(protocol, undefined, {
+            code: "route-candidate",
+            message:
+              "The institution route remains a candidate until its real-world audit passes.",
+            retryable: false,
+          });
+        }
+        return sidecarProbeResult(request, identities.get(request.command));
+      }
+      const result = await runProcess(request);
+      if (request.arguments.includes("-c") && result.exitCode === 0) {
+        const identity = JSON.parse(result.stdout) as {
+          executable: string;
+          pythonVersion: string;
+          architecture: string;
+        };
+        identities.set(request.command, identity);
+        identities.set(identity.executable, identity);
+      }
+      return result;
+    },
     files: {
       async pathExists() {
         return false;
@@ -1170,22 +1309,154 @@ function probeResult(input: {
   return {
     exitCode: 0,
     stdout: `${JSON.stringify({
-      schemaVersion: 3,
-      sourceRulesVersion: 3,
-      operation: "probe",
-      ok: true,
-      result: {
-        ...input,
-        moduleVersion: "3.0.0",
-        dependencies: availableDependencies(),
-        features: {
-          onePaperDownload: "available",
-          visibleLogin: "disabled",
-        },
-      },
+      ...input,
+      moduleVersion: "3.0.0",
+      dependencies: availableDependencies(),
+      dependencySetAvailable: true,
     })}\n`,
     stderr: "",
     timedOut: false,
+  };
+}
+
+function sidecarProbeResult(
+  request: Parameters<PythonScanSciRuntime["runProcess"]>[0],
+  identity:
+    | Readonly<{
+        executable: string;
+        pythonVersion: string;
+        architecture: string;
+      }>
+    | undefined,
+) {
+  const protocol = JSON.parse(request.stdin) as {
+    requestId: string;
+    operation: string;
+  };
+  const runtime = identity ?? {
+    executable: request.command,
+    pythonVersion: "3.12.10",
+    architecture: "x64",
+  };
+  return sidecarComplete(protocol, {
+    application: { name: "reference-for-zotero-scansci", version: "3.0.0" },
+    runtime: {
+      implementation: "CPython",
+      ...runtime,
+      platform: "Windows",
+    },
+    source: {
+      repository: "Rimagination/scansci-pdf",
+      revision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+      installKind: "audited-plugin-fragments",
+      dirty: false,
+    },
+    contractVersion: "1.0.0",
+    resultSchemaVersion: "1.0.0",
+    operations: ["downloadBatch", "downloadOne", "probe", "visibleLogin"],
+    routeCapabilities: [
+      {
+        routeId: "open-access",
+        available: true,
+        sources: ["arxiv", "pmc"],
+        operations: ["downloadOne", "downloadBatch"],
+        concurrency: "bounded",
+      },
+      {
+        routeId: "institution-webvpn/ieee/one-click-single",
+        status: "candidate",
+        available: false,
+        operations: ["visibleLogin", "downloadOne"],
+        concurrency: "single-profile-writer",
+        profileId: "zotero",
+        reason: "real-world-route-audit-pending",
+      },
+    ],
+    policy: {
+      mode: "legal-only",
+      disabledRoutes: [
+        "sci-hub",
+        "libgen",
+        "scibban",
+        "tor",
+        "proxy-pool",
+        "vpnsci",
+        "unknown",
+      ],
+    },
+  });
+}
+
+function sidecarComplete(
+  request: Readonly<{ requestId: string; operation: string }>,
+  payload?: unknown,
+  error?: Readonly<{ code: string; message: string; retryable: boolean }>,
+) {
+  return {
+    exitCode: 0,
+    stdout: `${JSON.stringify({
+      protocol: "reference-for-zotero.scansci-sidecar",
+      contractVersion: "1.0.0",
+      resultSchemaVersion: "1.0.0",
+      requestId: request.requestId,
+      operation: request.operation,
+      type: "complete",
+      ok: !error,
+      ...(error ? { error } : { payload }),
+    })}\n`,
+    stderr: "",
+    timedOut: false as const,
+  };
+}
+
+function sidecarCompletionMessage(
+  request: Readonly<{ requestId: string; operation: string }>,
+  payload: unknown,
+) {
+  return {
+    protocol: "reference-for-zotero.scansci-sidecar",
+    contractVersion: "1.0.0",
+    resultSchemaVersion: "1.0.0",
+    requestId: request.requestId,
+    operation: request.operation,
+    type: "complete",
+    ok: true,
+    payload,
+  };
+}
+
+function sidecarProgress(
+  request: Readonly<{ requestId: string; operation: string }>,
+  sequence: number,
+  total: number,
+  itemId: string,
+  result: unknown,
+) {
+  return {
+    protocol: "reference-for-zotero.scansci-sidecar",
+    contractVersion: "1.0.0",
+    resultSchemaVersion: "1.0.0",
+    requestId: request.requestId,
+    operation: request.operation,
+    type: "progress",
+    payload: { sequence, completed: sequence, total, itemId, result },
+  };
+}
+
+function sidecarDownloadedResult(identifier: string, relativePath: string) {
+  return {
+    schemaVersion: "1.0.0",
+    status: "downloaded",
+    identifier,
+    sourceEvidence: {
+      routeId: "open-access",
+      source: "arxiv",
+      sourceUrl: `https://arxiv.org/pdf/${identifier}.pdf`,
+      egressHosts: ["arxiv.org"],
+      legal: true,
+    },
+    relativePath,
+    error: null,
   };
 }
 
@@ -1193,25 +1464,16 @@ function missingDependencyProbeResult(executable: string) {
   return {
     exitCode: 0,
     stdout: `${JSON.stringify({
-      schemaVersion: 3,
-      sourceRulesVersion: 3,
-      operation: "probe",
-      ok: true,
-      result: {
-        executable,
-        pythonVersion: "3.12.10",
-        architecture: "x64",
-        moduleVersion: "3.0.0",
-        dependencies: availableDependencies().map((dependency) =>
-          dependency.name === "requests"
-            ? { ...dependency, installedVersion: undefined, status: "missing" }
-            : dependency,
-        ),
-        features: {
-          onePaperDownload: "unavailable",
-          visibleLogin: "disabled",
-        },
-      },
+      executable,
+      pythonVersion: "3.12.10",
+      architecture: "x64",
+      moduleVersion: "3.0.0",
+      dependencies: availableDependencies().map((dependency) =>
+        dependency.name === "requests"
+          ? { ...dependency, installedVersion: undefined, status: "missing" }
+          : dependency,
+      ),
+      dependencySetAvailable: false,
     })}\n`,
     stderr: "",
     timedOut: false as const,
@@ -1226,25 +1488,16 @@ function probeResultWithDependencies(input: {
   return {
     exitCode: 0,
     stdout: `${JSON.stringify({
-      schemaVersion: 3,
-      sourceRulesVersion: 3,
-      operation: "probe",
-      ok: true,
-      result: {
-        executable: input.executable,
-        pythonVersion: input.pythonVersion,
-        architecture: "x64",
-        moduleVersion: "3.0.0",
-        dependencies: availableDependencies().map((dependency) =>
-          input.missing.has(dependency.name)
-            ? { ...dependency, installedVersion: undefined, status: "missing" }
-            : dependency,
-        ),
-        features: {
-          onePaperDownload: "unavailable",
-          visibleLogin: "disabled",
-        },
-      },
+      executable: input.executable,
+      pythonVersion: input.pythonVersion,
+      architecture: "x64",
+      moduleVersion: "3.0.0",
+      dependencies: availableDependencies().map((dependency) =>
+        input.missing.has(dependency.name)
+          ? { ...dependency, installedVersion: undefined, status: "missing" }
+          : dependency,
+      ),
+      dependencySetAvailable: false,
     })}\n`,
     stderr: "",
     timedOut: false as const,
@@ -1273,7 +1526,24 @@ function runtimeWithDownload(
 ): PythonScanSciRuntime {
   return {
     async ensureModuleAssets() {},
-    runProcess,
+    async runProcess(request) {
+      if (request.arguments.includes("-c")) {
+        return probeResult({
+          executable: request.command,
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+        });
+      }
+      const input = JSON.parse(request.stdin) as { operation: string };
+      if (input.operation === "probe") {
+        return sidecarProbeResult(request, {
+          executable: request.command,
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+        });
+      }
+      return runProcess(request);
+    },
     files: {
       async pathExists() {
         return false;
@@ -1348,6 +1618,24 @@ function downloadRequest() {
   };
 }
 
+async function downloadOne(
+  port: ReturnType<typeof createPythonScanSciPort>,
+  request: ReturnType<typeof downloadRequest>,
+) {
+  const [outcome] = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper-1",
+        paper: request.paper,
+        canonicalFinalTarget: request.canonicalFinalTarget,
+      },
+    ],
+    downloadDestination: request.downloadDestination,
+  });
+  assert.ok(outcome);
+  return outcome.result;
+}
+
 function processReturningDownload(
   source: Readonly<{
     id: string;
@@ -1357,25 +1645,30 @@ function processReturningDownload(
   outputPath: string,
 ): PythonScanSciRuntime["runProcess"] {
   return async (request) => {
-    const input = JSON.parse(request.stdin) as { operation: string };
-    if (input.operation === "probe") {
-      return probeResult({
-        executable: request.command,
-        pythonVersion: "3.12.10",
-        architecture: "x64",
-      });
-    }
-    return {
-      exitCode: 0,
-      stdout: `${JSON.stringify({
-        schemaVersion: 3,
-        sourceRulesVersion: 3,
-        operation: "download-one",
-        ok: true,
-        result: { source, outputPath },
-      })}\n`,
-      stderr: "",
-      timedOut: false,
+    const input = JSON.parse(request.stdin) as {
+      requestId: string;
+      operation: string;
+      params: { outputDir: string };
     };
+    const prefix = `${input.params.outputDir.replace(/[\\/]+$/u, "")}\\`;
+    const relativePath = outputPath.startsWith(prefix)
+      ? outputPath.slice(prefix.length)
+      : "..\\..\\untrusted-cache.pdf";
+    return sidecarComplete(input, {
+      result: {
+        schemaVersion: "1.0.0",
+        status: "downloaded",
+        identifier: "2101.00001",
+        sourceEvidence: {
+          routeId: "open-access",
+          source: source.id,
+          sourceUrl: source.url,
+          egressHosts: source.egressHosts,
+          legal: true,
+        },
+        relativePath,
+        error: null,
+      },
+    });
   };
 }

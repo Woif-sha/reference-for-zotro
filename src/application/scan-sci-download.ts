@@ -4,38 +4,48 @@ import type {
   DownloadFirstUseController,
   DownloadFirstUseState,
 } from "./download-first-use";
-import type { SinglePaperDownloadResult } from "./related-papers-controller";
+import type {
+  PaperDownloadProgress,
+  RelatedPapersPorts,
+} from "./related-papers-controller";
 
 const MAX_FILENAME_STEM_CHARACTERS = 120;
 const WINDOWS_RESERVED_FILENAME =
   /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
 
-export function createScanSciDownloadPaper(options: {
+export function createScanSciDownloadPapers(options: {
   runtime: ScanSciPort;
   setup: DownloadFirstUseController;
-}): (
-  paper: ReaderPaper & { status: "resolved" },
-) => Promise<SinglePaperDownloadResult> {
-  return async (paper) => {
+}): NonNullable<RelatedPapersPorts["downloadPapers"]> {
+  return async (request) => {
     const setup = options.setup.getState();
     const readinessError = runtimeReadinessError(setup);
-    if (readinessError) return { status: "failed", error: readinessError };
+    if (readinessError) {
+      return request.papers.map((paper) => ({
+        paperID: paper.id,
+        result: { status: "failed", error: readinessError },
+      }));
+    }
 
     const destination = setup.downloadDestination;
-    return options.runtime.downloadOnePaper({
-      paper: {
-        title: paper.title,
-        ...(paper.doi ? { doi: paper.doi } : {}),
-        ...(paper.arxivID ? { arxivID: paper.arxivID } : {}),
-        ...(paper.pmcid ? { pmcid: paper.pmcid } : {}),
-        primaryResultURL: paper.primaryResultURL,
-      },
+    const results = await options.runtime.downloadPapers({
+      items: request.papers.map((paper) => ({
+        itemID: paper.id,
+        paper: confirmedPaper(paper),
+        canonicalFinalTarget: canonicalFinalTarget(destination, paper.title),
+      })),
       downloadDestination: destination,
-      canonicalFinalTarget: joinWindows(
-        destination,
-        `${safeWindowsFilenameStem(paper.title)}.pdf`,
-      ),
+      signal: request.signal,
+      onProgress: ({ itemID, result }) =>
+        request.onProgress({ paperID: itemID, result }),
     });
+    return results.map(
+      ({ itemID, result }) =>
+        ({
+          paperID: itemID,
+          result,
+        }) satisfies PaperDownloadProgress,
+    );
   };
 }
 
@@ -45,8 +55,22 @@ export function createScanSciDownloadDependencies(options: {
 }) {
   return {
     downloadSetup: options.setup,
-    downloadPaper: createScanSciDownloadPaper(options),
+    downloadPapers: createScanSciDownloadPapers(options),
   } as const;
+}
+
+function confirmedPaper(paper: ReaderPaper & { status: "resolved" }) {
+  return {
+    title: paper.title,
+    ...(paper.doi ? { doi: paper.doi } : {}),
+    ...(paper.arxivID ? { arxivID: paper.arxivID } : {}),
+    ...(paper.pmcid ? { pmcid: paper.pmcid } : {}),
+    primaryResultURL: paper.primaryResultURL,
+  };
+}
+
+function canonicalFinalTarget(destination: string, title: string): string {
+  return joinWindows(destination, `${safeWindowsFilenameStem(title)}.pdf`);
 }
 
 export function safeWindowsFilenameStem(title: string): string {

@@ -90,6 +90,7 @@ function createRuntime() {
             packagedRootURI,
           }),
         );
+        await downloadSetup.checkRuntime();
         handle = startReferenceForZotero(
           createReaderControllerFactory(
             createScanSciDownloadDependencies({

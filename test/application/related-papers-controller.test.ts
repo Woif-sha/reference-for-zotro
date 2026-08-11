@@ -620,11 +620,8 @@ test("citation selection follows the visible 10/30/50 window without discarding 
   );
 });
 
-test("download command snapshots selection and invokes the single-paper service serially", async () => {
-  const first = deferred<
-    | { status: "downloaded"; savedPath: string }
-    | { status: "failed"; error: string }
-  >();
+test("download command snapshots selection and consumes one batch progress stream", async () => {
+  const finish = deferred<void>();
   const started: string[] = [];
   const revealed: string[] = [];
   const papersToResolve = [
@@ -647,10 +644,31 @@ test("download command snapshots selection and invokes the single-paper service 
     loadPaper: async () => loadedPaper,
     resolveReferences: async () => papersToResolve,
     loadCitingPapers: async () => [],
-    async downloadPaper(paper) {
-      started.push(paper.id);
-      if (paper.id === "reference:first") return first.promise;
-      throw new Error("publisher rejected https://publisher.test/file");
+    async downloadPapers({ papers, onProgress }) {
+      started.push(...papers.map(({ id }) => id));
+      onProgress({
+        paperID: papers[0]!.id,
+        result: { status: "downloaded", savedPath: "E:\\paper\\First.pdf" },
+      });
+      await finish.promise;
+      const second = {
+        paperID: papers[1]!.id,
+        result: {
+          status: "failed" as const,
+          error: "publisher rejected https://publisher.test/file",
+        },
+      };
+      onProgress(second);
+      return [
+        {
+          paperID: papers[0]!.id,
+          result: {
+            status: "downloaded" as const,
+            savedPath: "E:\\paper\\First.pdf",
+          },
+        },
+        second,
+      ];
     },
     revealDownloadedFile: (path) => revealed.push(path),
     openURL() {},
@@ -660,17 +678,15 @@ test("download command snapshots selection and invokes the single-paper service 
   controller.setPaperDownloadSelected("references", "reference:second", true);
 
   const run = controller.downloadSelected();
-  assert.deepEqual(started, ["reference:first"]);
+  assert.deepEqual(started, ["reference:first", "reference:second"]);
   assert.equal(controller.getState().downloadInProgress, true);
   assert.deepEqual(
     controller.getState().paperDownloads.map(({ status }) => status),
-    ["downloading", "queued"],
+    ["downloaded", "downloading"],
   );
 
   controller.setPaperDownloadSelected("references", "reference:second", false);
-  first.resolve({ status: "downloaded", savedPath: "E:\\paper\\First.pdf" });
-  await waitFor(() => started.length === 2);
-  assert.deepEqual(started, ["reference:first", "reference:second"]);
+  finish.resolve();
   await run;
 
   assert.equal(controller.getState().downloadInProgress, false);
@@ -694,13 +710,10 @@ test("download command snapshots selection and invokes the single-paper service 
   assert.deepEqual(revealed, ["E:\\paper\\First.pdf"]);
 });
 
-test("paper refresh lets the active file write finish but starts no later queued download", async () => {
-  const activeWrite = deferred<{
-    status: "downloaded";
-    savedPath: string;
-  }>();
+test("paper refresh cancels the active sidecar batch", async () => {
   const replacementLoad = deferred<LoadedPaper>();
   const started: string[] = [];
+  let downloadSignal: AbortSignal | undefined;
   let loadCount = 0;
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => {
@@ -724,9 +737,16 @@ test("paper refresh lets the active file write finish but starts no later queued
       },
     ],
     loadCitingPapers: async () => [],
-    downloadPaper(paper) {
-      started.push(paper.id);
-      return activeWrite.promise;
+    downloadPapers({ papers, signal }) {
+      started.push(...papers.map(({ id }) => id));
+      downloadSignal = signal;
+      return new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      });
     },
     openURL() {},
   });
@@ -741,12 +761,9 @@ test("paper refresh lets the active file write finish but starts no later queued
   assert.deepEqual(controller.getState().downloadSelection, []);
   assert.deepEqual(controller.getState().paperDownloads, []);
 
-  activeWrite.resolve({
-    status: "downloaded",
-    savedPath: "E:\\paper\\First.pdf",
-  });
   await run;
-  assert.deepEqual(started, ["reference:first"]);
+  assert.equal(downloadSignal?.aborted, true);
+  assert.deepEqual(started, ["reference:first", "reference:second"]);
   assert.equal(controller.getState().downloadInProgress, false);
   assert.deepEqual(controller.getState().paperDownloads, []);
 

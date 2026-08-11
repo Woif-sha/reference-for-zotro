@@ -6,24 +6,30 @@ import type {
 } from "../../src/application/download-first-use";
 import {
   createScanSciDownloadDependencies,
-  createScanSciDownloadPaper,
+  createScanSciDownloadPapers,
   safeWindowsFilenameStem,
 } from "../../src/application/scan-sci-download";
 import type { ReaderPaper } from "../../src/reader/mountReaderSection";
 import type {
-  OnePaperDownloadRequest,
+  PaperDownloadRequest,
   ScanSciPort,
 } from "../../src/scansci/scan-sci-port";
 
 test("production download adapter snapshots the configured destination and preserves legal-source identifiers", async () => {
   let state = readyState("E:\\paper");
-  let request: OnePaperDownloadRequest | undefined;
+  let request: PaperDownloadRequest | undefined;
   const runtime = runtimeWithDownload(async (value) => {
     request = value;
     state = readyState("D:\\later");
-    return { status: "downloaded", savedPath: value.canonicalFinalTarget };
+    return value.items.map((item) => ({
+      itemID: item.itemID,
+      result: {
+        status: "downloaded" as const,
+        savedPath: item.canonicalFinalTarget,
+      },
+    }));
   });
-  const download = createScanSciDownloadPaper({
+  const download = createScanSciDownloadPapers({
     runtime,
     setup: setupController(() => state),
   });
@@ -38,46 +44,55 @@ test("production download adapter snapshots the configured destination and prese
     pmcid: "PMC1234",
   };
 
-  const result = await download(paper);
+  const result = await download({
+    papers: [paper],
+    signal: new AbortController().signal,
+    onProgress() {},
+  });
 
-  assert.deepEqual(result, {
-    status: "downloaded",
-    savedPath: "E:\\paper\\A legal paper results.pdf",
-  });
-  assert.deepEqual(request, {
-    paper: {
-      title: paper.title,
-      doi: paper.doi,
-      arxivID: paper.arxivID,
-      pmcid: paper.pmcid,
-      primaryResultURL: paper.primaryResultURL,
+  assert.deepEqual(result, [
+    {
+      paperID: "paper",
+      result: {
+        status: "downloaded",
+        savedPath: "E:\\paper\\A legal paper results.pdf",
+      },
     },
-    downloadDestination: "E:\\paper",
-    canonicalFinalTarget: "E:\\paper\\A legal paper results.pdf",
-  });
+  ]);
+  assert.equal(request?.downloadDestination, "E:\\paper");
+  assert.deepEqual(request?.items, [
+    {
+      itemID: "paper",
+      paper: {
+        title: paper.title,
+        doi: paper.doi,
+        arxivID: paper.arxivID,
+        pmcid: paper.pmcid,
+        primaryResultURL: paper.primaryResultURL,
+      },
+      canonicalFinalTarget: "E:\\paper\\A legal paper results.pdf",
+    },
+  ]);
 });
 
 test("production download dependencies expose setup and the live ScanSci adapter together", () => {
   const setup = setupController(() => readyState("E:\\paper"));
   const dependencies = createScanSciDownloadDependencies({
-    runtime: runtimeWithDownload(async () => ({
-      status: "failed",
-      error: "not invoked",
-    })),
+    runtime: runtimeWithDownload(async () => []),
     setup,
   });
 
   assert.equal(dependencies.downloadSetup, setup);
-  assert.equal(typeof dependencies.downloadPaper, "function");
+  assert.equal(typeof dependencies.downloadPapers, "function");
 });
 
 test("production download adapter fails explicitly until runtime preparation is ready", async () => {
   let called = false;
   const runtime = runtimeWithDownload(async () => {
     called = true;
-    return { status: "failed", error: "unexpected" };
+    return [];
   });
-  const download = createScanSciDownloadPaper({
+  const download = createScanSciDownloadPapers({
     runtime,
     setup: setupController(() => ({
       ...readyState("E:\\paper"),
@@ -86,17 +101,23 @@ test("production download adapter fails explicitly until runtime preparation is 
   });
 
   const result = await download({
-    id: "paper",
-    ordinal: 0,
-    title: "Paper",
-    status: "resolved",
-    primaryResultURL: "https://doi.org/10.1000/example",
-    doi: "10.1000/example",
+    papers: [
+      {
+        id: "paper",
+        ordinal: 0,
+        title: "Paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/example",
+        doi: "10.1000/example",
+      },
+    ],
+    signal: new AbortController().signal,
+    onProgress() {},
   });
 
-  assert.equal(result.status, "failed");
-  if (result.status !== "failed") return;
-  assert.match(result.error, /runtime is not ready/u);
+  assert.equal(result[0]?.result.status, "failed");
+  if (result[0]?.result.status !== "failed") return;
+  assert.match(result[0].result.error, /runtime is not ready/u);
   assert.equal(called, false);
 });
 
@@ -123,7 +144,29 @@ function readyState(destination: string): DownloadFirstUseState {
         dependencies: [],
         features: {
           onePaperDownload: "available",
+          batchDownload: "available",
           visibleLogin: "disabled",
+        },
+        routes: [
+          {
+            routeID: "open-access",
+            status: "available",
+            sources: ["arxiv", "pmc"],
+            operations: ["downloadOne", "downloadBatch"],
+          },
+          {
+            routeID: "institution-webvpn/ieee/one-click-single",
+            status: "candidate",
+            reason: "real-world-route-audit-pending",
+            operations: ["visibleLogin", "downloadOne"],
+          },
+        ],
+        sidecar: {
+          protocol: "reference-for-zotero.scansci-sidecar",
+          contractVersion: "1.0.0",
+          resultSchemaVersion: "1.0.0",
+          upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+          dirty: false,
         },
       },
     },
@@ -151,7 +194,7 @@ function setupController(
 }
 
 function runtimeWithDownload(
-  downloadOnePaper: ScanSciPort["downloadOnePaper"],
+  downloadPapers: ScanSciPort["downloadPapers"],
 ): ScanSciPort {
   return {
     async prepareRuntime() {
@@ -160,6 +203,6 @@ function runtimeWithDownload(
     async startVisibleLogin() {
       throw new Error("not used");
     },
-    downloadOnePaper,
+    downloadPapers,
   };
 }

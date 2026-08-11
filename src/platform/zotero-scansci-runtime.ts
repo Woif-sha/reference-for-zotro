@@ -10,7 +10,7 @@ import type {
 } from "../scansci/scan-sci-port";
 
 const MAX_STDOUT_CHARACTERS = 1024 * 1024;
-const MAX_STDERR_CHARACTERS = 16 * 1024;
+const MAX_STDERR_CHARACTERS = 32 * 1024;
 const MODULE_ASSETS = [
   "__init__.py",
   "bridge.py",
@@ -48,6 +48,7 @@ type SubprocessModule = {
     arguments: readonly string[];
     environment: Readonly<Record<string, string | null>>;
     environmentAppend: true;
+    stdout: "pipe";
     stderr: "pipe";
     workdir?: string;
   }): Promise<SubprocessHandle>;
@@ -218,14 +219,25 @@ async function runZoteroSubprocess(
     arguments: request.arguments,
     environment,
     environmentAppend: true,
+    stdout: "pipe",
     stderr: "pipe",
     ...(request.workingDirectory ? { workdir: request.workingDirectory } : {}),
   });
-  const stdout = readAll(process.stdout, MAX_STDOUT_CHARACTERS);
-  const stderr = readAll(process.stderr, MAX_STDERR_CHARACTERS);
+  const stdout = readBounded(
+    process.stdout,
+    MAX_STDOUT_CHARACTERS,
+    request.onStdoutLine,
+  );
+  const stderr = readBounded(process.stderr, MAX_STDERR_CHARACTERS);
   const wait = process.wait();
   const timeout = createTimeout(request.timeoutMilliseconds);
   const abort = createAbortWait(request.signal);
+  let killed = false;
+  const killOnce = async (): Promise<void> => {
+    if (killed) return;
+    killed = true;
+    await process.kill();
+  };
   try {
     if (!process.stdin.write)
       throw new Error("Subprocess stdin is unavailable");
@@ -237,28 +249,34 @@ async function runZoteroSubprocess(
       abort.promise.then(() => ({ kind: "abort" as const })),
     ]);
     if (outcome.kind === "abort") {
-      await process.kill();
+      await killOnce();
       await wait.catch(() => undefined);
       throw abortError();
     }
     if (outcome.kind === "timeout") {
-      await process.kill();
+      await killOnce();
       await wait;
+      const [stdoutResult, stderrResult] = await Promise.all([stdout, stderr]);
       return {
         exitCode: -1,
-        stdout: await stdout,
-        stderr: await stderr,
+        stdout: stdoutResult.text,
+        stderr: stderrResult.text,
         timedOut: true,
+        stdoutTruncated: stdoutResult.truncated,
+        stderrTruncated: stderrResult.truncated,
       };
     }
+    const [stdoutResult, stderrResult] = await Promise.all([stdout, stderr]);
     return {
       exitCode: outcome.result.exitCode,
-      stdout: await stdout,
-      stderr: await stderr,
+      stdout: stdoutResult.text,
+      stderr: stderrResult.text,
       timedOut: false,
+      stdoutTruncated: stdoutResult.truncated,
+      stderrTruncated: stderrResult.truncated,
     };
   } catch (error) {
-    await process.kill();
+    await killOnce();
     await wait.catch(() => undefined);
     throw error;
   } finally {
@@ -267,18 +285,47 @@ async function runZoteroSubprocess(
   }
 }
 
-async function readAll(
+async function readBounded(
   pipe: SubprocessPipe,
   maximumCharacters: number,
-): Promise<string> {
+  onLine?: (line: string) => void | Promise<void>,
+): Promise<Readonly<{ text: string; truncated: boolean }>> {
   let result = "";
+  let lineBuffer = "";
+  let truncated = false;
+  let callbackError: unknown;
+  let callbacksDisabled = false;
   let chunk: string;
   while ((chunk = await pipe.readString())) {
-    if (result.length < maximumCharacters) {
-      result += chunk.slice(0, maximumCharacters - result.length);
+    const remaining = maximumCharacters - result.length;
+    if (chunk.length > remaining) {
+      truncated = true;
+      callbacksDisabled = true;
+      lineBuffer = "";
+    }
+    if (remaining > 0) result += chunk.slice(0, remaining);
+    if (!onLine || callbackError || callbacksDisabled) continue;
+    lineBuffer += chunk;
+    const lines = lineBuffer.split(/\r?\n/u);
+    lineBuffer = lines.pop() ?? "";
+    for (const line of lines) {
+      try {
+        await onLine(line);
+      } catch (error) {
+        callbackError = error;
+        break;
+      }
     }
   }
-  return result;
+  if (onLine && !callbackError && lineBuffer) {
+    try {
+      await onLine(lineBuffer);
+    } catch (error) {
+      callbackError = error;
+    }
+  }
+  if (callbackError) throw callbackError;
+  return { text: result, truncated };
 }
 
 function createTimeout(milliseconds: number): {

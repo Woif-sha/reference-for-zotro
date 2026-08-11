@@ -183,6 +183,20 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertEqual(result["sourceEvidence"]["source"], "arxiv")
         self.assertEqual(captured["policy"], sidecar.FORCED_POLICY)
 
+    def test_output_directory_accepts_a_regular_canonical_alias(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = output_directory(root)
+            canonical = output.resolve()
+            alias = output.parent.parent / "RUNNER~1" / "ScanSciCache" / output.name
+            with (
+                mock.patch.object(sidecar.os.path, "abspath", return_value=str(alias)),
+                mock.patch.object(sidecar, "_contains_reparse_point", return_value=False),
+                mock.patch.object(sidecar.Path, "resolve", return_value=canonical),
+            ):
+                validated = sidecar._validate_output_dir(str(output), "request-1")
+
+        self.assertEqual(validated, canonical)
+
     def test_download_batch_is_bounded_and_streams_each_final_result(self):
         workers_started = threading.Event()
         state_lock = threading.Lock()

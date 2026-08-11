@@ -554,9 +554,9 @@ def _validate_output_dir(value: Any, request_id: str) -> Path:
             "invalid-output-directory", "outputDir must be a caller-created directory."
         )
     absolute = Path(os.path.abspath(path))
-    resolved = path.resolve(strict=True)
-    if os.path.normcase(str(absolute)) != os.path.normcase(str(resolved)):
+    if _contains_reparse_point(absolute):
         raise ProtocolError("output-outside-root", "outputDir cannot be a link or junction.")
+    resolved = absolute.resolve(strict=True)
     if resolved.name != request_id or resolved.parent.name.casefold() != "scanscicache":
         raise ProtocolError("output-outside-root", "outputDir must be ScanSciCache/<requestId>.")
     if any(resolved.iterdir()):
@@ -630,6 +630,15 @@ def _is_reparse_point(path: Path) -> bool:
     attributes = getattr(os.lstat(path), "st_file_attributes", 0)
     reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
     return bool(attributes & reparse_attribute)
+
+
+def _contains_reparse_point(path: Path) -> bool:
+    current = Path(path.anchor)
+    for segment in path.parts[1:]:
+        current /= segment
+        if _is_reparse_point(current):
+            return True
+    return False
 
 
 def _normalized_error(error: Exception) -> tuple[str, str]:

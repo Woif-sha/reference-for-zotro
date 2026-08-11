@@ -150,7 +150,7 @@ Executed from a clean dependency installation on Windows:
 | GitHub workflow formatting  | Passed.                                                                                                              |
 | Production build            | Passed twice.                                                                                                        |
 | XPI content/denylist audit  | Passed; 18 members.                                                                                                  |
-| Deterministic package check | Both builds produced SHA-256 `c6037f5d6365ffd5356bb721c97e17d950dc711d34baccdc5550bebcdb73fdc4`, size 106,720 bytes. |
+| Deterministic package check | Both builds produced SHA-256 `b884b9da929fd2625fbd466e31cd050cad5e80126825e2231c37c6c89ad49028`, size 106,755 bytes. |
 | Diff whitespace check       | Passed on the complete issue #42 diff.                                                                               |
 | Network-dependent smoke     | Explicitly not run; no fixture/mock success is reported as a real network result.                                    |
 

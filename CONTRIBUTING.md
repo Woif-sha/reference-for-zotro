@@ -22,7 +22,7 @@ npm run format:check
 npm run build
 ```
 
-Reader UI changes must also be installed as the generated XPI and checked in a real Zotero 9 Reader. Browser-like DOM tests do not replace XUL/XML runtime validation.
+Reader UI changes must keep browser-like DOM coverage and pass the automated build gate on each implementation ticket. Installing the generated XPI and checking it in a real Zotero 9 Reader is deferred to the explicit final integration acceptance ticket, where XUL/XML runtime validation is performed once against the assembled feature set. Individual implementation tickets are not blocked on repeated manual XPI acceptance unless their issue explicitly requires it.
 
 ## Change guidelines
 

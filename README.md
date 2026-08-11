@@ -1,6 +1,6 @@
 # Reference for Zotero
 
-> 当前分支生成 `1.1.0-beta.1` 第二阶段测试构建，仅用于 Zotero 9 实机验收；不对应 Git tag、GitHub Release 或自动更新渠道。
+> 当前分支可生成 `1.1.0-beta.1` 第二阶段测试构建，供功能集合完成后的最终 Zotero 9 集成验收；不对应 Git tag、GitHub Release 或自动更新渠道。
 
 Reference for Zotero 是面向 Zotero 9 Reader 的相关文献插件。它从当前论文已有的 MinerU Markdown 中读取参考文献，并在 Reader 侧栏中提供文献解析、反向引用、详情卡片与可信落地页跳转。
 
@@ -36,7 +36,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 
 后续稳定版可通过插件更新地址获取 `update.json`。也可以下载新 XPI 后按相同步骤覆盖安装。
 
-第二阶段测试构建仅为通过 Zotero bootstrap 清单校验而保留 `update_url`；本任务不发布对应的更新元数据，因此不会自动进入稳定版或 beta 更新渠道。完整首次使用与验收步骤见 [第二阶段测试 XPI 验收说明](docs/testing/second-stage-xpi.md)。
+第二阶段测试构建仅为通过 Zotero bootstrap 清单校验而保留 `update_url`；本任务不发布对应的更新元数据，因此不会自动进入稳定版或 beta 更新渠道。完整的最终集成验收步骤见 [第二阶段测试 XPI 验收说明](docs/testing/second-stage-xpi.md)。
 
 ## 使用
 

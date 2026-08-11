@@ -2,6 +2,8 @@
 
 本说明只适用于 `Reference for Zotero (Second-stage Test)` 1.1.0-beta.1。该 XPI 使用正式插件 ID 覆盖安装。Zotero 的 bootstrap 插件清单校验要求保留 `update_url`，但本任务不发布对应的 `update-beta.json`、Git tag 或 GitHub Release，因此没有可供该测试包获取的自动更新元数据。
 
+本说明用于功能集合完成后的最终集成验收，不作为每个实现 ticket 的关闭门禁。各实现 ticket 仍须通过自动化测试、静态检查、构建与 XPI 内容审计；真实 Zotero 9 的安装和 Reader/XUL/XML 人工检查集中在最终验收 ticket 执行一次，除非某个 issue 明确另有要求。
+
 ## 安装前
 
 - Zotero 版本为 9.0.6–9.0.x。

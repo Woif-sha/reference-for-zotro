@@ -100,6 +100,18 @@ export function matchScholarlyCandidates(
 function formsSingleStableIdentity(
   candidates: readonly ScholarlyCandidate[],
 ): boolean {
+  if (
+    IDENTIFIER_KEYS.some((key) => {
+      const values = new Set(
+        candidates
+          .map((candidate) => normalizeIdentifier(candidate.identifiers[key]))
+          .filter((value): value is string => value !== undefined),
+      );
+      return values.size > 1;
+    })
+  ) {
+    return false;
+  }
   const connected = new Set<number>([0]);
   let previousSize = -1;
   while (connected.size !== previousSize) {

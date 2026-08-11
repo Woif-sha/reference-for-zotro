@@ -275,6 +275,35 @@ test("duplicate exact title-year records sharing one DOI are one non-competing i
   );
 });
 
+test("a missing-identifier record cannot bridge globally conflicting stable identities", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title: "A reliable paper title",
+      authors: ["Smith"],
+      year: 2024,
+    },
+    [
+      candidate({
+        sourceRecordID: "doi-x",
+        identifiers: { doi: "10.1000/x", pmid: "123" },
+      }),
+      candidate({
+        source: "datacite",
+        sourceRecordID: "bridge",
+        identifiers: { pmid: "123" },
+      }),
+      candidate({
+        source: "opencitations-meta",
+        sourceRecordID: "doi-y",
+        identifiers: { doi: "10.1000/y", pmid: "123" },
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "ambiguous");
+});
+
 test("HTML entities are decoded before exact title comparison", () => {
   const result = matchScholarlyCandidates(
     {

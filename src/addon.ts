@@ -12,7 +12,7 @@ export interface ReferenceForZoteroHandle {
 
 export type ReferenceForZoteroStartOptions = Readonly<{
   factory: ReaderControllerFactory;
-  downloadSetup?: DownloadSettingsController;
+  downloadSetup: DownloadSettingsController;
   itemPaneManager?: ItemPaneManagerPort;
 }>;
 
@@ -27,7 +27,7 @@ export function startReferenceForZotero({
     localeNamespace: config.addonRef,
     controllerFactory: factory,
   });
-  void downloadSetup?.probeRuntime();
+  void downloadSetup.probeRuntime();
   let active = true;
 
   return {
@@ -35,7 +35,7 @@ export function startReferenceForZotero({
       if (!active) return;
       active = false;
       unregister();
-      downloadSetup?.dispose();
+      downloadSetup.dispose();
     },
   };
 }

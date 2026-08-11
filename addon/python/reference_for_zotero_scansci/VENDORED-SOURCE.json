@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "moduleVersion": "3.1.0",
+  "moduleVersion": "3.2.0",
   "upstream": {
     "repository": "Rimagination/scansci-pdf",
     "commit": "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",

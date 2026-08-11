@@ -64,7 +64,7 @@ export type ZoteroScanSciPortOptions = Readonly<{
 export function createZoteroScanSciPort(
   options: ZoteroScanSciPortOptions,
 ): ScanSciPort {
-  const moduleRoot = joinWindows(options.sidecarDataRoot, "module-3.1.0");
+  const moduleRoot = joinWindows(options.sidecarDataRoot, "module-3.2.0");
   return createPythonScanSciPort(
     createZoteroScanSciRuntime({
       packagedRootURI: options.packagedRootURI,
@@ -115,26 +115,79 @@ export function createZoteroScanSciRuntime(
       readText(path) {
         return IOUtils.readUTF8(path);
       },
-      async copyExclusiveContained(
+      async commitExclusiveContained(
+        sourceRoot,
         sourcePath,
         destinationRoot,
         destinationPath,
       ) {
-        const root = Zotero.File.pathToFile(destinationRoot);
-        const parent = Zotero.File.pathToFile(parentPath(destinationPath));
-        root.normalize();
-        parent.normalize();
-        if (!root.contains(parent) && !root.equals(parent)) {
+        const sourceDirectory = Zotero.File.pathToFile(sourceRoot);
+        const source = Zotero.File.pathToFile(sourcePath);
+        const destinationDirectory = Zotero.File.pathToFile(destinationRoot);
+        const destinationParent = Zotero.File.pathToFile(
+          parentPath(destinationPath),
+        );
+        for (const [label, file] of [
+          ["ScanSci request directory", sourceDirectory],
+          ["ScanSci output", source],
+          ["Download destination", destinationDirectory],
+          ["Final target parent", destinationParent],
+        ] as const) {
+          if (!file.exists()) throw new Error(`${label} does not exist`);
+          if (file.isSymlink()) {
+            throw new Error(`${label} cannot be a symbolic link or junction`);
+          }
+        }
+        if (!sourceDirectory.isDirectory()) {
+          throw new Error("ScanSci request path is not a directory");
+        }
+        if (!source.isFile()) {
+          throw new Error("ScanSci output is not a regular file");
+        }
+        if (
+          !destinationDirectory.isDirectory() ||
+          !destinationParent.isDirectory()
+        ) {
+          throw new Error("Final target parent is not a directory");
+        }
+        const requestedPaths = [
+          sourceDirectory.path,
+          source.path,
+          destinationDirectory.path,
+          destinationParent.path,
+        ];
+        sourceDirectory.normalize();
+        source.normalize();
+        destinationDirectory.normalize();
+        destinationParent.normalize();
+        const normalizedFiles = [
+          sourceDirectory,
+          source,
+          destinationDirectory,
+          destinationParent,
+        ];
+        if (
+          normalizedFiles.some(
+            (file, index) =>
+              !sameWindowsPath(file.path, requestedPaths[index] ?? ""),
+          )
+        ) {
           throw new Error(
-            "Final target parent escaped the download destination",
+            "Final commit cannot traverse a symbolic link or junction",
           );
         }
-        if (root.isSymlink() || parent.isSymlink()) {
+        if (
+          !sourceDirectory.contains(source) ||
+          sourceDirectory.equals(source)
+        ) {
+          throw new Error("ScanSci output escaped its request directory");
+        }
+        if (!destinationDirectory.equals(destinationParent)) {
           throw new Error(
-            "Final target cannot traverse a symbolic link or junction",
+            "Final target must be in the download destination root",
           );
         }
-        await IOUtils.copy(sourcePath, destinationPath, { noOverwrite: true });
+        await IOUtils.move(source.path, destinationPath, { noOverwrite: true });
       },
       async removeDirectory(path) {
         const directory = Zotero.File.pathToFile(path);
@@ -273,6 +326,7 @@ async function runZoteroSubprocess(
   } catch (error) {
     await killOnce();
     await wait.catch(() => undefined);
+    await Promise.allSettled([stdout, stderr]);
     throw error;
   } finally {
     timeout.cancel();
@@ -376,6 +430,13 @@ function parentPath(path: string): string {
 
 function joinWindows(left: string, right: string): string {
   return `${left.replace(/[\\/]+$/u, "")}\\${right.replace(/\//gu, "\\").replace(/^[\\/]+/u, "")}`;
+}
+
+function sameWindowsPath(left: string, right: string): boolean {
+  return (
+    left.replace(/\//gu, "\\").toLowerCase() ===
+    right.replace(/\//gu, "\\").toLowerCase()
+  );
 }
 
 function zoteroArchitecture(): ScanSciArchitecture {

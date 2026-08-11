@@ -67,6 +67,7 @@ test("automatic probe returns the exact incompatibility without creating or swit
           available: false,
           sources: ["arxiv", "pmc"],
           operations: ["downloadOne", "downloadBatch"],
+          concurrency: "bounded",
         },
         institutionCandidate(),
       ],
@@ -83,11 +84,70 @@ test("automatic probe returns the exact incompatibility without creating or swit
   );
 });
 
+test("one paper uses one downloadOne operation and one isolated request directory", async () => {
+  const requestID = "33333333-3333-4333-8333-333333333333";
+  const calls: PythonProcessRequest[] = [];
+  const exclusiveDirectories: string[] = [];
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    requestID,
+  ];
+  const runtime = runtimeWith(
+    async (request) => {
+      calls.push(request);
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      assert.equal(input.operation, "downloadOne");
+      return sidecarComplete(input, {
+        result: downloadedResult("2101.00001", "paper.pdf"),
+      });
+    },
+    {
+      nextRequestID: () => ids.shift() ?? requestID,
+      createDirectoryExclusive: async (path) => {
+        exclusiveDirectories.push(path);
+      },
+    },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const result = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.equal(result[0]?.result.status, "downloaded");
+  assert.deepEqual(
+    calls
+      .filter((call) => !call.arguments.includes("-0p"))
+      .map((call) => protocolInput(call).operation),
+    ["probe", "probe", "downloadOne"],
+  );
+  assert.deepEqual(exclusiveDirectories, [
+    `E:\\paper\\ScanSciCache\\${requestID}`,
+  ]);
+});
+
 test("one sidecar batch preserves per-paper progress, legal-source commit, and failure isolation", async () => {
   const batchID = "33333333-3333-4333-8333-333333333333";
   const requestDirectory = `E:\\paper\\ScanSciCache\\${batchID}`;
   const calls: PythonProcessRequest[] = [];
-  const copied: Array<readonly [string, string]> = [];
+  const committed: Array<readonly [string, string, string, string]> = [];
   const removed: string[] = [];
   const ids = [
     "11111111-1111-4111-8111-111111111111",
@@ -109,6 +169,7 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
       }
       assert.equal(input.operation, "downloadBatch");
       const downloaded = downloadedResult("2101.00001", "arxiv_2101.00001.pdf");
+      const collision = downloadedResult("10.1000/collision", "collision.pdf");
       const failed = {
         schemaVersion: "1.0.0",
         status: "failed",
@@ -118,15 +179,17 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
         error: { code: "no-pdf", message: "No audited PDF was found" },
       };
       const messages = [
-        sidecarProgress(input, 1, 2, "item-1", downloaded),
-        sidecarProgress(input, 2, 2, "item-2", failed),
+        sidecarProgress(input, 1, 3, "item-1", downloaded),
+        sidecarProgress(input, 2, 3, "item-2", collision),
+        sidecarProgress(input, 3, 3, "item-3", failed),
         sidecarCompletion(input, {
-          total: 2,
-          downloaded: 1,
+          total: 3,
+          downloaded: 2,
           failed: 1,
           results: [
             { itemId: "item-1", result: downloaded },
-            { itemId: "item-2", result: failed },
+            { itemId: "item-2", result: collision },
+            { itemId: "item-3", result: failed },
           ],
         }),
       ];
@@ -139,8 +202,16 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
     },
     {
       nextRequestID: () => ids.shift() ?? batchID,
-      copyExclusiveContained: async (source, _root, target) => {
-        copied.push([source, target]);
+      commitExclusiveContained: async (
+        sourceRoot,
+        source,
+        destinationRoot,
+        target,
+      ) => {
+        committed.push([sourceRoot, source, destinationRoot, target]);
+        if (target.endsWith("Collision paper.pdf")) {
+          throw new Error("Final target already exists");
+        }
       },
       removeDirectory: async (path) => {
         removed.push(path);
@@ -156,6 +227,11 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
         itemID: "arxiv-paper",
         paper: { title: "arXiv paper", arxivID: "2101.00001" },
         canonicalFinalTarget: "E:\\paper\\arXiv paper.pdf",
+      },
+      {
+        itemID: "collision-paper",
+        paper: { title: "Collision paper", doi: "10.1000/collision" },
+        canonicalFinalTarget: "E:\\paper\\Collision paper.pdf",
       },
       {
         itemID: "pmc-paper",
@@ -176,6 +252,13 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
       },
     },
     {
+      itemID: "collision-paper",
+      result: {
+        status: "failed",
+        error: "Final target already exists",
+      },
+    },
+    {
       itemID: "pmc-paper",
       result: {
         status: "failed",
@@ -192,14 +275,97 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
     ).length,
     1,
   );
-  assert.deepEqual(copied, [
-    [`${requestDirectory}\\arxiv_2101.00001.pdf`, "E:\\paper\\arXiv paper.pdf"],
+  assert.deepEqual(committed, [
+    [
+      requestDirectory,
+      `${requestDirectory}\\arxiv_2101.00001.pdf`,
+      "E:\\paper",
+      "E:\\paper\\arXiv paper.pdf",
+    ],
+    [
+      requestDirectory,
+      `${requestDirectory}\\collision.pdf`,
+      "E:\\paper",
+      "E:\\paper\\Collision paper.pdf",
+    ],
   ]);
   assert.deepEqual(removed, [requestDirectory]);
 });
 
+test("an invalid canonical target fails only that paper while the remaining selection stays one batch", async () => {
+  const batchID = "33333333-3333-4333-8333-333333333333";
+  const calls: PythonProcessRequest[] = [];
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    batchID,
+  ];
+  const runtime = runtimeWith(
+    async (request) => {
+      calls.push(request);
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      assert.equal(input.operation, "downloadBatch");
+      const downloaded = downloadedResult("2101.00001", "paper.pdf");
+      const progress = sidecarProgress(input, 1, 1, "item-1", downloaded);
+      const complete = sidecarCompletion(input, {
+        total: 1,
+        downloaded: 1,
+        failed: 0,
+        results: [{ itemId: "item-1", result: downloaded }],
+      });
+      await request.onStdoutLine?.(JSON.stringify(progress));
+      await request.onStdoutLine?.(JSON.stringify(complete));
+      return processResult(
+        `${JSON.stringify(progress)}\n${JSON.stringify(complete)}\n`,
+      );
+    },
+    { nextRequestID: () => ids.shift() ?? batchID },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const results = await port.downloadPapers({
+    items: [
+      {
+        itemID: "bad-target",
+        paper: { title: "Bad target", pmcid: "PMC1234" },
+        canonicalFinalTarget: "E:\\other\\Bad target.pdf",
+      },
+      {
+        itemID: "good-target",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.equal(results[0]?.result.status, "failed");
+  assert.match(
+    results[0]?.result.status === "failed" ? results[0].result.error : "",
+    /outside the download destination/u,
+  );
+  assert.equal(results[1]?.result.status, "downloaded");
+  assert.equal(
+    calls.filter(
+      (call) =>
+        !call.arguments.includes("-0p") &&
+        protocolInput(call).operation === "downloadBatch",
+    ).length,
+    1,
+  );
+});
+
 test("prohibited source evidence never reaches the exclusive final commit", async () => {
-  let copied = false;
+  let committed = false;
   const ids = [
     "11111111-1111-4111-8111-111111111111",
     "22222222-2222-4222-8222-222222222222",
@@ -233,8 +399,8 @@ test("prohibited source evidence never reaches the exclusive final commit", asyn
     {
       nextRequestID: () =>
         ids.shift() ?? "44444444-4444-4444-8444-444444444444",
-      copyExclusiveContained: async () => {
-        copied = true;
+      commitExclusiveContained: async () => {
+        committed = true;
       },
     },
   );
@@ -255,7 +421,243 @@ test("prohibited source evidence never reaches the exclusive final commit", asyn
     status: "failed",
     error: "Prohibited ScanSci source: scihub",
   });
-  assert.equal(copied, false);
+  assert.equal(committed, false);
+});
+
+test("unexpected source-rule routes fail before sidecar egress", async () => {
+  let downloadCalled = false;
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+  ];
+  const tamperedRules = JSON.parse(sourceRules()) as {
+    routes: Array<Record<string, unknown>>;
+  };
+  tamperedRules.routes.push({
+    id: "unreviewed-source",
+    enabled: true,
+    kind: "open-access",
+    allowedHosts: ["example.test"],
+  });
+  const runtime = runtimeWith(
+    async (request) => {
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      downloadCalled = true;
+      return sidecarComplete(input, {
+        result: downloadedResult("2101.00001", "paper.pdf"),
+      });
+    },
+    {
+      nextRequestID: () =>
+        ids.shift() ?? "33333333-3333-4333-8333-333333333333",
+      readText: async () => JSON.stringify(tamperedRules),
+    },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const [outcome] = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.equal(outcome?.result.status, "failed");
+  assert.match(
+    outcome?.result.status === "failed" ? outcome.result.error : "",
+    /source-rules route set is incompatible/u,
+  );
+  assert.equal(downloadCalled, false);
+});
+
+test("non-standard HTTPS ports fail plugin source validation before final commit", async () => {
+  let committed = false;
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    "33333333-3333-4333-8333-333333333333",
+  ];
+  const runtime = runtimeWith(
+    async (request) => {
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      return sidecarComplete(input, {
+        result: {
+          ...downloadedResult("2101.00001", "paper.pdf"),
+          sourceEvidence: {
+            routeId: "open-access",
+            source: "arxiv",
+            sourceUrl: "https://arxiv.org:444/paper.pdf",
+            egressHosts: ["arxiv.org"],
+            legal: true,
+          },
+        },
+      });
+    },
+    {
+      nextRequestID: () =>
+        ids.shift() ?? "44444444-4444-4444-8444-444444444444",
+      commitExclusiveContained: async () => {
+        committed = true;
+      },
+    },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const [outcome] = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.equal(outcome?.result.status, "failed");
+  assert.match(
+    outcome?.result.status === "failed" ? outcome.result.error : "",
+    /strict egress validation/u,
+  );
+  assert.equal(committed, false);
+});
+
+test("an in-request output link is rejected by the final commit seam", async () => {
+  const requestID = "33333333-3333-4333-8333-333333333333";
+  const requestDirectory = `E:\\paper\\ScanSciCache\\${requestID}`;
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    requestID,
+  ];
+  const runtime = runtimeWith(
+    async (request) => {
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      return sidecarComplete(input, {
+        result: downloadedResult("2101.00001", "linked.pdf"),
+      });
+    },
+    {
+      nextRequestID: () => ids.shift() ?? requestID,
+      canonicalizeExisting: async (path) =>
+        path.endsWith("linked.pdf") ? `${requestDirectory}\\regular.pdf` : path,
+      commitExclusiveContained: async (_root, source) => {
+        if (source.endsWith("linked.pdf")) {
+          throw new Error(
+            "ScanSci output cannot be a symbolic link or junction",
+          );
+        }
+      },
+    },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const [outcome] = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.deepEqual(outcome?.result, {
+    status: "failed",
+    error: "ScanSci output cannot be a symbolic link or junction",
+  });
+});
+
+test("a timed-out sidecar leaves only its request directory as inspectable crash residue", async () => {
+  const requestID = "33333333-3333-4333-8333-333333333333";
+  const requestDirectory = `E:\\paper\\ScanSciCache\\${requestID}`;
+  const removed: string[] = [];
+  const exclusiveDirectories: string[] = [];
+  const ids = [
+    "11111111-1111-4111-8111-111111111111",
+    "22222222-2222-4222-8222-222222222222",
+    requestID,
+  ];
+  const runtime = runtimeWith(
+    async (request) => {
+      if (request.arguments.includes("-0p")) {
+        return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+      }
+      const input = protocolInput(request);
+      if (input.operation === "probe") {
+        return sidecarComplete(
+          input,
+          probePayload("C:\\Python312\\python.exe", "3.12.10"),
+        );
+      }
+      return {
+        exitCode: -1,
+        stdout: "",
+        stderr: "",
+        timedOut: true,
+      };
+    },
+    {
+      nextRequestID: () => ids.shift() ?? requestID,
+      removeDirectory: async (path) => {
+        removed.push(path);
+      },
+      createDirectoryExclusive: async (path) => {
+        exclusiveDirectories.push(path);
+      },
+    },
+  );
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+
+  const [outcome] = await port.downloadPapers({
+    items: [
+      {
+        itemID: "paper",
+        paper: { title: "Paper", arxivID: "2101.00001" },
+        canonicalFinalTarget: "E:\\paper\\Paper.pdf",
+      },
+    ],
+    downloadDestination: "E:\\paper",
+  });
+
+  assert.deepEqual(outcome?.result, {
+    status: "failed",
+    error: "ScanSci sidecar timed out",
+  });
+  assert.deepEqual(removed, []);
+  assert.deepEqual(exclusiveDirectories, [requestDirectory]);
 });
 
 function runtimeWith(
@@ -278,7 +680,7 @@ function runtimeWith(
       async readText() {
         return sourceRules();
       },
-      async copyExclusiveContained() {},
+      async commitExclusiveContained() {},
       async removeDirectory() {},
       ...overrides,
     },
@@ -350,7 +752,7 @@ function sidecarProgress(
 
 function probePayload(executable: string, pythonVersion: string) {
   return {
-    application: { name: "reference-for-zotero-scansci", version: "3.1.0" },
+    application: { name: "reference-for-zotero-scansci", version: "3.2.0" },
     runtime: {
       implementation: "CPython",
       pythonVersion,
@@ -378,6 +780,7 @@ function probePayload(executable: string, pythonVersion: string) {
         available: true,
         sources: ["arxiv", "pmc"],
         operations: ["downloadOne", "downloadBatch"],
+        concurrency: "bounded",
       },
       institutionCandidate(),
     ],
@@ -402,6 +805,8 @@ function institutionCandidate() {
     status: "candidate",
     available: false,
     operations: ["visibleLogin", "downloadOne"],
+    concurrency: "single-profile-writer",
+    profileId: "zotero",
     reason: "real-world-route-audit-pending",
   };
 }
@@ -455,8 +860,24 @@ function sourceRules(): string {
         kind: "open-access",
         allowedHosts: ["www.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov"],
       },
+      {
+        id: "institution-browser",
+        enabled: false,
+        kind: "institution",
+        allowedHosts: [],
+        disabledReason:
+          "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance",
+      },
     ],
-    prohibitedSources: ["scihub", "libgen", "scibban", "tor", "vpnsci"],
+    prohibitedSources: [
+      "scihub",
+      "libgen",
+      "scibban",
+      "tor",
+      "proxy-pool",
+      "vpnsci",
+      "unknown",
+    ],
     forcedPolicy: {
       strategy: "legal_only",
       scihubEnabled: false,

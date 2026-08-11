@@ -1,3 +1,3 @@
 """Reference for Zotero's audited ScanSci compatibility module."""
 
-MODULE_VERSION = "3.1.0"
+MODULE_VERSION = "3.2.0"

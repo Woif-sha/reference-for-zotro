@@ -8,7 +8,7 @@ import {
   type ScanSciRouteCapability,
 } from "./scan-sci-port";
 
-export const SCANSCI_MODULE_VERSION = "3.1.0" as const;
+export const SCANSCI_MODULE_VERSION = "3.2.0" as const;
 export const SCANSCI_UPSTREAM_REVISION =
   "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5" as const;
 export const INSTITUTION_ROUTE_ID =
@@ -138,7 +138,26 @@ export function parseSidecarMessage(
     throw new Error("ScanSci sidecar response identity is incompatible");
   }
   if (value.type === "progress") {
-    if (expected.operation !== "downloadBatch" || !isRecord(value.payload)) {
+    if (
+      expected.operation !== "downloadBatch" ||
+      !hasExactKeys(value, [
+        "protocol",
+        "contractVersion",
+        "resultSchemaVersion",
+        "requestId",
+        "operation",
+        "type",
+        "payload",
+      ]) ||
+      !isRecord(value.payload) ||
+      !hasExactKeys(value.payload, [
+        "sequence",
+        "completed",
+        "total",
+        "itemId",
+        "result",
+      ])
+    ) {
       throw new Error("ScanSci sidecar emitted unexpected progress");
     }
     const { sequence, completed, total, itemId, result } = value.payload;
@@ -166,9 +185,23 @@ export function parseSidecarMessage(
   if (value.type !== "complete" || typeof value.ok !== "boolean") {
     throw new Error("ScanSci sidecar response type is invalid");
   }
+  const completionKeys = [
+    "protocol",
+    "contractVersion",
+    "resultSchemaVersion",
+    "requestId",
+    "operation",
+    "type",
+    "ok",
+    value.ok ? "payload" : "error",
+  ];
+  if (!hasExactKeys(value, completionKeys)) {
+    throw new Error("ScanSci sidecar response contains unexpected fields");
+  }
   if (!value.ok) {
     if (
       !isRecord(value.error) ||
+      !hasExactKeys(value.error, ["code", "message", "retryable"]) ||
       typeof value.error.code !== "string" ||
       typeof value.error.message !== "string" ||
       typeof value.error.retryable !== "boolean"
@@ -200,14 +233,41 @@ export function parseSidecarMessage(
 export function parseProbePayload(value: unknown): SidecarProbe {
   if (
     !isRecord(value) ||
+    !hasExactKeys(value, [
+      "application",
+      "runtime",
+      "source",
+      "contractVersion",
+      "resultSchemaVersion",
+      "operations",
+      "compatibility",
+      "routeCapabilities",
+      "policy",
+    ]) ||
     !isRecord(value.application) ||
+    !hasExactKeys(value.application, ["name", "version"]) ||
     value.application.name !== "reference-for-zotero-scansci" ||
     value.application.version !== SCANSCI_MODULE_VERSION ||
     !isRecord(value.runtime) ||
+    !hasExactKeys(value.runtime, [
+      "implementation",
+      "pythonVersion",
+      "executable",
+      "architecture",
+      "platform",
+    ]) ||
+    value.runtime.implementation !== "CPython" ||
+    value.runtime.platform !== "Windows" ||
     typeof value.runtime.executable !== "string" ||
     typeof value.runtime.pythonVersion !== "string" ||
     !isArchitecture(value.runtime.architecture) ||
     !isRecord(value.source) ||
+    !hasExactKeys(value.source, [
+      "repository",
+      "revision",
+      "installKind",
+      "dirty",
+    ]) ||
     value.source.repository !== "Rimagination/scansci-pdf" ||
     value.source.revision !== SCANSCI_UPSTREAM_REVISION ||
     value.source.installKind !== "audited-plugin-fragments" ||
@@ -223,16 +283,22 @@ export function parseProbePayload(value: unknown): SidecarProbe {
     ]) ||
     !Array.isArray(value.routeCapabilities) ||
     !isRecord(value.compatibility) ||
+    !hasExactKeys(value.compatibility, [
+      "status",
+      "minimumPython",
+      "dependencies",
+    ]) ||
     value.compatibility.minimumPython !== "3.11" ||
     !Array.isArray(value.compatibility.dependencies) ||
     !isRecord(value.policy) ||
+    !hasExactKeys(value.policy, ["mode", "disabledRoutes"]) ||
     value.policy.mode !== "legal-only" ||
     !Array.isArray(value.policy.disabledRoutes)
   ) {
     throw new Error("ScanSci sidecar probe payload is incompatible");
   }
   const disabledRoutes = value.policy.disabledRoutes;
-  for (const required of [
+  const requiredDisabledRoutes = [
     "sci-hub",
     "libgen",
     "scibban",
@@ -240,10 +306,9 @@ export function parseProbePayload(value: unknown): SidecarProbe {
     "proxy-pool",
     "vpnsci",
     "unknown",
-  ]) {
-    if (!disabledRoutes.includes(required)) {
-      throw new Error(`ScanSci sidecar policy does not disable ${required}`);
-    }
+  ];
+  if (!sameStringSet(disabledRoutes, requiredDisabledRoutes)) {
+    throw new Error("ScanSci sidecar disabled-route policy is incompatible");
   }
   const dependencies =
     value.compatibility.dependencies.map(parseProbeDependency);
@@ -289,6 +354,11 @@ export function parseProbePayload(value: unknown): SidecarProbe {
 function parseProbeDependency(value: unknown): ScanSciDependency {
   if (
     !isRecord(value) ||
+    !hasExactKeys(
+      value,
+      ["name", "requirement", "status"],
+      ["installedVersion"],
+    ) ||
     typeof value.name !== "string" ||
     typeof value.requirement !== "string" ||
     (value.installedVersion !== undefined &&
@@ -310,7 +380,7 @@ function parseProbeDependency(value: unknown): ScanSciDependency {
 }
 
 export function parseDownloadOnePayload(value: unknown): SidecarDownloadResult {
-  if (!isRecord(value) || !("result" in value)) {
+  if (!isRecord(value) || !hasExactKeys(value, ["result"])) {
     throw new Error("ScanSci downloadOne completion is invalid");
   }
   return parseSidecarDownloadResult(value.result);
@@ -321,6 +391,7 @@ export function parseDownloadBatchPayload(
 ): readonly Readonly<{ itemID: string; result: SidecarDownloadResult }>[] {
   if (
     !isRecord(value) ||
+    !hasExactKeys(value, ["total", "downloaded", "failed", "results"]) ||
     !nonNegativeInteger(value.total) ||
     !nonNegativeInteger(value.downloaded) ||
     !nonNegativeInteger(value.failed) ||
@@ -331,7 +402,11 @@ export function parseDownloadBatchPayload(
     throw new Error("ScanSci downloadBatch completion is invalid");
   }
   const results = value.results.map((item) => {
-    if (!isRecord(item) || typeof item.itemId !== "string") {
+    if (
+      !isRecord(item) ||
+      !hasExactKeys(item, ["itemId", "result"]) ||
+      typeof item.itemId !== "string"
+    ) {
       throw new Error("ScanSci downloadBatch item is invalid");
     }
     return {
@@ -355,15 +430,35 @@ function parseRoutes(
     (route) => isRecord(route) && route.routeId === INSTITUTION_ROUTE_ID,
   );
   if (
+    value.length !== 2 ||
     !isRecord(openAccess) ||
+    !hasExactKeys(openAccess, [
+      "routeId",
+      "available",
+      "sources",
+      "operations",
+      "concurrency",
+    ]) ||
     openAccess.available !== true ||
     !sameStringSet(openAccess.sources, ["arxiv", "pmc"]) ||
     !sameStringSet(openAccess.operations, ["downloadOne", "downloadBatch"]) ||
+    openAccess.concurrency !== "bounded" ||
     !isRecord(institution) ||
+    !hasExactKeys(institution, [
+      "routeId",
+      "status",
+      "available",
+      "operations",
+      "concurrency",
+      "profileId",
+      "reason",
+    ]) ||
     institution.status !== "candidate" ||
     institution.available !== false ||
     institution.reason !== "real-world-route-audit-pending" ||
-    !sameStringSet(institution.operations, ["visibleLogin", "downloadOne"])
+    !sameStringSet(institution.operations, ["visibleLogin", "downloadOne"]) ||
+    institution.concurrency !== "single-profile-writer" ||
+    institution.profileId !== "zotero"
   ) {
     throw new Error("ScanSci sidecar route capabilities are incompatible");
   }
@@ -386,6 +481,14 @@ function parseRoutes(
 function parseSidecarDownloadResult(value: unknown): SidecarDownloadResult {
   if (
     !isRecord(value) ||
+    !hasExactKeys(value, [
+      "schemaVersion",
+      "status",
+      "identifier",
+      "sourceEvidence",
+      "relativePath",
+      "error",
+    ]) ||
     value.schemaVersion !== SCANSCI_SIDECAR_RESULT_SCHEMA_VERSION ||
     typeof value.identifier !== "string"
   ) {
@@ -396,6 +499,7 @@ function parseSidecarDownloadResult(value: unknown): SidecarDownloadResult {
       value.sourceEvidence !== null ||
       value.relativePath !== null ||
       !isRecord(value.error) ||
+      !hasExactKeys(value.error, ["code", "message"]) ||
       typeof value.error.code !== "string" ||
       typeof value.error.message !== "string"
     ) {
@@ -413,6 +517,13 @@ function parseSidecarDownloadResult(value: unknown): SidecarDownloadResult {
     !value.relativePath ||
     value.error !== null ||
     !isRecord(value.sourceEvidence) ||
+    !hasExactKeys(value.sourceEvidence, [
+      "routeId",
+      "source",
+      "sourceUrl",
+      "egressHosts",
+      "legal",
+    ]) ||
     value.sourceEvidence.routeId !== "open-access" ||
     typeof value.sourceEvidence.source !== "string" ||
     typeof value.sourceEvidence.sourceUrl !== "string" ||
@@ -460,4 +571,17 @@ function nonNegativeInteger(value: unknown): value is number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): boolean {
+  const keys = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  return (
+    required.every((key) => keys.includes(key)) &&
+    keys.every((key) => allowed.has(key))
+  );
 }

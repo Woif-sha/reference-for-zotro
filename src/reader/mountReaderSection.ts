@@ -214,9 +214,7 @@ export function mountReaderSection(options: {
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
-      !state.downloadAvailable ||
-      (state.downloadSetup !== undefined &&
-        state.downloadSetup.runtime.status !== "ready");
+      !state.downloadAvailable;
     root.innerHTML = `
       <style>${READER_STYLES}</style>
       <header class="rfz-header">

@@ -62,7 +62,7 @@ function capability(): ScanSciCapability {
     executable: "C:\\Python313\\python.exe",
     pythonVersion: "3.13.1",
     architecture: "x64",
-    moduleVersion: "3.1.0",
+    moduleVersion: "3.2.0",
     schemaVersion: 3,
     sourceRulesVersion: 3,
     dependencies: [],

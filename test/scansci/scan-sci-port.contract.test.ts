@@ -146,6 +146,12 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
               allowedHosts: ["arxiv.org", "export.arxiv.org"],
             },
             {
+              id: "pmc",
+              enabled: true,
+              kind: "open-access",
+              allowedHosts: ["www.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov"],
+            },
+            {
               id: "institution-browser",
               enabled: false,
               kind: "institution",
@@ -154,7 +160,15 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
                 "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance",
             },
           ],
-          prohibitedSources: ["scihub", "libgen", "scibban", "tor", "vpnsci"],
+          prohibitedSources: [
+            "scihub",
+            "libgen",
+            "scibban",
+            "tor",
+            "proxy-pool",
+            "vpnsci",
+            "unknown",
+          ],
           forcedPolicy: {
             strategy: "legal_only",
             scihubEnabled: false,
@@ -187,7 +201,7 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
           ],
         });
       },
-      async copyExclusiveContained() {},
+      async commitExclusiveContained() {},
       async removeDirectory() {},
     },
     nextRequestID: () => requestID,
@@ -204,7 +218,7 @@ function availableCapability(): ScanSciCapability {
     executable: "D:\\Python\\Python3.12\\python.exe",
     pythonVersion: "3.12.10",
     architecture: "x64",
-    moduleVersion: "3.1.0",
+    moduleVersion: "3.2.0",
     schemaVersion: 3,
     sourceRulesVersion: 3,
     dependencies: [
@@ -253,7 +267,7 @@ function sidecarProbeResult(
   executable: string,
 ) {
   return sidecarComplete(request, {
-    application: { name: "reference-for-zotero-scansci", version: "3.1.0" },
+    application: { name: "reference-for-zotero-scansci", version: "3.2.0" },
     runtime: {
       implementation: "CPython",
       pythonVersion: "3.12.10",
@@ -281,12 +295,15 @@ function sidecarProbeResult(
         available: true,
         sources: ["arxiv", "pmc"],
         operations: ["downloadOne", "downloadBatch"],
+        concurrency: "bounded",
       },
       {
         routeId: "institution-webvpn/ieee/one-click-single",
         status: "candidate",
         available: false,
         operations: ["visibleLogin", "downloadOne"],
+        concurrency: "single-profile-writer",
+        profileId: "zotero",
         reason: "real-world-route-audit-pending",
       },
     ],

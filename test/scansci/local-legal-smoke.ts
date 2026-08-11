@@ -50,7 +50,12 @@ const runtime: PythonScanSciRuntime = {
       await mkdir(value, { recursive: false });
     },
     readText: (value) => readFile(value, "utf8"),
-    async copyExclusiveContained(source, destinationRoot, target) {
+    async commitExclusiveContained(
+      _sourceRoot,
+      source,
+      destinationRoot,
+      target,
+    ) {
       const canonicalRoot = await realpath(destinationRoot);
       const canonicalParent = await realpath(path.dirname(target));
       const relative = path.relative(canonicalRoot, canonicalParent);

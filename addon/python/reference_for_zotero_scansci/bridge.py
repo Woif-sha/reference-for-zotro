@@ -25,7 +25,7 @@ from vendored.sources import (
 
 SCHEMA_VERSION = 3
 SOURCE_RULES_VERSION = 3
-MODULE_VERSION = "3.1.0"
+MODULE_VERSION = "3.2.0"
 PROXY_ENVIRONMENT = (
     "ALL_PROXY",
     "HTTPS_PROXY",
@@ -241,6 +241,15 @@ def result(source_id, source_url, egress_hosts, output_path):
 def load_source_rules():
     path = Path(__file__).with_name("source-rules-v3.json")
     rules = json.loads(path.read_text(encoding="utf-8"))
+    if set(rules) != {
+        "schemaVersion",
+        "sourceRulesVersion",
+        "routes",
+        "prohibitedSources",
+        "forcedPolicy",
+        "removedEnvironment",
+    }:
+        raise RuntimeError("Source-rules fields are incompatible")
     if rules.get("schemaVersion") != SCHEMA_VERSION:
         raise RuntimeError("Source-rules schema is incompatible")
     if rules.get("sourceRulesVersion") != SOURCE_RULES_VERSION:
@@ -254,15 +263,43 @@ def load_source_rules():
         raise RuntimeError("Source-rules legal-only policy is incompatible")
     if tuple(rules.get("removedEnvironment", ())) != PROXY_ENVIRONMENT:
         raise RuntimeError("Source-rules environment isolation is incompatible")
-    prohibited = {str(item).lower() for item in rules.get("prohibitedSources", [])}
-    if not {"scihub", "libgen", "scibban", "tor", "vpnsci"}.issubset(prohibited):
-        raise RuntimeError("Source-rules prohibited-source list is incomplete")
-    institution = next(
-        (route for route in rules.get("routes", []) if route.get("kind") == "institution"),
-        None,
-    )
-    if not institution or institution.get("enabled") is not False:
-        raise RuntimeError("Institution route must remain disabled pending acceptance")
+    expected_routes = [
+        {
+            "id": "arxiv",
+            "enabled": True,
+            "kind": "open-access",
+            "allowedHosts": ["arxiv.org", "export.arxiv.org"],
+        },
+        {
+            "id": "pmc",
+            "enabled": True,
+            "kind": "open-access",
+            "allowedHosts": ["www.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov"],
+        },
+        {
+            "id": "institution-browser",
+            "enabled": False,
+            "kind": "institution",
+            "allowedHosts": [],
+            "disabledReason": (
+                "Institution browser route is disabled pending strict-TLS, source, "
+                "egress, Windows, and Zotero acceptance"
+            ),
+        },
+    ]
+    if rules.get("routes") != expected_routes:
+        raise RuntimeError("Source-rules route set is incompatible")
+    prohibited = tuple(str(item).lower() for item in rules.get("prohibitedSources", []))
+    if prohibited != (
+        "scihub",
+        "libgen",
+        "scibban",
+        "tor",
+        "proxy-pool",
+        "vpnsci",
+        "unknown",
+    ):
+        raise RuntimeError("Source-rules prohibited-source list is incompatible")
     return rules
 
 

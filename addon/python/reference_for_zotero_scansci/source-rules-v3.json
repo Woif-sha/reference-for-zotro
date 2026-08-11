@@ -22,7 +22,15 @@
       "disabledReason": "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance"
     }
   ],
-  "prohibitedSources": ["scihub", "libgen", "scibban", "tor", "vpnsci"],
+  "prohibitedSources": [
+    "scihub",
+    "libgen",
+    "scibban",
+    "tor",
+    "proxy-pool",
+    "vpnsci",
+    "unknown"
+  ],
   "forcedPolicy": {
     "strategy": "legal_only",
     "scihubEnabled": false,

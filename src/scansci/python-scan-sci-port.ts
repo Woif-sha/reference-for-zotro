@@ -24,6 +24,7 @@ import {
   type SidecarOperation,
   type SidecarProbe,
 } from "./sidecar-protocol";
+import { canonicalPdfFilename } from "./windows-download-path";
 
 const CAPABILITY_TIMEOUT_MILLISECONDS = 10_000;
 const DISCOVERY_TIMEOUT_MILLISECONDS = 5_000;
@@ -89,7 +90,8 @@ export interface PythonScanSciFileSystem {
   createDirectory(path: string): Promise<void>;
   createDirectoryExclusive(path: string): Promise<void>;
   readText(path: string): Promise<string>;
-  copyExclusiveContained(
+  commitExclusiveContained(
+    sourceRoot: string,
     sourcePath: string,
     destinationRoot: string,
     destinationPath: string,
@@ -220,30 +222,6 @@ class PythonScanSciPort implements ScanSciPort {
     const committed = new Set<string>();
     try {
       throwIfAborted(request.signal);
-      const paths = await Promise.all(
-        request.items.map(async (item) => ({
-          item,
-          paths: await this.resolveDownloadPaths(
-            request.downloadDestination,
-            item.canonicalFinalTarget,
-          ),
-        })),
-      );
-      const destination = paths[0]?.paths.destination;
-      if (!destination) {
-        throw new Error("ScanSci download destination is missing");
-      }
-      if (
-        paths.some(
-          ({ paths: current }) =>
-            !sameWindowsPath(current.destination, destination),
-        )
-      ) {
-        throw new Error(
-          "All ScanSci batch items must use one download destination",
-        );
-      }
-
       const executable = await this.requireCompatibleRuntime(request.signal);
       const timeoutMilliseconds =
         request.timeoutMilliseconds ?? DEFAULT_DOWNLOAD_TIMEOUT_MILLISECONDS;
@@ -251,6 +229,39 @@ class PythonScanSciPort implements ScanSciPort {
         throw new Error("ScanSci download timeout must be positive");
       }
       const rules = await this.loadSourceRules();
+      const destination = await this.resolveDownloadDestination(
+        request.downloadDestination,
+      );
+      const prepared: Array<
+        Readonly<{
+          item: PaperDownloadRequest["items"][number];
+          paper: ReturnType<typeof protocolPaper>;
+          paths: Readonly<{ destination: string; finalTarget: string }>;
+        }>
+      > = [];
+      for (const item of request.items) {
+        try {
+          prepared.push({
+            item,
+            paper: protocolPaper(item.paper),
+            paths: await this.resolveFinalTarget(destination, item),
+          });
+        } catch (error) {
+          const failed = {
+            status: "failed",
+            error: originalError(error),
+          } as const;
+          outcomes.set(item.itemID, failed);
+          request.onProgress?.({ itemID: item.itemID, result: failed });
+        }
+      }
+      if (prepared.length === 0) {
+        completedNormally = true;
+        return request.items.map((item) => ({
+          itemID: item.itemID,
+          result: outcomes.get(item.itemID)!,
+        }));
+      }
       const requestID = this.nextRequestID();
       const cacheRoot = joinWindows(destination, "ScanSciCache");
       requestDirectory = joinWindows(cacheRoot, requestID);
@@ -267,9 +278,9 @@ class PythonScanSciPort implements ScanSciPort {
       canonicalOwnedRequestDirectory = canonicalRequestDirectory;
 
       const bySidecarID = new Map(
-        paths.map(({ item, paths: itemPaths }, index) => [
+        prepared.map(({ item, paper, paths: itemPaths }, index) => [
           `item-${index + 1}`,
-          { item, paths: itemPaths },
+          { item, paper, paths: itemPaths },
         ]),
       );
       const operation =
@@ -277,13 +288,13 @@ class PythonScanSciPort implements ScanSciPort {
       const params =
         operation === "downloadOne"
           ? {
-              paper: protocolPaper(request.items[0]!.paper),
+              paper: prepared[0]!.paper,
               outputDir: requestDirectory,
             }
           : {
-              items: [...bySidecarID].map(([itemId, { item }]) => ({
+              items: [...bySidecarID].map(([itemId, { paper }]) => ({
                 itemId,
-                paper: protocolPaper(item.paper),
+                paper,
               })),
               outputDir: requestDirectory,
             };
@@ -343,7 +354,7 @@ class PythonScanSciPort implements ScanSciPort {
         const finalItems = parseDownloadBatchPayload(payload);
         if (
           finalItems.length !== bySidecarID.size ||
-          outcomes.size !== bySidecarID.size
+          sidecarOutcomes.size !== bySidecarID.size
         ) {
           throw new Error("ScanSci sidecar batch did not complete every paper");
         }
@@ -439,14 +450,15 @@ class PythonScanSciPort implements ScanSciPort {
         rules,
       );
       const relativePath = sidecarRelativePath(sidecarResult.relativePath);
-      const output = await this.runtime.files.canonicalizeExisting(
-        joinWindows(requestDirectory, relativePath),
-      );
-      if (!isContainedWindowsPath(requestDirectory, output)) {
+      const requestedOutput = joinWindows(requestDirectory, relativePath);
+      const canonicalOutput =
+        await this.runtime.files.canonicalizeExisting(requestedOutput);
+      if (!isContainedWindowsPath(requestDirectory, canonicalOutput)) {
         throw new Error("ScanSci output escaped its request directory");
       }
-      await this.runtime.files.copyExclusiveContained(
-        output,
+      await this.runtime.files.commitExclusiveContained(
+        requestDirectory,
+        requestedOutput,
         paths.destination,
         paths.finalTarget,
       );
@@ -639,32 +651,38 @@ class PythonScanSciPort implements ScanSciPort {
     return parseSourceRules(JSON.parse(raw) as unknown);
   }
 
-  private async resolveDownloadPaths(
+  private async resolveDownloadDestination(
     downloadDestination: string,
-    canonicalFinalTarget: string,
-  ): Promise<Readonly<{ destination: string; finalTarget: string }>> {
+  ): Promise<string> {
     if (!isAbsoluteWindowsPath(downloadDestination)) {
       throw new Error("Download destination must be an absolute Windows path");
-    }
-    if (!isAbsoluteWindowsPath(canonicalFinalTarget)) {
-      throw new Error(
-        "Canonical final target must be an absolute Windows path",
-      );
     }
     const requestedDestination = normalizeWindowsPath(downloadDestination);
     if (!(await this.runtime.files.pathExists(requestedDestination))) {
       await this.runtime.files.createDirectory(requestedDestination);
     }
-    const destination =
-      await this.runtime.files.canonicalizeExisting(requestedDestination);
-    const targetName = basenameWindows(canonicalFinalTarget);
-    if (!targetName || targetName === "." || targetName === "..") {
-      throw new Error("Canonical final target must name a file");
+    return this.runtime.files.canonicalizeExisting(requestedDestination);
+  }
+
+  private async resolveFinalTarget(
+    destination: string,
+    item: PaperDownloadRequest["items"][number],
+  ): Promise<Readonly<{ destination: string; finalTarget: string }>> {
+    if (!isAbsoluteWindowsPath(item.canonicalFinalTarget)) {
+      throw new Error(
+        "Canonical final target must be an absolute Windows path",
+      );
+    }
+    const targetName = basenameWindows(item.canonicalFinalTarget);
+    if (targetName !== canonicalPdfFilename(item.paper.title)) {
+      throw new Error(
+        "Canonical final target must use the Windows-safe paper title",
+      );
     }
     const targetParent = await this.runtime.files.canonicalizeExisting(
-      dirnameWindows(normalizeWindowsPath(canonicalFinalTarget)),
+      dirnameWindows(normalizeWindowsPath(item.canonicalFinalTarget)),
     );
-    if (!isContainedWindowsPath(destination, targetParent)) {
+    if (!sameWindowsPath(destination, targetParent)) {
       throw new Error(
         "Canonical final target is outside the download destination",
       );
@@ -702,11 +720,25 @@ type DownloadSourceEvidence = Readonly<{
 function parseSourceRules(value: unknown): SourceRules {
   if (
     !isRecord(value) ||
+    !hasExactKeys(value, [
+      "schemaVersion",
+      "sourceRulesVersion",
+      "routes",
+      "prohibitedSources",
+      "forcedPolicy",
+      "removedEnvironment",
+    ]) ||
     value.schemaVersion !== SCANSCI_SCHEMA_VERSION ||
     value.sourceRulesVersion !== SCANSCI_SOURCE_RULES_VERSION ||
     !Array.isArray(value.routes) ||
     !Array.isArray(value.prohibitedSources) ||
     !isRecord(value.forcedPolicy) ||
+    !hasExactKeys(value.forcedPolicy, [
+      "strategy",
+      "scihubEnabled",
+      "useTor",
+      "useVpnsci",
+    ]) ||
     value.forcedPolicy.strategy !== FORCED_POLICY.strategy ||
     value.forcedPolicy.scihubEnabled !== FORCED_POLICY.scihubEnabled ||
     value.forcedPolicy.useTor !== FORCED_POLICY.useTor ||
@@ -720,8 +752,13 @@ function parseSourceRules(value: unknown): SourceRules {
     throw new Error("ScanSci source-rules file is incompatible");
   }
   const routes = value.routes.map((candidate) => {
+    const routeKeys =
+      isRecord(candidate) && candidate.disabledReason !== undefined
+        ? ["id", "enabled", "kind", "allowedHosts", "disabledReason"]
+        : ["id", "enabled", "kind", "allowedHosts"];
     if (
       !isRecord(candidate) ||
+      !hasExactKeys(candidate, routeKeys) ||
       typeof candidate.id !== "string" ||
       typeof candidate.enabled !== "boolean" ||
       (candidate.kind !== "open-access" && candidate.kind !== "institution") ||
@@ -745,13 +782,48 @@ function parseSourceRules(value: unknown): SourceRules {
   if (new Set(routes.map(({ id }) => id)).size !== routes.length) {
     throw new Error("ScanSci source-rules routes must have unique ids");
   }
+  const [arxiv, pmc, institution] = routes;
+  if (
+    routes.length !== 3 ||
+    !arxiv ||
+    arxiv.id !== "arxiv" ||
+    arxiv.enabled !== true ||
+    arxiv.kind !== "open-access" ||
+    !sameStringSet(arxiv.allowedHosts, ["arxiv.org", "export.arxiv.org"]) ||
+    arxiv.disabledReason !== undefined ||
+    !pmc ||
+    pmc.id !== "pmc" ||
+    pmc.enabled !== true ||
+    pmc.kind !== "open-access" ||
+    !sameStringSet(pmc.allowedHosts, [
+      "www.ncbi.nlm.nih.gov",
+      "pmc.ncbi.nlm.nih.gov",
+    ]) ||
+    pmc.disabledReason !== undefined ||
+    !institution ||
+    institution.id !== "institution-browser" ||
+    institution.enabled !== false ||
+    institution.kind !== "institution" ||
+    institution.allowedHosts.length !== 0 ||
+    institution.disabledReason !==
+      "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance"
+  ) {
+    throw new Error("ScanSci source-rules route set is incompatible");
+  }
   if (!value.prohibitedSources.every((source) => typeof source === "string")) {
     throw new Error("ScanSci prohibited-source list is invalid");
   }
-  for (const required of ["scihub", "libgen", "scibban", "tor", "vpnsci"]) {
-    if (!value.prohibitedSources.includes(required)) {
-      throw new Error(`ScanSci prohibited-source list is missing ${required}`);
-    }
+  const requiredProhibitedSources = [
+    "scihub",
+    "libgen",
+    "scibban",
+    "tor",
+    "proxy-pool",
+    "vpnsci",
+    "unknown",
+  ];
+  if (!sameStringSet(value.prohibitedSources, requiredProhibitedSources)) {
+    throw new Error("ScanSci prohibited-source list is incompatible");
   }
   return {
     routes,
@@ -788,6 +860,7 @@ function validateLegalSource(
   );
   if (
     sourceURL.protocol !== "https:" ||
+    sourceURL.port !== "" ||
     !allowedHosts.has(sourceURL.hostname.toLowerCase()) ||
     source.egressHosts.length === 0 ||
     source.egressHosts.some((host) => !allowedHosts.has(host.toLowerCase()))
@@ -1001,6 +1074,26 @@ function joinWindows(left: string, right: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean {
+  const keys = Object.keys(value);
+  return (
+    keys.length === expected.length && expected.every((key) => key in value)
+  );
+}
+
+function sameStringSet(
+  actual: readonly unknown[],
+  expected: readonly string[],
+): boolean {
+  return (
+    actual.length === expected.length &&
+    expected.every((value) => actual.includes(value))
+  );
 }
 
 class SidecarOperationError extends Error {}

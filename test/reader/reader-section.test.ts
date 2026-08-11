@@ -1220,6 +1220,7 @@ test("Reader download area exposes only the destination and an explicit automati
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
     ...readyState(),
+    downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
     downloadSetup: {
       downloadDestination: "E:\\paper",
       usingDefaultDestination: true,
@@ -1230,6 +1231,7 @@ test("Reader download area exposes only the destination and an explicit automati
     },
   };
   let changeDestination = 0;
+  let downloadAttempts = 0;
   const mounted = mountReaderSection({
     body,
     controller: {
@@ -1244,6 +1246,9 @@ test("Reader download area exposes only the destination and an explicit automati
       performPaperAction() {},
       async changeDownloadDestination() {
         changeDestination += 1;
+      },
+      async downloadSelected() {
+        downloadAttempts += 1;
       },
     },
   });
@@ -1260,6 +1265,12 @@ test("Reader download area exposes only the destination and an explicit automati
   assert.equal(body.querySelector("[data-check-runtime]"), null);
   assert.equal(body.querySelector("[data-choose-python]"), null);
   assert.equal(body.querySelector("[data-install-runtime]"), null);
+  const downloadButton = body.querySelector(
+    "[data-download-selected]",
+  ) as HTMLButtonElement;
+  assert.equal(downloadButton.disabled, false);
+  downloadButton.click();
+  assert.equal(downloadAttempts, 1);
 
   (body.querySelector("[data-change-destination]") as HTMLElement)?.click();
   assert.equal(changeDestination, 1);
@@ -1281,7 +1292,7 @@ test("Reader does not project the unavailable institution candidate as support",
           executable: "C:\\Python312\\python.exe",
           pythonVersion: "3.12.10",
           architecture: "x64",
-          moduleVersion: "3.1.0",
+          moduleVersion: "3.2.0",
           schemaVersion: 3,
           sourceRulesVersion: 3,
           dependencies: [],

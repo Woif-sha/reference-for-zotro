@@ -86,11 +86,17 @@ test("production download dependencies expose setup and the live ScanSci adapter
   assert.equal(typeof dependencies.downloadPapers, "function");
 });
 
-test("production download adapter fails explicitly until the sidecar probe is ready", async () => {
+test("production download adapter always delegates so every click re-probes the sidecar", async () => {
   let called = false;
-  const runtime = runtimeWithDownload(async () => {
+  const runtime = runtimeWithDownload(async (request) => {
     called = true;
-    return [];
+    return request.items.map((item) => ({
+      itemID: item.itemID,
+      result: {
+        status: "failed" as const,
+        error: "No compatible ScanSci sidecar runtime was detected",
+      },
+    }));
   });
   const download = createScanSciDownloadPapers({
     runtime,
@@ -117,8 +123,8 @@ test("production download adapter fails explicitly until the sidecar probe is re
 
   assert.equal(result[0]?.result.status, "failed");
   if (result[0]?.result.status !== "failed") return;
-  assert.match(result[0].result.error, /sidecar capability is not ready/u);
-  assert.equal(called, false);
+  assert.match(result[0].result.error, /No compatible ScanSci sidecar/u);
+  assert.equal(called, true);
 });
 
 test("Windows filename generation rejects device names and trims unsafe suffixes", () => {
@@ -137,7 +143,7 @@ function readyState(destination: string): DownloadSettingsState {
         executable: "C:\\runtime\\python.exe",
         pythonVersion: "3.12.10",
         architecture: "x64",
-        moduleVersion: "3.1.0",
+        moduleVersion: "3.2.0",
         schemaVersion: 3,
         sourceRulesVersion: 3,
         dependencies: [],

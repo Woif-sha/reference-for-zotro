@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createSidecarRequest,
+  parseDownloadOnePayload,
   parseProbePayload,
   parseSidecarMessage,
   protocolPaper,
@@ -43,6 +44,44 @@ test("sidecar response parsing rejects incompatible protocol versions explicitly
         { requestID: "request-1", operation: "probe" },
       ),
     /identity is incompatible/u,
+  );
+});
+
+test("sidecar response parsing rejects unknown fields at every protocol boundary", () => {
+  assert.throws(
+    () =>
+      parseSidecarMessage(
+        JSON.stringify({
+          protocol: "reference-for-zotero.scansci-sidecar",
+          contractVersion: "1.1.0",
+          resultSchemaVersion: "1.0.0",
+          requestId: "request-1",
+          operation: "probe",
+          type: "complete",
+          ok: true,
+          payload: {},
+          fallback: "http",
+        }),
+        { requestID: "request-1", operation: "probe" },
+      ),
+    /unexpected fields/u,
+  );
+
+  assert.throws(
+    () =>
+      parseDownloadOnePayload({
+        result: downloadedResult(),
+        retry: true,
+      }),
+    /downloadOne completion is invalid/u,
+  );
+
+  assert.throws(
+    () =>
+      parseDownloadOnePayload({
+        result: { ...downloadedResult(), downloadUrl: "https://example.test" },
+      }),
+    /download result is invalid/u,
   );
 });
 
@@ -109,9 +148,33 @@ test("sidecar probe rejects dependency details that contradict a compatible stat
   );
 });
 
+test("sidecar probe requires exactly the audited capability routes and fields", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () => parseProbePayload({ ...payload, fallback: "external" }),
+    /probe payload is incompatible/u,
+  );
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        routeCapabilities: [
+          ...payload.routeCapabilities,
+          {
+            routeId: "unknown",
+            available: true,
+            sources: ["unknown"],
+            operations: ["downloadOne"],
+          },
+        ],
+      }),
+    /route capabilities are incompatible/u,
+  );
+});
+
 function compatibleProbePayload() {
   return {
-    application: { name: "reference-for-zotero-scansci", version: "3.1.0" },
+    application: { name: "reference-for-zotero-scansci", version: "3.2.0" },
     runtime: {
       implementation: "CPython",
       pythonVersion: "3.12.10",
@@ -139,12 +202,15 @@ function compatibleProbePayload() {
         available: true,
         sources: ["arxiv", "pmc"],
         operations: ["downloadOne", "downloadBatch"],
+        concurrency: "bounded",
       },
       {
         routeId: "institution-webvpn/ieee/one-click-single",
         status: "candidate",
         available: false,
         operations: ["visibleLogin", "downloadOne"],
+        concurrency: "single-profile-writer",
+        profileId: "zotero",
         reason: "real-world-route-audit-pending",
       },
     ],
@@ -176,4 +242,21 @@ function compatibleDependencies() {
     installedVersion: version ?? "",
     status: "available" as const,
   }));
+}
+
+function downloadedResult() {
+  return {
+    schemaVersion: "1.0.0",
+    status: "downloaded",
+    identifier: "2101.00001",
+    sourceEvidence: {
+      routeId: "open-access",
+      source: "arxiv",
+      sourceUrl: "https://arxiv.org/pdf/2101.00001.pdf",
+      egressHosts: ["arxiv.org"],
+      legal: true,
+    },
+    relativePath: "paper.pdf",
+    error: null,
+  } as const;
 }

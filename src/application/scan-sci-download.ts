@@ -1,5 +1,6 @@
 import type { ReaderPaper } from "../reader/mountReaderSection";
 import type { ScanSciPort } from "../scansci/scan-sci-port";
+import { canonicalPdfFilename } from "../scansci/windows-download-path";
 import type {
   DownloadSettingsController,
   DownloadSettingsState,
@@ -9,9 +10,7 @@ import type {
   RelatedPapersPorts,
 } from "./related-papers-controller";
 
-const MAX_FILENAME_STEM_CHARACTERS = 120;
-const WINDOWS_RESERVED_FILENAME =
-  /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu;
+export { safeWindowsFilenameStem } from "../scansci/windows-download-path";
 
 export function createScanSciDownloadPapers(options: {
   runtime: ScanSciPort;
@@ -19,7 +18,7 @@ export function createScanSciDownloadPapers(options: {
 }): NonNullable<RelatedPapersPorts["downloadPapers"]> {
   return async (request) => {
     const setup = options.setup.getState();
-    const readinessError = runtimeReadinessError(setup);
+    const readinessError = downloadSetupError(setup);
     if (readinessError) {
       return request.papers.map((paper) => ({
         paperID: paper.id,
@@ -70,31 +69,11 @@ function confirmedPaper(paper: ReaderPaper & { status: "resolved" }) {
 }
 
 function canonicalFinalTarget(destination: string, title: string): string {
-  return joinWindows(destination, `${safeWindowsFilenameStem(title)}.pdf`);
+  return joinWindows(destination, canonicalPdfFilename(title));
 }
 
-export function safeWindowsFilenameStem(title: string): string {
-  const printable = [...title.normalize("NFKC")]
-    .map((character) => (character.charCodeAt(0) < 32 ? " " : character))
-    .join("");
-  const stem = printable
-    .replace(/[<>:"/\\|?*]/gu, " ")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .replace(/[ .]+$/u, "")
-    .slice(0, MAX_FILENAME_STEM_CHARACTERS)
-    .replace(/[ .]+$/u, "");
-  if (!stem || WINDOWS_RESERVED_FILENAME.test(stem)) return "paper";
-  return stem;
-}
-
-function runtimeReadinessError(
-  setup: DownloadSettingsState,
-): string | undefined {
+function downloadSetupError(setup: DownloadSettingsState): string | undefined {
   if (setup.destinationError) return setup.destinationError;
-  if (setup.runtime.status === "unavailable") return setup.runtime.error;
-  if (setup.runtime.status !== "ready")
-    return "ScanSci sidecar capability is not ready";
   return undefined;
 }
 

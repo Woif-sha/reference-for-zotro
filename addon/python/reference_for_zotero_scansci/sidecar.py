@@ -7,6 +7,7 @@ import json
 import os
 import platform
 import re
+import stat
 import sys
 import threading
 from collections.abc import Callable
@@ -182,16 +183,16 @@ class Sidecar:
         _reject_forbidden(params)
         if set(params) - PARAM_KEYS[operation]:
             raise ProtocolError("invalid-request", "The operation contains unsupported parameters.")
-        if operation != "probe":
-            if request.get("contractVersion") != CONTRACT_VERSION:
-                raise ProtocolError("incompatible-contract", "The contract version is incompatible.")
-            if request.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION:
-                raise ProtocolError(
-                    "incompatible-result-schema", "The result schema version is incompatible."
-                )
+        if request.get("contractVersion") != CONTRACT_VERSION:
+            raise ProtocolError("incompatible-contract", "The contract version is incompatible.")
+        if request.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION:
+            raise ProtocolError(
+                "incompatible-result-schema", "The result schema version is incompatible."
+            )
         return request_id, operation, params
 
     def _probe(self) -> dict[str, Any]:
+        bridge.load_source_rules()
         capability = self._capability_probe()
         manifest = json.loads(
             Path(__file__).with_name("VENDORED-SOURCE.json").read_text(encoding="utf-8")
@@ -532,7 +533,18 @@ def _normalize_download(identifier: str, raw: Any, output_dir: Path) -> dict[str
     if not isinstance(output_value, str) or not output_value:
         return _failed_result(identifier, "missing-output", "The downloader returned no file path.")
     try:
-        output_path = Path(output_value).resolve(strict=True)
+        requested_output = Path(os.path.abspath(output_value))
+        requested_relative = requested_output.relative_to(output_dir)
+        current = output_dir
+        for segment in requested_relative.parts:
+            current /= segment
+            if _is_reparse_point(current):
+                return _failed_result(
+                    identifier,
+                    "output-reparse-point",
+                    "The downloader output cannot be a symbolic link or junction.",
+                )
+        output_path = requested_output.resolve(strict=True)
         relative = output_path.relative_to(output_dir.resolve(strict=True))
     except (OSError, ValueError):
         return _failed_result(identifier, "output-outside-root", "The downloader output escaped its request directory.")
@@ -552,6 +564,14 @@ def _normalize_download(identifier: str, raw: Any, output_dir: Path) -> dict[str
         "relativePath": relative.as_posix(),
         "error": None,
     }
+
+
+def _is_reparse_point(path: Path) -> bool:
+    if path.is_symlink():
+        return True
+    attributes = getattr(os.lstat(path), "st_file_attributes", 0)
+    reparse_attribute = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    return bool(attributes & reparse_attribute)
 
 
 def _normalized_error(error: Exception) -> tuple[str, str]:

@@ -4,8 +4,10 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.dont_write_bytecode = True
 
@@ -21,13 +23,12 @@ import sidecar
 def request(operation, request_id="request-1", **params):
     value = {
         "protocol": sidecar.PROTOCOL,
+        "contractVersion": sidecar.CONTRACT_VERSION,
+        "resultSchemaVersion": sidecar.RESULT_SCHEMA_VERSION,
         "requestId": request_id,
         "operation": operation,
         "params": params,
     }
-    if operation != "probe":
-        value["contractVersion"] = sidecar.CONTRACT_VERSION
-        value["resultSchemaVersion"] = sidecar.RESULT_SCHEMA_VERSION
     return value
 
 
@@ -42,7 +43,7 @@ def fake_capability():
         "executable": str(Path(sys.executable).resolve()),
         "pythonVersion": "3.12.10",
         "architecture": "x64",
-        "moduleVersion": "3.1.0",
+        "moduleVersion": "3.2.0",
         "dependencies": [],
         "features": {"onePaperDownload": "available", "visibleLogin": "disabled"},
     }
@@ -135,6 +136,18 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertEqual(
             service.handle(missing_protocol)["error"]["code"], "incompatible-protocol"
         )
+        incompatible_probe = request("probe")
+        incompatible_probe["contractVersion"] = "99"
+        self.assertEqual(
+            service.handle(incompatible_probe)["error"]["code"],
+            "incompatible-contract",
+        )
+        incompatible_probe = request("probe")
+        incompatible_probe["resultSchemaVersion"] = "99"
+        self.assertEqual(
+            service.handle(incompatible_probe)["error"]["code"],
+            "incompatible-result-schema",
+        )
         secret = request("visibleLogin", routeId=sidecar.INSTITUTION_ROUTE_ID, userInitiated=True)
         secret["params"]["password"] = "do-not-log"
         self.assertEqual(service.handle(secret)["error"]["code"], "forbidden-parameter")
@@ -166,7 +179,7 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertEqual(captured["policy"], sidecar.FORCED_POLICY)
 
     def test_download_batch_is_bounded_and_streams_each_final_result(self):
-        barrier = threading.Barrier(2, timeout=2)
+        workers_started = threading.Event()
         state_lock = threading.Lock()
         active = 0
         maximum_active = 0
@@ -177,10 +190,22 @@ class ScanSciSidecarTest(unittest.TestCase):
             with state_lock:
                 active += 1
                 maximum_active = max(maximum_active, active)
-            barrier.wait()
+                if maximum_active == sidecar.MAX_BATCH_WORKERS:
+                    workers_started.set()
+            self.assertTrue(workers_started.wait(timeout=2))
             paper = value["paper"]
-            source_id = "arxiv" if paper.get("arxivID") else "pmc"
-            result = raw_success(value["outputDirectory"], source_id)
+            arxiv_id = paper["arxivID"]
+            time.sleep(int(arxiv_id.rsplit(".", 1)[1]) * 0.002)
+            path = Path(value["outputDirectory"]) / f"{arxiv_id}.pdf"
+            path.write_bytes(b"pdf")
+            result = {
+                "source": {
+                    "id": "arxiv",
+                    "url": f"https://arxiv.org/pdf/{arxiv_id}.pdf",
+                    "egressHosts": ["arxiv.org"],
+                },
+                "outputPath": str(path),
+            }
             with state_lock:
                 active -= 1
             return result
@@ -195,22 +220,29 @@ class ScanSciSidecarTest(unittest.TestCase):
                     outputDir=str(output),
                     items=[
                         {
-                            "itemId": "item-1",
-                            "paper": {"title": "One", "arxivID": "2101.00001"},
-                        },
-                        {
-                            "itemId": "item-2",
-                            "paper": {"title": "Two", "pmcid": "PMC123"},
-                        },
+                            "itemId": f"item-{index}",
+                            "paper": {
+                                "title": f"Paper {index}",
+                                "arxivID": f"2101.{index:05d}",
+                            },
+                        }
+                        for index in range(1, 8)
                     ],
                 )
             )
 
         self.assertTrue(response["ok"])
-        self.assertEqual(response["payload"]["downloaded"], 2)
-        self.assertEqual(maximum_active, 2)
-        self.assertEqual(len(emitted), 2)
-        self.assertEqual({event["payload"]["itemId"] for event in emitted}, {"item-1", "item-2"})
+        self.assertEqual(response["payload"]["downloaded"], 7)
+        self.assertEqual(maximum_active, sidecar.MAX_BATCH_WORKERS)
+        self.assertEqual(len(emitted), 7)
+        self.assertEqual(
+            {event["payload"]["itemId"] for event in emitted},
+            {f"item-{index}" for index in range(1, 8)},
+        )
+        self.assertEqual(
+            [event["payload"]["sequence"] for event in emitted],
+            list(range(1, 8)),
+        )
         self.assertTrue(all(event["type"] == "progress" for event in emitted))
 
     def test_output_escape_and_unknown_source_are_failed_results(self):
@@ -265,6 +297,50 @@ class ScanSciSidecarTest(unittest.TestCase):
                 )
             )
             self.assertEqual(response["payload"]["result"]["error"]["code"], "unknown-source")
+
+    def test_output_link_inside_request_directory_is_a_failed_result(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = output_directory(root)
+            regular = output / "regular.pdf"
+            link = output / "linked.pdf"
+
+            def linked_download(_value):
+                regular.write_bytes(b"pdf")
+                try:
+                    link.symlink_to(regular)
+                except OSError as error:
+                    self.skipTest(f"symbolic links unavailable: {error}")
+                return {
+                    "source": {
+                        "id": "arxiv",
+                        "url": "https://arxiv.org/pdf/2101.00001.pdf",
+                        "egressHosts": ["arxiv.org"],
+                    },
+                    "outputPath": str(link),
+                }
+
+            service = sidecar.Sidecar(
+                lambda message: None,
+                io.StringIO(),
+                download=linked_download,
+            )
+            response = service.handle(
+                request(
+                    "downloadOne",
+                    paper={"title": "Paper", "arxivID": "2101.00001"},
+                    outputDir=str(output),
+                )
+            )
+
+        self.assertEqual(
+            response["payload"]["result"]["error"]["code"],
+            "output-reparse-point",
+        )
+
+    def test_reparse_inspection_failure_is_not_treated_as_a_regular_path(self):
+        with mock.patch.object(sidecar.os, "lstat", side_effect=PermissionError("denied")):
+            with self.assertRaises(PermissionError):
+                sidecar._is_reparse_point(Path("uninspectable.pdf"))
 
     def test_visible_login_never_claims_candidate_is_available(self):
         service = sidecar.Sidecar(lambda message: None, io.StringIO())

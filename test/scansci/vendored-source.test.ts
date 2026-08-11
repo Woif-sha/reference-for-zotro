@@ -156,7 +156,9 @@ test("source-rules v3 enables only fixed open-access routes and forces legal-onl
     "libgen",
     "scibban",
     "tor",
+    "proxy-pool",
     "vpnsci",
+    "unknown",
   ]);
 });
 

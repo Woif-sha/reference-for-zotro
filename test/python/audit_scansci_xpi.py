@@ -10,6 +10,7 @@ REQUIRED_ASSETS = {
     "NOTICE",
     "python/reference_for_zotero_scansci/__init__.py",
     "python/reference_for_zotero_scansci/bridge.py",
+    "python/reference_for_zotero_scansci/sidecar.py",
     "python/reference_for_zotero_scansci/strict_http.py",
     "python/reference_for_zotero_scansci/source-rules-v3.json",
     "python/reference_for_zotero_scansci/VENDORED-SOURCE.json",

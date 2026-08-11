@@ -14,6 +14,7 @@ const MAX_STDERR_CHARACTERS = 16 * 1024;
 const MODULE_ASSETS = [
   "__init__.py",
   "bridge.py",
+  "sidecar.py",
   "strict_http.py",
   "source-rules-v3.json",
   "requirements.lock",

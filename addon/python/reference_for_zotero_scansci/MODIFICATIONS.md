@@ -12,6 +12,11 @@ validation, and overwrite behavior.
 
 The stdio protocol, strict HTTPS client, source-rules enforcement, request
 isolation, and final exclusive commit are original Reference for Zotero code.
+The plugin-owned `sidecar.py` adds the versioned four-operation JSONL contract,
+bounded batch scheduling, per-paper progress, result normalization, and the
+non-available IEEE/WebVPN candidate projection. It delegates downloads to the
+same audited bridge implementation and does not import or modify an installed
+`scansci_pdf` package.
 The enabled open-access route uses a complete wheel-only hash lock installed
 only into a user-confirmed private venv through the fixed Tsinghua PyPI index.
 The dormant CloakBrowser Python closure has a separate hash lock, and its

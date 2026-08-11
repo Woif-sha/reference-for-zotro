@@ -43,6 +43,40 @@ test("resolved paper presentation retains provider record, retrieval time and ma
   assert.equal(paper.pmcid, "PMC1234");
 });
 
+test("presentation rows stay unique when one stable identifier agrees and another conflicts", () => {
+  const candidate = {
+    source: "crossref" as const,
+    sourceRecordID: "record-one",
+    retrievedAt: "2026-07-30T00:00:00.000Z",
+    identifiers: { doi: "10.1000/shared", arxiv: "2401.00001" },
+    title: "First record",
+    authors: [{ family: "Smith" }],
+    publicationDate: "2024",
+    publicationYear: 2024,
+    venue: "Journal",
+    abstract: null,
+    referenceCount: null,
+    citationCount: null,
+    canonicalURL: "https://doi.org/10.1000/shared",
+    landingURL: "https://example.test/one",
+    matchedFields: ["doi"],
+    rawProvenance: ["crossref:record-one"],
+  };
+
+  const first = candidateToReaderPaper(candidate, 0);
+  const second = candidateToReaderPaper(
+    {
+      ...candidate,
+      sourceRecordID: "record-two",
+      identifiers: { ...candidate.identifiers, arxiv: "2401.99999" },
+      landingURL: "https://example.test/two",
+    },
+    1,
+  );
+
+  assert.notEqual(first.id, second.id);
+});
+
 test("cache preserves permitted Abstracts and omits Crossref Abstracts", () => {
   const base = {
     id: "paper",

@@ -6,7 +6,6 @@ import {
 } from "./application/related-papers-controller";
 import {
   candidateToReaderPaper,
-  confirmedReaderPaperID,
   resolutionToReaderPaper,
   unresolvedPaper,
 } from "./application/reader-paper-presentation";
@@ -43,7 +42,7 @@ import type { ReaderControllerFactory } from "./reader/registerReaderSection";
 import type { DownloadSettingsController } from "./application/download-settings";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
-export const PROVIDER_SCHEMA_VERSION = 3;
+export const PROVIDER_SCHEMA_VERSION = 4;
 export const PROVIDER_QUERY_VERSION = 8;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
@@ -379,14 +378,7 @@ function directLandingToReaderPaper(
     metadata.publicationYear === undefined ||
     !metadata.venue;
   return {
-    id: confirmedReaderPaperID(
-      {
-        doi: metadata.doi,
-        arxiv: identifiers.arxiv,
-        pmcid: identifiers.pmcid,
-      },
-      `reference:${ordinal}`,
-    ),
+    id: `reference:${ordinal}`,
     ordinal,
     title: metadata.title ?? fallbackTitle,
     authors:

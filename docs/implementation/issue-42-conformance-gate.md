@@ -119,6 +119,9 @@ present in the production package path.
 - Projected and deduplicated Reader selection, download status, and reveal-file
   actions by complete scholarly identity rather than presentation row ID, while
   preserving conflicts in any shared stable-identifier scheme.
+- Kept presentation row IDs unique by source record and ordinal, and advanced
+  the cached provider schema so complete-identity conflicts cannot alias one
+  controller or DOM row.
 - Strengthened Citing-paper preservation coverage after sidecar failure.
 - Enforced exact sidecar request shapes, protocol-only stdout, process-wide
   bounded/redacted diagnostics across fragmented writes, exact diagnostic byte
@@ -139,7 +142,7 @@ Executed from a clean dependency installation on Windows:
 | Gate                        | Result                                                                                                               |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `npm ci`                    | Passed.                                                                                                              |
-| Full Node test suite        | 183 passed, 0 failed.                                                                                                |
+| Full Node test suite        | 184 passed, 0 failed.                                                                                                |
 | Full Python test suite      | 27 passed, 0 failed.                                                                                                 |
 | TypeScript typecheck        | Passed.                                                                                                              |
 | ESLint                      | Passed.                                                                                                              |
@@ -147,7 +150,7 @@ Executed from a clean dependency installation on Windows:
 | GitHub workflow formatting  | Passed.                                                                                                              |
 | Production build            | Passed twice.                                                                                                        |
 | XPI content/denylist audit  | Passed; 18 members.                                                                                                  |
-| Deterministic package check | Both builds produced SHA-256 `97c3193a10261a00be25da6b8ae5ce049553540c02b9c2c57ec619a3471a11fd`, size 106,858 bytes. |
+| Deterministic package check | Both builds produced SHA-256 `c6037f5d6365ffd5356bb721c97e17d950dc711d34baccdc5550bebcdb73fdc4`, size 106,720 bytes. |
 | Diff whitespace check       | Passed on the complete issue #42 diff.                                                                               |
 | Network-dependent smoke     | Explicitly not run; no fixture/mock success is reported as a real network result.                                    |
 

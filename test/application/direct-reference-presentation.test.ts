@@ -9,8 +9,8 @@ import {
 } from "../../src/composition-root";
 import type { RelatedLiteratureGateway } from "../../src/literature/gateway";
 
-test("ReaderPaper download identifiers invalidate the old cached provider projection", () => {
-  assert.equal(PROVIDER_SCHEMA_VERSION, 3);
+test("unique Reader row identities invalidate the old cached provider projection", () => {
+  assert.equal(PROVIDER_SCHEMA_VERSION, 4);
 });
 
 test("trusted-title presentation invalidates previously cached provider results", () => {

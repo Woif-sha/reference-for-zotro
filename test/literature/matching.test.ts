@@ -246,6 +246,35 @@ test("same exact DOI from multiple registrars remains one confirmed identity wit
   );
 });
 
+test("duplicate exact title-year records sharing one DOI are one non-competing identity", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title: "A reliable paper title",
+      authors: ["Smith"],
+      year: 2024,
+    },
+    [
+      candidate({
+        source: "crossref",
+        sourceRecordID: "crossref-shared",
+        identifiers: { doi: "10.1000/shared" },
+      }),
+      candidate({
+        source: "datacite",
+        sourceRecordID: "datacite-shared",
+        identifiers: { doi: "10.1000/SHARED" },
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "confirmed");
+  assert.deepEqual(
+    result.candidates.map(({ source }) => source),
+    ["crossref", "datacite"],
+  );
+});
+
 test("HTML entities are decoded before exact title comparison", () => {
   const result = matchScholarlyCandidates(
     {

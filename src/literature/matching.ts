@@ -38,19 +38,19 @@ export function matchScholarlyCandidates(
   for (const key of IDENTIFIER_KEYS) {
     const expected = normalizeIdentifier(paper.identifiers[key]);
     if (!expected) continue;
-    const exact = candidates.filter(
+    const identifierCandidates = candidates.filter(
       (candidate) =>
         normalizeIdentifier(candidate.identifiers[key]) === expected &&
         !hasConflictingIdentifier(paper.identifiers, candidate.identifiers),
     );
-    if (exact.length > 0) {
-      const matched = exact.map((candidate) =>
+    if (identifierCandidates.length > 0) {
+      const identifierMatches = identifierCandidates.map((candidate) =>
         withMatchedFields(candidate, [key]),
       );
       return {
         status: "confirmed",
-        candidate: matched[0],
-        candidates: matched,
+        candidate: identifierMatches[0],
+        candidates: identifierMatches,
         matchedBy: key,
         score: 1,
       };
@@ -61,31 +61,80 @@ export function matchScholarlyCandidates(
   if (!expectedTitle || paper.year === null) {
     return { status: "no-candidate" };
   }
-  const exact = candidates.filter(
+  const bibliographicCandidates = candidates.filter(
     (candidate) =>
       normalizeText(candidate.title ?? "") === expectedTitle &&
       candidate.publicationYear === paper.year,
   );
-  if (exact.length === 0) return { status: "no-candidate" };
-  const matched = exact.map((candidate) =>
+  if (bibliographicCandidates.length === 0) {
+    return { status: "no-candidate" };
+  }
+  const bibliographicMatches = bibliographicCandidates.map((candidate) =>
     withMatchedFields(candidate, metadataMatchedFields(paper, candidate)),
   );
-  if (matched.length > 1) {
+  if (
+    bibliographicMatches.length > 1 &&
+    !formsSingleStableIdentity(bibliographicCandidates)
+  ) {
     return {
       status: "ambiguous",
-      candidates: matched,
+      candidates: bibliographicMatches,
     };
   }
-  if (hasConflictingIdentifier(paper.identifiers, exact[0].identifiers)) {
+  if (
+    bibliographicCandidates.some((candidate) =>
+      hasConflictingIdentifier(paper.identifiers, candidate.identifiers),
+    )
+  ) {
     return { status: "no-candidate" };
   }
   return {
     status: "confirmed",
-    candidate: matched[0],
-    candidates: [matched[0]],
+    candidate: bibliographicMatches[0],
+    candidates: bibliographicMatches,
     matchedBy: "metadata",
     score: 1,
   };
+}
+
+function formsSingleStableIdentity(
+  candidates: readonly ScholarlyCandidate[],
+): boolean {
+  const connected = new Set<number>([0]);
+  let previousSize = -1;
+  while (connected.size !== previousSize) {
+    previousSize = connected.size;
+    for (let index = 1; index < candidates.length; index += 1) {
+      if (connected.has(index)) continue;
+      const candidate = candidates[index];
+      if (
+        [...connected].some((connectedIndex) =>
+          hasStableIdentityAgreement(
+            candidates[connectedIndex].identifiers,
+            candidate.identifiers,
+          ),
+        )
+      ) {
+        connected.add(index);
+      }
+    }
+  }
+  return connected.size === candidates.length;
+}
+
+function hasStableIdentityAgreement(
+  left: ScholarlyIdentifiers,
+  right: ScholarlyIdentifiers,
+): boolean {
+  let agreement = false;
+  for (const key of IDENTIFIER_KEYS) {
+    const leftValue = normalizeIdentifier(left[key]);
+    const rightValue = normalizeIdentifier(right[key]);
+    if (!leftValue || !rightValue) continue;
+    if (leftValue !== rightValue) return false;
+    agreement = true;
+  }
+  return agreement;
 }
 
 function metadataMatchedFields(

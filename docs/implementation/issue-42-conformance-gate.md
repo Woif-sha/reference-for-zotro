@@ -130,10 +130,9 @@ present in the production package path.
 - Replaced drifting package deny lists with one policy and added structural ZIP
   safety checks plus deterministic repacking.
 - Replaced stale fuzzy-score research guidance with the exact identity contract.
-- Aligned CI/release commands with the actual test artifact name and update-file
-  behavior; PR diff checks fetch their base history, release audits derive
-  expected metadata from `package.json`, and CI validates without uploading the
-  intermediate XPI.
+- Kept CI focused on repository hygiene and diff whitespace; the tag-triggered
+  release gate alone runs the complete source, build, and XPI audit before
+  publishing metadata derived from `package.json`.
 
 ## Automated validation record
 
@@ -143,14 +142,14 @@ Executed from a clean dependency installation on Windows:
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `npm ci`                    | Passed.                                                                                                              |
 | Full Node test suite        | 184 passed, 0 failed.                                                                                                |
-| Full Python test suite      | 27 passed, 0 failed.                                                                                                 |
+| Full Python test suite      | 28 passed, 0 failed.                                                                                                 |
 | TypeScript typecheck        | Passed.                                                                                                              |
 | ESLint                      | Passed.                                                                                                              |
 | Source/document formatting  | Passed.                                                                                                              |
 | GitHub workflow formatting  | Passed.                                                                                                              |
 | Production build            | Passed twice.                                                                                                        |
 | XPI content/denylist audit  | Passed; 18 members.                                                                                                  |
-| Deterministic package check | Both builds produced SHA-256 `b884b9da929fd2625fbd466e31cd050cad5e80126825e2231c37c6c89ad49028`, size 106,755 bytes. |
+| Deterministic package check | Both builds produced SHA-256 `e25d22ed1cbdac66ad3246c619addcca417f867b5dac76d63ffad7d096136170`, size 106,849 bytes. |
 | Diff whitespace check       | Passed on the complete issue #42 diff.                                                                               |
 | Network-dependent smoke     | Explicitly not run; no fixture/mock success is reported as a real network result.                                    |
 

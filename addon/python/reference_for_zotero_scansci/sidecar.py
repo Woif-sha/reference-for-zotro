@@ -590,18 +590,21 @@ def _normalize_download(identifier: str, raw: Any, output_dir: Path) -> dict[str
     output_value = raw.get("outputPath")
     if not isinstance(output_value, str) or not output_value:
         return _failed_result(identifier, "missing-output", "The downloader returned no file path.")
+    requested_output = Path(os.path.abspath(output_value))
+    ancestry = _output_ancestry(requested_output, output_dir)
+    if ancestry == "reparse":
+        return _failed_result(
+            identifier,
+            "output-reparse-point",
+            "The downloader output cannot be a symbolic link or junction.",
+        )
+    if ancestry == "outside":
+        return _failed_result(
+            identifier,
+            "output-outside-root",
+            "The downloader output escaped its request directory.",
+        )
     try:
-        requested_output = Path(os.path.abspath(output_value))
-        requested_relative = requested_output.relative_to(output_dir)
-        current = output_dir
-        for segment in requested_relative.parts:
-            current /= segment
-            if _is_reparse_point(current):
-                return _failed_result(
-                    identifier,
-                    "output-reparse-point",
-                    "The downloader output cannot be a symbolic link or junction.",
-                )
         output_path = requested_output.resolve(strict=True)
         relative = output_path.relative_to(output_dir.resolve(strict=True))
     except (OSError, ValueError):
@@ -639,6 +642,22 @@ def _contains_reparse_point(path: Path) -> bool:
         if _is_reparse_point(current):
             return True
     return False
+
+
+def _output_ancestry(path: Path, root: Path) -> str:
+    current = path
+    while True:
+        try:
+            if _is_reparse_point(current):
+                return "reparse"
+            if os.path.samefile(current, root):
+                return "inside"
+        except OSError:
+            return "outside"
+        parent = current.parent
+        if parent == current:
+            return "outside"
+        current = parent
 
 
 def _normalized_error(error: Exception) -> tuple[str, str]:

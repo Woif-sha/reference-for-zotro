@@ -55,7 +55,7 @@ test("exact stable identifier agreement wins over attractive text ordering", () 
   assert.deepEqual(result.candidates[0].matchedFields, ["doi"]);
 });
 
-test("combined title author and year evidence confirms a unique candidate", () => {
+test("near-year metadata cannot confirm a paper without identifier agreement", () => {
   const reference: MatchablePaper = {
     identifiers: {},
     title: "Deep Residual Learning for Image Recognition",
@@ -83,15 +83,7 @@ test("combined title author and year evidence confirms a unique candidate", () =
     }),
   ]);
 
-  assert.equal(result.status, "confirmed");
-  assert.equal(result.candidate.sourceRecordID, "resnet");
-  assert.equal(result.matchedBy, "metadata");
-  assert.deepEqual(result.candidate.matchedFields, [
-    "title",
-    "first-author",
-    "authors",
-    "year",
-  ]);
+  assert.equal(result.status, "no-candidate");
 });
 
 test("close metadata candidates remain ambiguous instead of selecting provider order", () => {
@@ -130,7 +122,7 @@ test("close metadata candidates remain ambiguous instead of selecting provider o
   );
 });
 
-test("exact title year and ordered authors confirm duplicate publication records for Primary result selection", () => {
+test("competing exact title and year records remain ambiguous despite matching authors", () => {
   const title =
     "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
   const result = matchScholarlyCandidates(
@@ -158,7 +150,7 @@ test("exact title year and ordered authors confirm duplicate publication records
     ],
   );
 
-  assert.equal(result.status, "confirmed");
+  assert.equal(result.status, "ambiguous");
   assert.equal(result.candidates.length, 2);
   assert.ok(
     result.candidates.every(({ matchedFields }) =>
@@ -199,6 +191,33 @@ test("different DOI records remain ambiguous when any ordered author list confli
   assert.equal(result.status, "ambiguous");
 });
 
+test("an exact-title candidate with a conflicting identifier prevents metadata confirmation", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: { doi: "10.1000/expected" },
+      title: "A Jointly Published Paper",
+      authors: ["Smith"],
+      year: 2024,
+    },
+    [
+      candidate({
+        sourceRecordID: "identifier-missing",
+        title: "A Jointly Published Paper",
+        identifiers: {},
+        publicationYear: 2024,
+      }),
+      candidate({
+        sourceRecordID: "identifier-conflict",
+        title: "A Jointly Published Paper",
+        identifiers: { doi: "10.1000/different" },
+        publicationYear: 2024,
+      }),
+    ],
+  );
+
+  assert.equal(result.status, "ambiguous");
+});
+
 test("same exact DOI from multiple registrars remains one confirmed identity with all provenances", () => {
   const reference: MatchablePaper = {
     identifiers: { doi: "10.1000/shared" },
@@ -227,7 +246,7 @@ test("same exact DOI from multiple registrars remains one confirmed identity wit
   );
 });
 
-test("HTML entities are decoded before title evidence is scored", () => {
+test("HTML entities are decoded before exact title comparison", () => {
   const result = matchScholarlyCandidates(
     {
       identifiers: {},
@@ -247,7 +266,7 @@ test("HTML entities are decoded before title evidence is scored", () => {
   assert.equal(result.status, "confirmed");
 });
 
-test("named scholarly HTML entities are decoded before title evidence is scored", () => {
+test("named scholarly HTML entities are decoded before exact title comparison", () => {
   const namedEntityCandidate = candidate({
     title: "Alpha–beta methods",
     authors: [{ family: "Smith" }],
@@ -291,7 +310,7 @@ test("an exact title and year can confirm a candidate when the citation has no p
   assert.deepEqual(result.candidate.matchedFields, ["title", "year"]);
 });
 
-test("strong author and year evidence tolerates publisher title formatting", () => {
+test("author and year evidence cannot compensate for a non-exact title", () => {
   for (const example of [
     {
       referenceTitle:
@@ -325,8 +344,22 @@ test("strong author and year evidence tolerates publisher title formatting", () 
       ],
     );
 
-    assert.equal(result.status, "confirmed");
+    assert.equal(result.status, "no-candidate");
   }
+});
+
+test("an exact title without an exact year remains unresolved", () => {
+  const result = matchScholarlyCandidates(
+    {
+      identifiers: {},
+      title: "A reliable paper title",
+      authors: ["Smith"],
+      year: null,
+    },
+    [candidate({ publicationYear: 2024 })],
+  );
+
+  assert.equal(result.status, "no-candidate");
 });
 
 test("exact title and year do not depend on author spelling", () => {

@@ -89,7 +89,6 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
-        await downloadSetup.probeRuntime();
         handle = startReferenceForZotero(
           createReaderControllerFactory(
             createScanSciDownloadDependencies({
@@ -98,6 +97,7 @@ function createRuntime() {
             }),
           ),
         );
+        void downloadSetup.probeRuntime();
       },
       onMainWindowLoad,
       onMainWindowUnload,

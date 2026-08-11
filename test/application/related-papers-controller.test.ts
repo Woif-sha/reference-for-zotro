@@ -710,6 +710,51 @@ test("download command snapshots selection and consumes one batch progress strea
   assert.deepEqual(revealed, ["E:\\paper\\First.pdf"]);
 });
 
+test("a sidecar download failure leaves relationships, landing pages, details, and translation usable", async () => {
+  const opened: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        id: "10.1000/one",
+        ordinal: 0,
+        title: "Confirmed paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/one",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    async downloadPapers() {
+      throw new Error("ScanSci sidecar probe failed");
+    },
+    translateSelection: async (text) => `translated:${text}`,
+    openURL: (url) => opened.push(url),
+  });
+  await controller.refreshAsync();
+  controller.setPaperDownloadSelected("references", "10.1000/one", true);
+
+  await controller.downloadSelected();
+
+  assert.equal(controller.getState().status, "ready");
+  assert.equal(controller.getState().references[0]?.title, "Confirmed paper");
+  assert.deepEqual(controller.getState().paperDownloads, [
+    {
+      originTab: "references",
+      paperID: "10.1000/one",
+      status: "failed",
+      error: "ScanSci sidecar probe failed",
+    },
+  ]);
+  controller.openPaper("10.1000/one");
+  controller.selectPaper("10.1000/one");
+  assert.deepEqual(opened, ["https://doi.org/10.1000/one"]);
+  assert.equal(controller.getState().selectedPaperID, "10.1000/one");
+  assert.equal(
+    await controller.translateSelection("Academic text"),
+    "translated:Academic text",
+  );
+});
+
 test("paper refresh cancels the active sidecar batch", async () => {
   const replacementLoad = deferred<LoadedPaper>();
   const started: string[] = [];

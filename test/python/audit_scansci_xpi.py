@@ -12,6 +12,9 @@ from zipfile import BadZipFile, ZipFile, ZipInfo
 REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_DIRECTORY = REPOSITORY / "build"
 POLICY_PATH = REPOSITORY / "test" / "xpi" / "package-policy.json"
+PACKAGE_METADATA = json.loads((REPOSITORY / "package.json").read_text(encoding="utf-8"))
+EXPECTED_ADDON_NAME = PACKAGE_METADATA["config"]["addonName"]
+EXPECTED_ADDON_VERSION = PACKAGE_METADATA["version"]
 REQUIRED_ASSETS = {
     "NOTICE",
     "python/reference_for_zotero_scansci/__init__.py",
@@ -26,9 +29,8 @@ REQUIRED_ASSETS = {
     "python/reference_for_zotero_scansci/THIRD-PARTY-LICENSES/SCANSci-APACHE-2.0.txt",
     "python/reference_for_zotero_scansci/vendored/sources.py",
 }
-EXPECTED_UPDATE_URL = (
-    "https://github.com/Woif-sha/reference-for-zotro/"
-    "releases/latest/download/update-beta.json"
+EXPECTED_UPDATE_URL = "https://github.com/Woif-sha/reference-for-zotro/releases/latest/download/" + (
+    "update-beta.json" if "-" in EXPECTED_ADDON_VERSION else "update.json"
 )
 
 
@@ -139,11 +141,16 @@ def _validate_member_path(entry: ZipInfo, policy: dict[str, object]) -> None:
 def _validate_manifest(manifest: object) -> None:
     if not isinstance(manifest, dict):
         raise ValueError("XPI manifest must be an object")
-    zotero = manifest.get("applications", {}).get("zotero", {})
-    if manifest.get("name") != "Reference for Zotero (Second-stage Test)":
-        raise ValueError("XPI is not visibly marked as the second-stage test build")
-    if manifest.get("version") != "1.1.0-beta.1":
-        raise ValueError("XPI test-build version is unexpected")
+    applications = manifest.get("applications")
+    if not isinstance(applications, dict) or not isinstance(
+        applications.get("zotero"), dict
+    ):
+        raise ValueError("XPI Zotero application manifest is invalid")
+    zotero = applications["zotero"]
+    if manifest.get("name") != EXPECTED_ADDON_NAME:
+        raise ValueError("XPI addon name does not match package metadata")
+    if manifest.get("version") != EXPECTED_ADDON_VERSION:
+        raise ValueError("XPI version does not match package metadata")
     if zotero.get("update_url") != EXPECTED_UPDATE_URL:
         raise ValueError("XPI update_url is unexpected")
     if zotero.get("strict_min_version") != "9.0.6" or zotero.get(

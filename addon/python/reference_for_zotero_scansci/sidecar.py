@@ -74,6 +74,8 @@ class ProtocolError(Exception):
 class BoundedRedactingWriter:
     """Process-wide bounded diagnostic stream with secret redaction."""
 
+    _truncation_marker = "\n[diagnostics truncated]\n"
+
     _secret_header = re.compile(
         r"(?im)(authorization|proxy-authorization|cookie|set-cookie)\s*:\s*[^\r\n]*"
     )
@@ -90,24 +92,62 @@ class BoundedRedactingWriter:
 
     def __init__(self, target: TextIO, limit: int = MAX_DIAGNOSTIC_BYTES) -> None:
         self._target = target
-        self._remaining = limit
+        marker_bytes = len(self._truncation_marker.encode("utf-8"))
+        self._remaining = max(0, limit - marker_bytes)
+        self._marker_budget = min(max(0, limit), marker_bytes)
+        self._pending = ""
         self._truncated = False
+        self._finished = False
         self._lock = threading.Lock()
 
     def write(self, value: str) -> int:
         original_length = len(value)
-        redacted = self._redact(value).encode("utf-8", errors="replace")
         with self._lock:
-            emitted = redacted[: self._remaining]
-            self._remaining -= len(emitted)
-            self._target.write(emitted.decode("utf-8", errors="ignore"))
-            if len(emitted) < len(redacted) and not self._truncated:
-                self._truncated = True
-                self._target.write("\n[diagnostics truncated]\n")
+            if self._finished:
+                raise ValueError("diagnostic stream is finished")
+            if self._truncated:
+                return original_length
+            self._pending += value
+            self._drain_complete_lines()
+            if len(self._pending.encode("utf-8", errors="replace")) > max(
+                4096, self._remaining * 4
+            ):
+                self._emit_redacted(self._pending, force_truncation=True)
+                self._pending = ""
         return original_length
 
     def flush(self) -> None:
-        self._target.flush()
+        with self._lock:
+            self._target.flush()
+
+    def finish(self) -> None:
+        with self._lock:
+            if self._finished:
+                return
+            if self._pending and not self._truncated:
+                self._emit_redacted(self._pending)
+            self._pending = ""
+            self._finished = True
+            self._target.flush()
+
+    def _drain_complete_lines(self) -> None:
+        while not self._truncated:
+            newline = self._pending.find("\n")
+            if newline < 0:
+                return
+            line = self._pending[: newline + 1]
+            self._pending = self._pending[newline + 1 :]
+            self._emit_redacted(line)
+
+    def _emit_redacted(self, value: str, *, force_truncation: bool = False) -> None:
+        redacted = self._redact(value).encode("utf-8", errors="replace")
+        emitted = redacted[: self._remaining]
+        self._remaining -= len(emitted)
+        self._target.write(emitted.decode("utf-8", errors="ignore"))
+        if force_truncation or len(emitted) < len(redacted):
+            marker = self._truncation_marker.encode("utf-8")[: self._marker_budget]
+            self._target.write(marker.decode("utf-8", errors="ignore"))
+            self._truncated = True
 
     @classmethod
     def _redact(cls, value: str) -> str:
@@ -439,8 +479,11 @@ def run(
             emit(sidecar.handle(request))
         return 0
     finally:
-        sys.stdout = previous_stdout
-        sys.stderr = previous_stderr
+        try:
+            diagnostics.finish()
+        finally:
+            sys.stdout = previous_stdout
+            sys.stderr = previous_stderr
 
 
 def _reject_forbidden(value: Any) -> None:

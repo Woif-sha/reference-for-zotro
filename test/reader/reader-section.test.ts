@@ -221,6 +221,60 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   mounted.destroy();
 });
 
+test("download selection projects across tabs by complete stable identity", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const selected: boolean[] = [];
+  const reference = {
+    ...readyState().references[0],
+    id: "reference:shared",
+    doi: "10.1000/shared",
+    arxivID: "2401.00001",
+  } as ReaderPaper;
+  const citation = {
+    ...reference,
+    id: "citation:shared",
+  };
+  const state: ReaderSectionState = {
+    ...readyState(),
+    activeTab: "citations",
+    references: [reference],
+    citingPapers: [citation],
+    downloadSelection: [
+      { originTab: "references", paperID: "reference:shared" },
+    ],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      setPaperDownloadSelected(_tab, _paperID, value) {
+        selected.push(value);
+      },
+    },
+  });
+
+  const checkbox = dom.window.document.querySelector(
+    '[data-paper-id="citation:shared"] [data-select-paper]',
+  ) as HTMLInputElement | null;
+  assert.equal(checkbox?.checked, true);
+  assert.match(
+    dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
+      "",
+    /^1\/1/u,
+  );
+  checkbox?.click();
+  assert.deepEqual(selected, [false]);
+  mounted.destroy();
+});
+
 test("Reader download projection exposes only four per-paper states and the actual saved path", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const references = (

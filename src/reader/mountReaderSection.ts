@@ -4,6 +4,7 @@ import {
   type DownloadSettingsState,
 } from "../application/download-settings";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
+import { relateScholarlyIdentities } from "../literature/identifiers";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const DISCONNECTED_DOWNLOAD_SETUP: DownloadSettingsState = {
@@ -82,6 +83,19 @@ export function canOpenPrimaryResult(
   paper: ReaderPaper | undefined,
 ): paper is ReaderPaper & { status: "resolved" } {
   return paper?.status === "resolved" && paper.primaryResultURL.length > 0;
+}
+
+export function sameReaderPaperIdentity(
+  left: ReaderPaper,
+  right: ReaderPaper,
+): boolean {
+  const relation = relateScholarlyIdentities(
+    readerPaperIdentifiers(left),
+    readerPaperIdentifiers(right),
+  );
+  return (
+    relation === "same" || (relation === "unrelated" && left.id === right.id)
+  );
 }
 
 export interface ReaderSectionState {
@@ -207,7 +221,9 @@ export function mountReaderSection(options: {
       (paper) => paper.status === "resolved",
     );
     const selectedInTab = eligiblePapers.filter((paper) =>
-      state.downloadSelection.some((entry) => entry.paperID === paper.id),
+      state.downloadSelection.some((entry) =>
+        selectionMatchesPaper(state, entry, paper),
+      ),
     ).length;
     const selectAllChecked =
       eligiblePapers.length > 0 && selectedInTab === eligiblePapers.length;
@@ -613,11 +629,13 @@ function renderContent(
         const checkboxLabel = selectable
           ? `Select ${paper.title} for download`
           : `${paper.title} cannot be selected: ${unavailableReason}`;
-        const selectedForDownload = state.downloadSelection.some(
-          (entry) => entry.paperID === paper.id,
+        const selectedForDownload = state.downloadSelection.some((entry) =>
+          selectionMatchesPaper(state, entry, paper),
         );
         const download = renderDownloadState(
-          state.paperDownloads.find((entry) => entry.paperID === paper.id),
+          state.paperDownloads.find((entry) =>
+            selectionMatchesPaper(state, entry, paper),
+          ),
         );
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
@@ -633,6 +651,27 @@ function renderContent(
       })
       .join("")}
   </ol>`;
+}
+
+function selectionMatchesPaper(
+  state: ReaderSectionState,
+  entry: DownloadSelectionEntry,
+  paper: ReaderPaper,
+): boolean {
+  const source = (
+    entry.originTab === "references" ? state.references : state.citingPapers
+  ).find((candidate) => candidate.id === entry.paperID);
+  return source
+    ? sameReaderPaperIdentity(source, paper)
+    : entry.paperID === paper.id;
+}
+
+function readerPaperIdentifiers(paper: ReaderPaper) {
+  return {
+    doi: paper.doi,
+    arxiv: paper.arxivID,
+    pmcid: paper.pmcid,
+  };
 }
 
 function renderDownloadState(

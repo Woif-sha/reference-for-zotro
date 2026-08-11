@@ -188,7 +188,7 @@ authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_met
 2. PMID/PMCID/arXiv 等同 scheme 的稳定标识符；
 3. 同一 provider 的 `sourceRecordID`。
 
-没有共同稳定标识符时，`normalizedTitle + firstAuthorFamily + year` 通常只能用于候选聚类，不能证明同一论文。唯一例外是联合出版的多个正式记录：每个候选都必须有自己的稳定标识符，并且规范化题名、年份、非空的有序作者姓氏序列与输入完全一致；此时保留全部记录交给 Primary result 选择。任一作者缺失或冲突时仍为歧义，标识符冲突的记录不得合并。
+没有共同稳定标识符时，题名、作者和年份只能用于候选聚类，不能单独证明多个 provider record 是同一论文。身份确认只使用下述统一规则；作者始终是辅助证据，不构成联合出版或其他记录的例外。
 
 ### 确认规则
 

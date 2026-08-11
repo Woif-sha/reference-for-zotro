@@ -11,10 +11,12 @@ import type {
   ReaderSectionState,
   ReaderTab,
 } from "../reader/mountReaderSection";
-import { canOpenPrimaryResult } from "../reader/mountReaderSection";
+import {
+  canOpenPrimaryResult,
+  sameReaderPaperIdentity,
+} from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
-import { normalizeScholarlyIdentifier } from "../literature/identifiers";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
@@ -288,9 +290,21 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   openDownloadedFolder(paperID: string): void {
-    const result = this.state.paperDownloads.find(
-      (download) => download.paperID === paperID,
-    );
+    const requestedPaper =
+      this.findPaperInTab(this.state.activeTab, paperID) ??
+      this.findPaper(paperID);
+    const result = this.state.paperDownloads.find((download) => {
+      if (download.paperID === paperID) return true;
+      if (!requestedPaper) return false;
+      const downloadedPaper = this.findPaperInTab(
+        download.originTab,
+        download.paperID,
+      );
+      return (
+        downloadedPaper !== undefined &&
+        sameReaderPaperIdentity(downloadedPaper, requestedPaper)
+      );
+    });
     if (result?.status !== "downloaded") return;
     this.ports.revealDownloadedFile?.(result.savedPath);
   }
@@ -667,9 +681,7 @@ export class RelatedPapersController implements ReaderSectionController {
     const leftPaper = this.findPaperInTab(left.originTab, left.paperID);
     const rightPaper = this.findPaperInTab(right.originTab, right.paperID);
     if (!leftPaper || !rightPaper) return sameSelectionEntry(left, right);
-    return (
-      downloadPaperIdentity(leftPaper) === downloadPaperIdentity(rightPaper)
-    );
+    return sameReaderPaperIdentity(leftPaper, rightPaper);
   }
 
   private assertActive(): void {
@@ -744,15 +756,6 @@ function sameSelectionEntry(
   right: Readonly<{ originTab: ReaderTab; paperID: string }>,
 ): boolean {
   return left.paperID === right.paperID;
-}
-
-function downloadPaperIdentity(paper: ReaderPaper): string {
-  const doi = normalizeScholarlyIdentifier("doi", paper.doi);
-  if (doi) return `doi:${doi}`;
-  const arxiv = normalizeScholarlyIdentifier("arxiv", paper.arxivID);
-  if (arxiv) return `arxiv:${arxiv}`;
-  const pmcid = normalizeScholarlyIdentifier("pmcid", paper.pmcid);
-  return pmcid ? `pmcid:${pmcid}` : `row:${paper.id}`;
 }
 
 function sameOrderedSelection(

@@ -5,7 +5,10 @@ import type {
 import { decodeHTML } from "entities";
 
 import type { ReferenceMatchBasis } from "../domain/literature";
-import { normalizeScholarlyIdentifier } from "./identifiers";
+import {
+  normalizeScholarlyIdentifier,
+  relateScholarlyIdentities,
+} from "./identifiers";
 
 export type MatchablePaper = Readonly<{
   identifiers: ScholarlyIdentifiers;
@@ -133,11 +136,12 @@ function formsSingleStableIdentity(
       if (connected.has(index)) continue;
       const candidate = candidates[index];
       if (
-        [...connected].some((connectedIndex) =>
-          hasStableIdentityAgreement(
-            candidates[connectedIndex].identifiers,
-            candidate.identifiers,
-          ),
+        [...connected].some(
+          (connectedIndex) =>
+            relateScholarlyIdentities(
+              candidates[connectedIndex].identifiers,
+              candidate.identifiers,
+            ) === "same",
         )
       ) {
         connected.add(index);
@@ -145,21 +149,6 @@ function formsSingleStableIdentity(
     }
   }
   return connected.size === candidates.length;
-}
-
-function hasStableIdentityAgreement(
-  left: ScholarlyIdentifiers,
-  right: ScholarlyIdentifiers,
-): boolean {
-  let agreement = false;
-  for (const key of IDENTIFIER_KEYS) {
-    const leftValue = normalizeScholarlyIdentifier(key, left[key]);
-    const rightValue = normalizeScholarlyIdentifier(key, right[key]);
-    if (!leftValue || !rightValue) continue;
-    if (leftValue !== rightValue) return false;
-    agreement = true;
-  }
-  return agreement;
 }
 
 function metadataMatchedFields(
@@ -199,11 +188,7 @@ function hasConflictingIdentifier(
   expected: ScholarlyIdentifiers,
   actual: ScholarlyIdentifiers,
 ): boolean {
-  return IDENTIFIER_KEYS.some((key) => {
-    const left = normalizeScholarlyIdentifier(key, expected[key]);
-    const right = normalizeScholarlyIdentifier(key, actual[key]);
-    return left !== undefined && right !== undefined && left !== right;
-  });
+  return relateScholarlyIdentities(expected, actual) === "conflicting";
 }
 
 function normalizeText(value: string): string {

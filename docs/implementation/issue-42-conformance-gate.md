@@ -90,14 +90,19 @@ deliverable.
 The issue #39 baseline map remains the detailed inventory. This gate rechecked
 the closed behavior groups most exposed to the #40/#41 merge:
 
-| Map issue          | Retained evidence                                                                                                                                                                                              |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #23, #25, #26, #27 | Reader entry loading, conservative matching, separate References/Citations, Primary result, landing pages, and details remain covered by the full literature/Reader/controller suites.                         |
-| #29                | Paper Translate public bridge behavior and failure independence remain covered by Reader/controller tests.                                                                                                     |
-| #32                | Ordered eligible selection, tab-local select-all, and DOM-selection independence remain covered, including stable-identifier deduplication across tabs with different row IDs.                                 |
-| #35, #36, #37      | The owned sidecar contract, production port, startup probe, capability projection, and first-stage isolation remain the only production route and are covered by protocol, port, lifecycle, and package tests. |
-| #40                | Reader selection/translation integration is merged at `e0f47699cda4b666c96d45d580b28a207f0654fc`; startup registration and failure-isolation regressions are retained.                                         |
-| #41                | Complete single/batch download, subprocess, filesystem, and sidecar behavior remains the integration baseline at `5c558ca0132ea595a98e7dffcc472ac0f9d906c0`.                                                   |
+| Map issue | Retained evidence                                                                                                                                                                                |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #23       | Default `E:\paper`, native destination selection, and persisted preference remain covered by download-settings and Reader tests; removed private-runtime controls did not return.                |
+| #25       | Paper Translate public API, selection anchoring, stale-result suppression, and independent failure remain covered by Reader/controller tests.                                                    |
+| #26       | Confirmed-paper-only ordered selection across References/Citations and tab-local select-all remain covered, including cross-tab projection and complete stable-identity conflict handling.       |
+| #27       | Explicit one-paper dispatch, destination creation, one request-local `ScanSciCache`, canonical naming, and exclusive no-overwrite commit remain covered by controller/port/filesystem tests.     |
+| #29       | Second-stage manifest/build identity and XPI content rules remain covered by configuration, deterministic build, synthetic package tests, and the XPI audit; this issue does not deliver an XPI. |
+| #32       | The plugin-owned legal-only compatibility bridge, fixed arXiv/PMC routes, provenance manifest, and source rules remain; runtime installation branches did not return.                            |
+| #35       | The plugin-owned four-operation JSONL sidecar, bounded/redacted output, policy enforcement, batch progress, and candidate institution route remain covered by TypeScript/Python protocol tests.  |
+| #36       | Production subprocess lifecycle, single/batch dispatch, cancellation, timeout, containment, failure isolation, and scoped cleanup remain covered by adapter and filesystem tests.                |
+| #37       | `institution-webvpn/ieee/one-click-single` remains an unavailable candidate pending the complete real-world audit; probe and visible-login tests reject promotion.                               |
+| #40       | Reader selection/translation integration is merged at `e0f47699cda4b666c96d45d580b28a207f0654fc`; startup registration and failure-isolation regressions are retained.                           |
+| #41       | Complete single/batch download, subprocess, filesystem, and sidecar behavior remains the integration baseline at `5c558ca0132ea595a98e7dffcc472ac0f9d906c0`.                                     |
 
 No vendored external ScanSci tree, private venv/runtime installer, alternate
 TypeScript-facing legacy protocol, MCP/HTTP fallback, or second downloader is
@@ -111,17 +116,21 @@ present in the production package path.
   and unaccented titles.
 - Rejected stable-identifier candidate sets that agree on one identifier but
   conflict on another.
-- Deduplicated Reader selection by canonical scholarly identity rather than
-  presentation row ID.
+- Projected and deduplicated Reader selection, download status, and reveal-file
+  actions by complete scholarly identity rather than presentation row ID, while
+  preserving conflicts in any shared stable-identifier scheme.
 - Strengthened Citing-paper preservation coverage after sidecar failure.
 - Enforced exact sidecar request shapes, protocol-only stdout, process-wide
-  bounded/redacted diagnostics, actual batch counter consistency, and packaged
-  asset revalidation before every probe.
+  bounded/redacted diagnostics across fragmented writes, exact diagnostic byte
+  limits, actual batch counter consistency, and packaged asset revalidation
+  before every probe.
 - Replaced drifting package deny lists with one policy and added structural ZIP
   safety checks plus deterministic repacking.
 - Replaced stale fuzzy-score research guidance with the exact identity contract.
 - Aligned CI/release commands with the actual test artifact name and update-file
-  behavior; CI validates but does not upload the intermediate XPI.
+  behavior; PR diff checks fetch their base history, release audits derive
+  expected metadata from `package.json`, and CI validates without uploading the
+  intermediate XPI.
 
 ## Automated validation record
 
@@ -130,15 +139,15 @@ Executed from a clean dependency installation on Windows:
 | Gate                        | Result                                                                                                               |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `npm ci`                    | Passed.                                                                                                              |
-| Full Node test suite        | 182 passed, 0 failed.                                                                                                |
-| Full Python test suite      | 24 passed, 0 failed.                                                                                                 |
+| Full Node test suite        | 183 passed, 0 failed.                                                                                                |
+| Full Python test suite      | 27 passed, 0 failed.                                                                                                 |
 | TypeScript typecheck        | Passed.                                                                                                              |
 | ESLint                      | Passed.                                                                                                              |
 | Source/document formatting  | Passed.                                                                                                              |
 | GitHub workflow formatting  | Passed.                                                                                                              |
 | Production build            | Passed twice.                                                                                                        |
 | XPI content/denylist audit  | Passed; 18 members.                                                                                                  |
-| Deterministic package check | Both builds produced SHA-256 `6075b3ec676248e7d57a5bf9108e5f306d622fba7e475c7d71d1bc772f22672a`, size 106,314 bytes. |
+| Deterministic package check | Both builds produced SHA-256 `97c3193a10261a00be25da6b8ae5ce049553540c02b9c2c57ec619a3471a11fd`, size 106,858 bytes. |
 | Diff whitespace check       | Passed on the complete issue #42 diff.                                                                               |
 | Network-dependent smoke     | Explicitly not run; no fixture/mock success is reported as a real network result.                                    |
 

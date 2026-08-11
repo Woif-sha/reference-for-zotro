@@ -543,6 +543,7 @@ test("download selection accepts only confirmed papers, deduplicates identity, a
     status: "resolved" as const,
     primaryResultURL: "https://doi.org/10.1000/shared",
     doi: "10.1000/shared",
+    arxivID: "2401.00001",
   };
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
@@ -562,6 +563,12 @@ test("download selection accepts only confirmed papers, deduplicates identity, a
         title: "Shared paper in Citations",
       },
       {
+        ...sharedReference,
+        id: "citation:conflicting-arxiv",
+        title: "Conflicting arXiv identity",
+        arxivID: "2401.99999",
+      },
+      {
         id: "citation:second",
         ordinal: 1,
         title: "Second citing paper",
@@ -576,11 +583,12 @@ test("download selection accepts only confirmed papers, deduplicates identity, a
   controller.setPaperDownloadSelected("references", "unresolved", true);
   controller.setPaperDownloadSelected("references", "reference:shared", true);
   controller.selectTab("citations");
-  await waitFor(() => controller.getState().citingPapers.length === 2);
+  await waitFor(() => controller.getState().citingPapers.length === 3);
   controller.setTabDownloadSelected("citations", true);
 
   assert.deepEqual(controller.getState().downloadSelection, [
     { originTab: "references", paperID: "reference:shared" },
+    { originTab: "citations", paperID: "citation:conflicting-arxiv" },
     { originTab: "citations", paperID: "citation:second" },
   ]);
 
@@ -633,6 +641,7 @@ test("download command snapshots selection and consumes one batch progress strea
       title: "First selected paper",
       status: "resolved" as const,
       primaryResultURL: "https://example.test/first",
+      doi: "10.1000/first",
     },
     {
       id: "reference:second",
@@ -645,7 +654,12 @@ test("download command snapshots selection and consumes one batch progress strea
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
     resolveReferences: async () => papersToResolve,
-    loadCitingPapers: async () => [],
+    loadCitingPapers: async () => [
+      {
+        ...papersToResolve[0]!,
+        id: "citation:first",
+      },
+    ],
     async downloadPapers({ papers, onProgress }) {
       started.push(...papers.map(({ id }) => id));
       onProgress({
@@ -709,7 +723,10 @@ test("download command snapshots selection and consumes one batch progress strea
 
   controller.openDownloadedFolder("reference:first");
   controller.openDownloadedFolder("reference:second");
-  assert.deepEqual(revealed, ["E:\\paper\\First.pdf"]);
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 1);
+  controller.openDownloadedFolder("citation:first");
+  assert.deepEqual(revealed, ["E:\\paper\\First.pdf", "E:\\paper\\First.pdf"]);
 });
 
 test("a sidecar download failure leaves relationships, landing pages, details, and translation usable", async () => {

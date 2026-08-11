@@ -32,6 +32,20 @@ export function extractStableIdentifiers(text: string): StableIdentifiers {
 export type ScholarlyIdentifierScheme =
   "doi" | "arxiv" | "pmid" | "pmcid" | "omid";
 
+export type ScholarlyIdentity = Readonly<
+  Partial<Record<ScholarlyIdentifierScheme, string | undefined>>
+>;
+
+export type ScholarlyIdentityRelation = "same" | "conflicting" | "unrelated";
+
+const SCHOLARLY_IDENTIFIER_SCHEMES = [
+  "doi",
+  "arxiv",
+  "pmid",
+  "pmcid",
+  "omid",
+] as const;
+
 export function normalizeScholarlyIdentifier(
   scheme: ScholarlyIdentifierScheme,
   value: string | undefined,
@@ -54,6 +68,21 @@ export function normalizeDoi(value: string | undefined): string | undefined {
     throw new Error("DOI contains invalid percent-encoding", { cause: error });
   }
   return decoded.normalize("NFKC").trim().toLowerCase() || undefined;
+}
+
+export function relateScholarlyIdentities(
+  left: ScholarlyIdentity,
+  right: ScholarlyIdentity,
+): ScholarlyIdentityRelation {
+  let agrees = false;
+  for (const scheme of SCHOLARLY_IDENTIFIER_SCHEMES) {
+    const leftValue = normalizeScholarlyIdentifier(scheme, left[scheme]);
+    const rightValue = normalizeScholarlyIdentifier(scheme, right[scheme]);
+    if (!leftValue || !rightValue) continue;
+    if (leftValue !== rightValue) return "conflicting";
+    agrees = true;
+  }
+  return agrees ? "same" : "unrelated";
 }
 
 export function findMalformedStableIdentifier(

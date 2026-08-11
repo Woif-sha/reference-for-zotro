@@ -368,6 +368,7 @@ class ScanSciSidecarTest(unittest.TestCase):
         writer.write("https://example.test/path?token=url-secret\n")
         writer.write("x" * 1000)
         writer.write("y" * 1000)
+        writer.finish()
         value = target.getvalue()
         self.assertNotIn("dXNlcjpwYXNz", value)
         self.assertNotIn("sid=secret", value)
@@ -375,6 +376,30 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertNotIn("12345", value)
         self.assertNotIn("url-secret", value)
         self.assertEqual(value.count("diagnostics truncated"), 1)
+        self.assertLessEqual(len(value.encode("utf-8")), 96)
+
+    def test_diagnostics_redact_secrets_split_across_writes(self):
+        target = io.StringIO()
+        writer = sidecar.BoundedRedactingWriter(target, limit=96)
+
+        writer.write('{"token":')
+        writer.write("12345}\n")
+        writer.finish()
+
+        self.assertNotIn("12345", target.getvalue())
+        self.assertIn("[REDACTED]", target.getvalue())
+
+    def test_oversized_fragmented_secret_is_truncated_before_later_chunks(self):
+        target = io.StringIO()
+        writer = sidecar.BoundedRedactingWriter(target, limit=96)
+
+        writer.write('{"token":"' + "x" * 5000)
+        writer.write('secret-tail"}\n')
+        writer.finish()
+
+        self.assertNotIn("secret-tail", target.getvalue())
+        self.assertEqual(target.getvalue().count("diagnostics truncated"), 1)
+        self.assertLessEqual(len(target.getvalue().encode("utf-8")), 96)
 
     def test_run_keeps_dependency_output_out_of_stdout_and_redacts_process_stderr(self):
         output = io.StringIO()

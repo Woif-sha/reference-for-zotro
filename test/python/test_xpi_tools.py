@@ -6,11 +6,15 @@ from pathlib import Path
 import stat
 import tempfile
 import unittest
+from unittest import mock
 import warnings
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from scripts.repack_xpi import repack
+from test.python import audit_scansci_xpi as xpi_audit
 from test.python.audit_scansci_xpi import (
+    EXPECTED_ADDON_NAME,
+    EXPECTED_ADDON_VERSION,
     EXPECTED_UPDATE_URL,
     REQUIRED_ASSETS,
     audit_archive,
@@ -19,8 +23,8 @@ from test.python.audit_scansci_xpi import (
 
 def valid_files() -> dict[str, bytes]:
     manifest = {
-        "name": "Reference for Zotero (Second-stage Test)",
-        "version": "1.1.0-beta.1",
+        "name": EXPECTED_ADDON_NAME,
+        "version": EXPECTED_ADDON_VERSION,
         "applications": {
             "zotero": {
                 "update_url": EXPECTED_UPDATE_URL,
@@ -65,6 +69,34 @@ class XpiToolsTest(unittest.TestCase):
 
         self.assertEqual(summary.member_count, len(valid_files()))
         self.assertEqual(len(summary.sha256), 64)
+
+    def test_manifest_expectations_can_follow_stable_release_metadata(self):
+        files = valid_files()
+        manifest = json.loads(files["manifest.json"])
+        manifest["name"] = "Reference for Zotero"
+        manifest["version"] = "1.1.0"
+        manifest["applications"]["zotero"]["update_url"] = (
+            "https://github.com/Woif-sha/reference-for-zotro/"
+            "releases/latest/download/update.json"
+        )
+        files["manifest.json"] = json.dumps(manifest).encode()
+
+        with tempfile.TemporaryDirectory() as root:
+            archive = Path(root) / "stable.xpi"
+            write_archive(archive, files)
+            with (
+                mock.patch.object(
+                    xpi_audit, "EXPECTED_ADDON_NAME", "Reference for Zotero"
+                ),
+                mock.patch.object(xpi_audit, "EXPECTED_ADDON_VERSION", "1.1.0"),
+                mock.patch.object(
+                    xpi_audit,
+                    "EXPECTED_UPDATE_URL",
+                    "https://github.com/Woif-sha/reference-for-zotro/"
+                    "releases/latest/download/update.json",
+                ),
+            ):
+                xpi_audit.audit_archive(archive)
 
     def test_audit_rejects_duplicate_traversal_secret_and_link_members(self):
         cases = []

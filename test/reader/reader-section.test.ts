@@ -37,6 +37,25 @@ function readyState(): ReaderSectionState {
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
+    downloadSelection: [],
+    paperDownloads: [],
+    downloadInProgress: false,
+    downloadAvailable: true,
+  };
+}
+
+function downloadControllerStubs(): Pick<
+  ReaderSectionController,
+  | "setPaperDownloadSelected"
+  | "setTabDownloadSelected"
+  | "downloadSelected"
+  | "openDownloadedFolder"
+> {
+  return {
+    setPaperDownloadSelected() {},
+    setTabDownloadSelected() {},
+    async downloadSelected() {},
+    openDownloadedFolder() {},
   };
 }
 
@@ -52,6 +71,7 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   const mounted = mountReaderSection({
     body,
     controller: {
+      ...downloadControllerStubs(),
       getState: readyState,
       subscribe: () => () => {},
       selectTab() {},
@@ -75,6 +95,286 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
       ["div", "Second reference"],
     ],
   );
+  assert.ok(
+    [...root.querySelectorAll("input")].every(
+      (input) => input.namespaceURI === "http://www.w3.org/1999/xhtml",
+    ),
+  );
+  mounted.destroy();
+});
+
+test("download checkboxes preserve focus and stay isolated from paper actions", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      ...readyState().references,
+      {
+        id: "ref-3",
+        ordinal: 2,
+        title: "Third confirmed reference",
+        status: "resolved",
+        primaryResultURL: "https://example.test/third",
+      },
+    ],
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const actions: string[] = [];
+  const controller: ReaderSectionController = {
+    getState: () => state,
+    subscribe(next) {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+    selectTab() {},
+    setCitationLimit() {},
+    selectPaper: (paperID) => actions.push(`detail:${paperID}`),
+    refresh() {},
+    openPaper: (paperID) => actions.push(`open:${paperID}`),
+    performPaperAction() {},
+    setPaperDownloadSelected(tab, paperID, selected) {
+      actions.push(`select:${tab}:${paperID}:${selected}`);
+      const entry = { originTab: tab, paperID };
+      state = {
+        ...state,
+        downloadSelection: selected
+          ? [...state.downloadSelection, entry]
+          : state.downloadSelection.filter(
+              (candidate) =>
+                candidate.originTab !== tab || candidate.paperID !== paperID,
+            ),
+      };
+      listener?.(state);
+    },
+    setTabDownloadSelected(tab, selected) {
+      actions.push(`select-all:${tab}:${selected}`);
+    },
+    async downloadSelected() {
+      actions.push("download");
+    },
+    openDownloadedFolder() {},
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller,
+  });
+
+  const resolvedCheckbox = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-select-paper]',
+  ) as HTMLInputElement | null;
+  const unresolvedCheckbox = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-select-paper]',
+  ) as HTMLInputElement | null;
+  assert.ok(resolvedCheckbox);
+  assert.ok(unresolvedCheckbox);
+  assert.match(
+    resolvedCheckbox.getAttribute("aria-label") ?? "",
+    /First reference/,
+  );
+  assert.equal(unresolvedCheckbox.disabled, true);
+  assert.match(
+    unresolvedCheckbox.getAttribute("aria-label") ?? "",
+    /cannot be selected.*Unresolved/i,
+  );
+  assert.match(
+    unresolvedCheckbox.closest("[data-paper-id]")?.textContent ?? "",
+    /Download unavailable.*Unresolved/i,
+  );
+
+  resolvedCheckbox.focus();
+  resolvedCheckbox.click();
+  const replacement = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-select-paper]',
+  ) as HTMLInputElement | null;
+  assert.ok(replacement?.checked);
+  assert.equal(dom.window.document.activeElement, replacement);
+  assert.equal(
+    (dom.window.document.querySelector("[data-select-tab]") as HTMLInputElement)
+      .indeterminate,
+    true,
+  );
+  assert.deepEqual(actions, ["select:references:ref-1:true"]);
+
+  replacement.dispatchEvent(
+    new dom.window.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  assert.ok(
+    !dom.window.document
+      .querySelector("[data-paper-context-menu]")
+      ?.classList.contains("is-open"),
+  );
+  const downloadButton = dom.window.document.querySelector(
+    "[data-download-selected]",
+  ) as HTMLButtonElement | null;
+  assert.ok(downloadButton);
+  assert.equal(downloadButton.disabled, false);
+  assert.match(downloadButton.textContent ?? "", /\(1\)/u);
+  downloadButton.click();
+  assert.deepEqual(actions, ["select:references:ref-1:true", "download"]);
+  mounted.destroy();
+});
+
+test("download selection projects across tabs by complete stable identity", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const selected: boolean[] = [];
+  const reference = {
+    ...readyState().references[0],
+    id: "reference:shared",
+    doi: "10.1000/shared",
+    arxivID: "2401.00001",
+  } as ReaderPaper;
+  const citation = {
+    ...reference,
+    id: "citation:shared",
+  };
+  const state: ReaderSectionState = {
+    ...readyState(),
+    activeTab: "citations",
+    references: [reference],
+    citingPapers: [citation],
+    downloadSelection: [
+      { originTab: "references", paperID: "reference:shared" },
+    ],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      setPaperDownloadSelected(_tab, _paperID, value) {
+        selected.push(value);
+      },
+    },
+  });
+
+  const checkbox = dom.window.document.querySelector(
+    '[data-paper-id="citation:shared"] [data-select-paper]',
+  ) as HTMLInputElement | null;
+  assert.equal(checkbox?.checked, true);
+  assert.match(
+    dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
+      "",
+    /^1\/1/u,
+  );
+  checkbox?.click();
+  assert.deepEqual(selected, [false]);
+  mounted.destroy();
+});
+
+test("Reader download projection exposes only four per-paper states and the actual saved path", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const references = (
+    [
+      ["queued", "Queued paper"],
+      ["downloading", "Downloading paper"],
+      ["downloaded", "Downloaded paper"],
+      ["failed", "Failed paper"],
+    ] as const
+  ).map(([id, title], ordinal) => ({
+    id,
+    ordinal,
+    title,
+    status: "resolved" as const,
+    primaryResultURL: `https://example.test/${id}`,
+  }));
+  const savedPath = "E:\\paper\\Downloaded paper.pdf";
+  const boundaryError = "publisher refused https://publisher.test/file";
+  const state: ReaderSectionState = {
+    ...readyState(),
+    references,
+    downloadSelection: references.map((paper) => ({
+      originTab: "references" as const,
+      paperID: paper.id,
+    })),
+    paperDownloads: [
+      { originTab: "references", paperID: "queued", status: "queued" },
+      {
+        originTab: "references",
+        paperID: "downloading",
+        status: "downloading",
+      },
+      {
+        originTab: "references",
+        paperID: "downloaded",
+        status: "downloaded",
+        savedPath,
+      },
+      {
+        originTab: "references",
+        paperID: "failed",
+        status: "failed",
+        error: boundaryError,
+      },
+    ],
+    downloadInProgress: true,
+  };
+  const opened: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      openDownloadedFolder(paperID) {
+        opened.push(paperID);
+      },
+    },
+  });
+
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll("[data-download-state]")].map(
+      (element) => element.getAttribute("data-download-state"),
+    ),
+    ["queued", "downloading", "downloaded", "failed"],
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-saved-path]")?.textContent,
+    savedPath,
+  );
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    new RegExp(boundaryError.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  );
+  assert.equal(
+    dom.window.document.querySelectorAll("[data-open-folder]").length,
+    1,
+  );
+  assert.equal(
+    (
+      dom.window.document.querySelector(
+        "[data-download-selected]",
+      ) as HTMLButtonElement
+    ).disabled,
+    true,
+  );
+  assert.doesNotMatch(
+    dom.window.document.body.textContent ?? "",
+    /validating|saving|already-downloaded|partial|retry|recovery|importing/i,
+  );
+  (
+    dom.window.document.querySelector("[data-open-folder]") as HTMLButtonElement
+  ).click();
+  assert.deepEqual(opened, ["downloaded"]);
   mounted.destroy();
 });
 
@@ -83,6 +383,7 @@ test("Reader section renders Reference entries in source order and selects Citat
   const actions: string[] = [];
   let listener: ((state: ReaderSectionState) => void) | undefined;
   const controller: ReaderSectionController = {
+    ...downloadControllerStubs(),
     getState: readyState,
     subscribe(next) {
       listener = next;
@@ -191,6 +492,7 @@ test("Reader section exposes cumulative citation limits, paper details, safe ope
   const actions: string[] = [];
   let listener: ((next: ReaderSectionState) => void) | undefined;
   const controller: ReaderSectionController = {
+    ...downloadControllerStubs(),
     getState: () => state,
     subscribe(next) {
       listener = next;
@@ -392,6 +694,7 @@ test("Reader section delegates Ctrl+left-click for resolved and unresolved title
     ],
   };
   const controller: ReaderSectionController = {
+    ...downloadControllerStubs(),
     getState: () => state,
     subscribe: () => () => {},
     selectTab() {},
@@ -464,6 +767,7 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
   const mounted = mountReaderSection({
     body,
     controller: {
+      ...downloadControllerStubs(),
       getState: readyState,
       subscribe: () => () => {},
       selectTab() {},
@@ -563,6 +867,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   const mounted = mountReaderSection({
     body,
     controller: {
+      ...downloadControllerStubs(),
       getState: () => state,
       subscribe(next) {
         listener = next;
@@ -625,6 +930,7 @@ test("only Resolved references and Citing papers open a detail card", () => {
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
+      ...downloadControllerStubs(),
       getState: () => state,
       subscribe(next) {
         listener = next;
@@ -676,6 +982,7 @@ test("Reader section keeps unresolved rows title-only while retaining actionable
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
+      ...downloadControllerStubs(),
       getState: () => state,
       subscribe: () => () => {},
       selectTab() {},
@@ -707,15 +1014,46 @@ test("Reader section translates only text selected inside the extension UI", asy
     pretendToBeVisual: true,
   });
   const translated: string[] = [];
+  const paperSelections: string[] = [];
+  const downloadSelections: string[] = [];
+  let downloads = 0;
+  let state: ReaderSectionState = {
+    ...readyState(),
+    selectedPaperID: "ref-1",
+    references: readyState().references.map((paper) =>
+      paper.id === "ref-1" ? { ...paper, abstractLoading: true } : paper,
+    ),
+    paperDownloads: [
+      {
+        originTab: "references",
+        paperID: "ref-1",
+        status: "downloaded",
+        savedPath: "E:\\paper\\First reference.pdf",
+      },
+    ],
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
   const controller: ReaderSectionController = {
-    getState: readyState,
-    subscribe: () => () => {},
+    ...downloadControllerStubs(),
+    getState: () => state,
+    subscribe(next) {
+      listener = next;
+      return () => {};
+    },
     selectTab() {},
     setCitationLimit() {},
-    selectPaper() {},
+    selectPaper(paperID) {
+      paperSelections.push(paperID);
+    },
     refresh() {},
     openPaper() {},
     performPaperAction() {},
+    setPaperDownloadSelected(_tab, paperID) {
+      downloadSelections.push(paperID);
+    },
+    async downloadSelected() {
+      downloads += 1;
+    },
     async translateSelection(text) {
       translated.push(text);
       return "第一篇参考文献";
@@ -725,11 +1063,51 @@ test("Reader section translates only text selected inside the extension UI", asy
     body: dom.window.document.body,
     controller,
   });
+  const loadingAbstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.ok(loadingAbstract);
+  selectNodeContents(dom, loadingAbstract);
+  loadingAbstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, []);
+
+  state = {
+    ...state,
+    references: state.references.map((paper) =>
+      paper.id === "ref-1"
+        ? {
+            ...paper,
+            abstractLoading: false,
+            abstractError: "Provider request failed",
+          }
+        : paper,
+    ),
+  };
+  listener?.(state);
+  const failedAbstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.ok(failedAbstract);
+  selectNodeContents(dom, failedAbstract);
+  failedAbstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, []);
+
   const sectionHeading =
     dom.window.document.querySelector(".rfz-header strong");
   assert.ok(sectionHeading);
   selectNodeContents(dom, sectionHeading);
   sectionHeading.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, []);
+
+  const savedPath = dom.window.document.querySelector("[data-saved-path]");
+  assert.ok(savedPath);
+  selectNodeContents(dom, savedPath);
+  savedPath.dispatchEvent(
     new dom.window.MouseEvent("mouseup", { bubbles: true }),
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -745,6 +1123,9 @@ test("Reader section translates only text selected inside the extension UI", asy
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(translated, ["First reference"]);
+  assert.deepEqual(paperSelections, []);
+  assert.deepEqual(downloadSelections, []);
+  assert.equal(downloads, 0);
   assert.equal(
     dom.window.document.querySelector("[data-translation-result]")?.textContent,
     "第一篇参考文献",
@@ -752,15 +1133,25 @@ test("Reader section translates only text selected inside the extension UI", asy
   mounted.destroy();
 });
 
-test("a translation failure disables only UI translation for the mounted section", async () => {
+test("Reader section renders detail translations inside the detail overlay", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,
   });
-  let translationCalls = 0;
+  const ready = readyState();
+  const state: ReaderSectionState = {
+    ...ready,
+    selectedPaperID: "ref-1",
+    references: ready.references.map((paper) =>
+      paper.id === "ref-1"
+        ? { ...paper, abstract: "Selected abstract" }
+        : paper,
+    ),
+  };
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
-      getState: readyState,
+      ...downloadControllerStubs(),
+      getState: () => state,
       subscribe: () => () => {},
       selectTab() {},
       setCitationLimit() {},
@@ -769,8 +1160,96 @@ test("a translation failure disables only UI translation for the mounted section
       openPaper() {},
       performPaperAction() {},
       async translateSelection() {
+        return "译文";
+      },
+    },
+  });
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  const overlay = dom.window.document.querySelector("[data-reader-overlay]");
+  assert.ok(abstract);
+  assert.ok(overlay);
+  const selectionRange = selectNodeContents(dom, abstract);
+  Object.defineProperty(selectionRange, "getBoundingClientRect", {
+    configurable: true,
+    value: () => domRect({ top: 700, left: 900, width: 100, height: 20 }),
+  });
+  const getElementRect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return this.matches("[data-translation]")
+      ? domRect({ top: 0, left: 0, width: 340, height: 100 })
+      : getElementRect.call(this);
+  };
+
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const translation = dom.window.document.querySelector("[data-translation]");
+  assert.ok(translation);
+  assert.equal(translation.parentElement, overlay);
+  assert.equal((translation as HTMLElement).style.left, "674px");
+  assert.equal((translation as HTMLElement).style.top, "592px");
+  assert.equal((translation as HTMLElement).style.right, "auto");
+  assert.equal((translation as HTMLElement).style.bottom, "auto");
+  assert.equal(
+    translation.querySelector("[data-translation-result]")?.textContent,
+    "译文",
+  );
+
+  const listTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const root = dom.window.document.querySelector(".reference-for-zotero");
+  assert.ok(listTitle);
+  assert.ok(root);
+  selectNodeContents(dom, listTitle);
+  listTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const translations =
+    dom.window.document.querySelectorAll("[data-translation]");
+  assert.equal(translations.length, 1);
+  assert.equal(translations[0]?.parentElement, root);
+  mounted.destroy();
+});
+
+test("a translation failure ends only that request and the next selection can retry", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const opened: string[] = [];
+  let downloads = 0;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper(paperID) {
+        opened.push(paperID);
+      },
+      performPaperAction() {},
+      async downloadSelected() {
+        downloads += 1;
+      },
+      async translateSelection() {
         translationCalls += 1;
-        throw new Error("Paper Translate service unavailable");
+        if (translationCalls === 1) {
+          throw new Error("Paper Translate service unavailable");
+        }
+        return "第二篇参考文献";
       },
     },
   });
@@ -800,6 +1279,16 @@ test("a translation failure disables only UI translation for the mounted section
     ),
     ["First reference", "Second reference"],
   );
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true, ctrlKey: true }),
+  );
+  (
+    dom.window.document.querySelector(
+      "[data-download-selected]",
+    ) as HTMLButtonElement
+  ).click();
+  assert.deepEqual(opened, ["ref-1"]);
+  assert.equal(downloads, 1);
 
   selectNodeContents(dom, secondTitle);
   secondTitle.dispatchEvent(
@@ -807,20 +1296,338 @@ test("a translation failure disables only UI translation for the mounted section
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
 
-  assert.equal(translationCalls, 1);
+  assert.equal(translationCalls, 2);
   assert.equal(
     dom.window.document.querySelector("[data-translation-result]")?.textContent,
-    "UI translation disabled",
+    "第二篇参考文献",
   );
   mounted.destroy();
 });
 
-function selectNodeContents(dom: JSDOM, node: Node): void {
+test("Reader download area exposes only the destination and an explicit automatic-probe failure", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const body = dom.window.document.body;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
+    downloadSetup: {
+      downloadDestination: "E:\\paper",
+      usingDefaultDestination: true,
+      runtime: {
+        status: "unavailable",
+        error: "requests==2.34.2 is missing",
+      },
+    },
+  };
+  let changeDestination = 0;
+  let downloadAttempts = 0;
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async changeDownloadDestination() {
+        changeDestination += 1;
+      },
+      async downloadSelected() {
+        downloadAttempts += 1;
+      },
+    },
+  });
+
+  assert.equal(
+    body.querySelector("[data-download-destination]")?.textContent,
+    "E:\\paper",
+  );
+  assert.match(body.textContent ?? "", /requests==2\.34\.2 is missing/u);
+  assert.doesNotMatch(
+    body.textContent ?? "",
+    /python|venv|install|institution|cloakbrowser/iu,
+  );
+  assert.equal(body.querySelector("[data-check-runtime]"), null);
+  assert.equal(body.querySelector("[data-choose-python]"), null);
+  assert.equal(body.querySelector("[data-install-runtime]"), null);
+  const downloadButton = body.querySelector(
+    "[data-download-selected]",
+  ) as HTMLButtonElement;
+  assert.equal(downloadButton.disabled, false);
+  downloadButton.click();
+  assert.equal(downloadAttempts, 1);
+
+  (body.querySelector("[data-change-destination]") as HTMLElement)?.click();
+  assert.equal(changeDestination, 1);
+  mounted.destroy();
+});
+
+test("Reader does not project the unavailable institution candidate as support", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const body = dom.window.document.body;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSetup: {
+      downloadDestination: "E:\\paper",
+      usingDefaultDestination: true,
+      runtime: {
+        status: "ready",
+        capability: {
+          status: "available",
+          executable: "C:\\Python312\\python.exe",
+          pythonVersion: "3.12.10",
+          architecture: "x64",
+          moduleVersion: "3.2.0",
+          schemaVersion: 3,
+          sourceRulesVersion: 3,
+          dependencies: [],
+          features: {
+            onePaperDownload: "available",
+            batchDownload: "available",
+            visibleLogin: "disabled",
+          },
+          routes: [
+            {
+              routeID: "open-access",
+              status: "available",
+              sources: ["arxiv", "pmc"],
+              operations: ["downloadOne", "downloadBatch"],
+            },
+            {
+              routeID: "institution-webvpn/ieee/one-click-single",
+              status: "candidate",
+              reason: "real-world-route-audit-pending",
+              operations: ["visibleLogin", "downloadOne"],
+            },
+          ],
+          sidecar: {
+            protocol: "reference-for-zotero.scansci-sidecar",
+            contractVersion: "1.1.0",
+            resultSchemaVersion: "1.0.0",
+            upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+            dirty: false,
+          },
+        },
+      },
+    },
+  };
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.doesNotMatch(
+    body.textContent ?? "",
+    /WebVPN|IEEE|institution|candidate|supported|available ✓/iu,
+  );
+  mounted.destroy();
+});
+
+test("an unavailable Paper Translate capability is explicit without calling translate", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translationCapability: () => ({
+        available: false,
+        reason: "incompatible-version",
+      }),
+      async translateSelection() {
+        translationCalls += 1;
+        return "unreachable";
+      },
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 0);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "UI translation unavailable: incompatible-version",
+  );
+  mounted.destroy();
+});
+
+test("status and error copy stay outside the academic translation scope", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let translationCalls = 0;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      {
+        id: "failed",
+        ordinal: 0,
+        title: "Visible paper title",
+        status: "failed",
+        statusText: "C:\\private\\diagnostics.log",
+      },
+    ],
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async translateSelection() {
+        translationCalls += 1;
+        return "unreachable";
+      },
+    },
+  });
+  const status = dom.window.document.querySelector(".rfz-paper-status");
+  assert.ok(status);
+  selectNodeContents(dom, status);
+  status.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(translationCalls, 0);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]"),
+    null,
+  );
+  mounted.destroy();
+});
+
+test("a newer academic selection invalidates an older translation result", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  const pending: Array<(value: string) => void> = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translateSelection: () =>
+        new Promise<string>((resolve) => pending.push(resolve)),
+    },
+  });
+  const firstTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const secondTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-paper-title]',
+  );
+  assert.ok(firstTitle);
+  assert.ok(secondTitle);
+  selectNodeContents(dom, firstTitle);
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  selectNodeContents(dom, secondTitle);
+  secondTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+
+  pending[1]?.("new result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "new result",
+  );
+  pending[0]?.("stale result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "new result",
+  );
+  mounted.destroy();
+});
+
+test("destroying the section prevents a late translation UI commit", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let resolveTranslation: ((value: string) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translateSelection: () =>
+        new Promise<string>((resolve) => {
+          resolveTranslation = resolve;
+        }),
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  mounted.destroy();
+  resolveTranslation?.("late result");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]"),
+    null,
+  );
+});
+
+function selectNodeContents(dom: JSDOM, node: Node): Range {
   const range = dom.window.document.createRange();
   range.selectNodeContents(node);
   const selection = dom.window.getSelection();
   selection?.removeAllRanges();
   selection?.addRange(range);
+  return range;
 }
 
 function domRect(options: {

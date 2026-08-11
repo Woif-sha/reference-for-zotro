@@ -1,4 +1,5 @@
 import { defineConfig } from "zotero-plugin-scaffold";
+import { rm } from "node:fs/promises";
 import pkg from "./package.json";
 
 export default defineConfig({
@@ -23,7 +24,6 @@ export default defineConfig({
       description: pkg.description,
       homepage: pkg.homepage,
       buildVersion: pkg.version,
-      buildTime: "{{buildTime}}",
     },
     esbuildOptions: [
       {
@@ -38,6 +38,16 @@ export default defineConfig({
     ],
     makeUpdateJson: {
       hash: false,
+    },
+    hooks: {
+      async "build:makeUpdateJSON"({ dist }) {
+        if (pkg.version.includes("-")) {
+          await Promise.all([
+            rm(`${dist}/update.json`, { force: true }),
+            rm(`${dist}/update-beta.json`, { force: true }),
+          ]);
+        }
+      },
     },
   },
 });

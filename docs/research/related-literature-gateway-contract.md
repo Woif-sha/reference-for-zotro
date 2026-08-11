@@ -42,11 +42,11 @@ GET https://api.datacite.org/dois/{percentEncodedDoi}
 
 没有稳定标识符时，先依据引用文本中的 publication channel 决定本轮 provider 集合，不能因某个来源失败而临时静默换源：
 
-| Channel 信号 | 本轮 provider |
-| --- | --- |
-| journal、conference、book、chapter、standard | Crossref |
-| dataset、software、preprint、repository、report | DataCite |
-| 缺少 channel 或无法分类 | Crossref 与 DataCite 并行 |
+| Channel 信号                                    | 本轮 provider             |
+| ----------------------------------------------- | ------------------------- |
+| journal、conference、book、chapter、standard    | Crossref                  |
+| dataset、software、preprint、repository、report | DataCite                  |
+| 缺少 channel 或无法分类                         | Crossref 与 DataCite 并行 |
 
 Crossref 搜索合同：
 
@@ -129,7 +129,8 @@ type QueryContext = {
 
 ```ts
 type ScholarlyCandidate = {
-  source: "crossref" | "datacite" | "opencitations-index" | "opencitations-meta";
+  source:
+    "crossref" | "datacite" | "opencitations-index" | "opencitations-meta";
   sourceRecordID: string;
   retrievedAt: string;
   identifiers: {
@@ -145,7 +146,12 @@ type ScholarlyCandidate = {
   publicationYear: number | null;
   venue: string | null;
   abstract: string | null;
-  abstractSource?: "crossref" | "datacite" | "openalex" | "opencitations-meta" | "semantic-scholar";
+  abstractSource?:
+    | "crossref"
+    | "datacite"
+    | "openalex"
+    | "opencitations-meta"
+    | "semantic-scholar";
   referenceCount: number | null;
   citationCount: number | null;
   canonicalURL: string | null;
@@ -182,7 +188,7 @@ authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_met
 2. PMID/PMCID/arXiv 等同 scheme 的稳定标识符；
 3. 同一 provider 的 `sourceRecordID`。
 
-没有共同稳定标识符时，`normalizedTitle + firstAuthorFamily + year` 通常只能用于候选聚类，不能证明同一论文。唯一例外是联合出版的多个正式记录：每个候选都必须有自己的稳定标识符，并且规范化题名、年份、非空的有序作者姓氏序列与输入完全一致；此时保留全部记录交给 Primary result 选择。任一作者缺失或冲突时仍为歧义，标识符冲突的记录不得合并。
+没有共同稳定标识符时，题名、作者和年份只能用于候选聚类，不能单独证明多个 provider record 是同一论文。身份确认只使用下述统一规则；作者始终是辅助证据，不构成联合出版或其他记录的例外。
 
 ### 确认规则
 
@@ -190,25 +196,18 @@ authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_met
 
 - 输入和候选的同 scheme identifier 完全一致即为 exact match；
 - 输入含多个标识符而候选出现任一冲突时，候选拒绝；
-- exact match 优先于任何文本分数。
+- 同一 identifier 命中的多个 provider record 必须在其他稳定标识符上也不冲突，并共同形成一个连通的稳定身份；否则保持 `ambiguous_candidate`；
+- exact match 优先于任何书目文本证据。
 
-无稳定标识符时使用本项目固定算法：
+无稳定标识符时，只接受唯一、无竞争的 exact normalized title + exact year：
 
-```text
-titleScore  = Sørensen-Dice(normalized title word bigrams)
-authorScore = Jaccard(reference family names, candidate family names)
-yearScore   = 1.0 (same year), 0.5 (difference 1), 0 otherwise
-total       = 0.65 * titleScore + 0.25 * authorScore + 0.10 * yearScore
-```
+- title 按上文 NFKC、HTML entity decode、大小写与标点规则规范化后必须完全一致；
+- year 必须存在且完全一致；
+- author 仅记录辅助证据，不能补偿非 exact title 或 year；
+- 多个 exact title + year 候选只有在全部稳定标识符共同证明一个身份时才能共同确认，否则保持 `ambiguous_candidate`；
+- 没有合格候选时返回 `no_candidate`。
 
-候选必须同时满足：
-
-- `titleScore >= 0.90`；
-- 第一作者姓氏一致，且 `authorScore >= 0.50`；
-- 双方都有年份时差值不超过 1；
-- `total >= 0.85`。
-
-最高候选与第二名差值必须 `>= 0.08` 才能唯一确认。多个精确题名/年份候选仅在全部具有稳定标识符且有序作者姓氏序列也与输入完全一致时，作为联合出版记录共同确认；否则仍为 `ambiguous_candidate`。没有合格候选为 `no_candidate`。这些阈值是项目的首发保守策略，需要固定 fixture 测试；provider relevance score 和返回顺序不参与确认。
+Issue #38 与 #40 已取代早期 fuzzy score、近似年份和候选分差阈值方案；provider relevance score、返回顺序和作者相似度均不参与身份确认。
 
 ## Primary result
 
@@ -281,13 +280,13 @@ OpenCitations 定义 `creation` 为 citing entity publication date，因此在�
 
 ### 客户端预算
 
-| Provider | 首发客户端限制 | 官方依据 |
-| --- | --- | --- |
-| Crossref single | public 5 req/s，concurrency 1 | [Crossref 2025-12 implemented rate limits](https://community.crossref.org/t/updates-to-rest-api-rate-limits/14872) |
-| Crossref list | 项目保守 1 req/s，concurrency 1；低于当前 public pool 的 5 req/s | 同上 |
-| DataCite | 80 req/min，concurrency 2；低于官方 anonymous 500/5 min | [DataCite rate limits](https://support.datacite.org/docs/rate-limit) |
-| OpenCitations Index + Meta | 合并 120 req/min，concurrency 2；低于官方 180/min/IP | [OpenCitations Index API](https://api.opencitations.net/index/v2) |
-| DOI Proxy reachability | 2 req/s，concurrency 2 | 本项目保守限制 |
+| Provider                   | 首发客户端限制                                                   | 官方依据                                                                                                           |
+| -------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Crossref single            | public 5 req/s，concurrency 1                                    | [Crossref 2025-12 implemented rate limits](https://community.crossref.org/t/updates-to-rest-api-rate-limits/14872) |
+| Crossref list              | 项目保守 1 req/s，concurrency 1；低于当前 public pool 的 5 req/s | 同上                                                                                                               |
+| DataCite                   | 80 req/min，concurrency 2；低于官方 anonymous 500/5 min          | [DataCite rate limits](https://support.datacite.org/docs/rate-limit)                                               |
+| OpenCitations Index + Meta | 合并 120 req/min，concurrency 2；低于官方 180/min/IP             | [OpenCitations Index API](https://api.opencitations.net/index/v2)                                                  |
+| DOI Proxy reachability     | 2 req/s，concurrency 2                                           | 本项目保守限制                                                                                                     |
 
 Crossref 2025 年 11 月最初公告过按 single/list 区分的限额，但 2025 年 12 月实际部署时改为 public pool 统一 5 req/s、concurrency 1，polite pool 统一 10 req/s、concurrency 5。上表仍把 list 主动压到 1 req/s，是项目的保守预算，不是对当前官方上限的陈述。
 
@@ -295,20 +294,20 @@ Crossref 2025 年 11 月最初公告过按 single/list 区分的限额，但 202
 
 ### HTTP 映射
 
-| 情况 | 领域错误 | 重试 |
-| --- | --- | --- |
-| exact singleton 404 | `no_candidate` | 否 |
-| successful search, empty items | `no_candidate` | 否 |
-| successful citations, empty edges | `no_citations_from_source` | 否；不得解释为全局零引用 |
-| 400/422 | `invalid_provider_query` | 否 |
-| 401/403 | `source_access_denied` | 否 |
-| 429 | `rate_limited` | 按 `Retry-After`；缺失时 2s、4s，最多 2 次 |
-| 500/502/503/504 | `source_unavailable` | 1s、2s 加 jitter，最多 2 次 |
-| 其他 5xx | `provider_failure` | 最多 1 次 |
-| DNS/TLS/timeout | `source_unavailable` | 最多 2 次 |
-| JSON/schema 不符 | `provider_contract_error` | 否 |
-| required metadata 缺失 | `incomplete_metadata` | 可换同一已计划 provider 的其他 confirmed record；不可静默增加来源 |
-| landing probe 失败 | `unreachable_landing_page` | 仅 refresh 或 TTL 后 |
+| 情况                              | 领域错误                   | 重试                                                              |
+| --------------------------------- | -------------------------- | ----------------------------------------------------------------- |
+| exact singleton 404               | `no_candidate`             | 否                                                                |
+| successful search, empty items    | `no_candidate`             | 否                                                                |
+| successful citations, empty edges | `no_citations_from_source` | 否；不得解释为全局零引用                                          |
+| 400/422                           | `invalid_provider_query`   | 否                                                                |
+| 401/403                           | `source_access_denied`     | 否                                                                |
+| 429                               | `rate_limited`             | 按 `Retry-After`；缺失时 2s、4s，最多 2 次                        |
+| 500/502/503/504                   | `source_unavailable`       | 1s、2s 加 jitter，最多 2 次                                       |
+| 其他 5xx                          | `provider_failure`         | 最多 1 次                                                         |
+| DNS/TLS/timeout                   | `source_unavailable`       | 最多 2 次                                                         |
+| JSON/schema 不符                  | `provider_contract_error`  | 否                                                                |
+| required metadata 缺失            | `incomplete_metadata`      | 可换同一已计划 provider 的其他 confirmed record；不可静默增加来源 |
+| landing probe 失败                | `unreachable_landing_page` | 仅 refresh 或 TTL 后                                              |
 
 Crossref 要求检查标准 HTTP code，429/403 表示临时或永久阻断；DataCite 明确用 429 表示限流并建议 incremental backoff。[Crossref Swagger](https://api.crossref.org/swagger-ui/index.html)；[DataCite rate limits](https://support.datacite.org/docs/rate-limit)
 
@@ -332,16 +331,16 @@ normalized request key
 
 默认 TTL：
 
-| 内容 | TTL |
-| --- | --- |
-| Crossref/DataCite exact DOI metadata | 7 days |
-| bibliographic search candidates | 24 hours |
-| OpenCitations citation edges | 24 hours |
-| OpenCitations Meta hydration | 7 days |
-| successful landing reachability | 24 hours |
-| exact singleton 404 | 6 hours |
-| search `no_candidate` | 1 hour |
-| `no_citations_from_source` | 1 hour |
+| 内容                                 | TTL      |
+| ------------------------------------ | -------- |
+| Crossref/DataCite exact DOI metadata | 7 days   |
+| bibliographic search candidates      | 24 hours |
+| OpenCitations citation edges         | 24 hours |
+| OpenCitations Meta hydration         | 7 days   |
+| successful landing reachability      | 24 hours |
+| exact singleton 404                  | 6 hours  |
+| search `no_candidate`                | 1 hour   |
+| `no_citations_from_source`           | 1 hour   |
 
 429、5xx、网络错误、schema 错误不得 negative-cache；只保存 `Retry-After` 或短期 circuit-breaker 截止时间。过期 cache 不得显示成当前成功结果。它可以保留在磁盘供诊断或在明确标记 `stale` 的错误 UI 中引用，但不能进入 Resolved/Citations 成功列表。
 

@@ -247,7 +247,7 @@ test("traditional literature falls back to DataCite only after Crossref has no c
   assert.ok(seen[1]?.includes("api.datacite.org"));
 });
 
-test("duplicate publication records with exact title year and authors select one verified Primary result", async () => {
+test("competing publication records with exact title year and authors stay ambiguous", async () => {
   const title =
     "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
   const gateway = createRelatedLiteratureGateway(
@@ -323,15 +323,7 @@ test("duplicate publication records with exact title year and authors select one
     channel: "conference",
   });
 
-  assert.equal(result.status, "resolved");
-  assert.equal(
-    result.primaryResult.landingURL,
-    "https://dl.acm.org/doi/10.1145/3670474.3685965",
-  );
-  assert.equal(
-    result.primaryResult.fullTextURL,
-    "https://dl.acm.org/doi/pdf/10.1145/3670474.3685965",
-  );
+  assert.equal(result.status, "ambiguous");
   assert.equal(result.candidates.length, 2);
 });
 

@@ -5,6 +5,13 @@ import {
   type ReferenceForZoteroHandle,
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
+import { DownloadSettingsCoordinator } from "./application/download-settings";
+import { createScanSciDownloadDependencies } from "./application/scan-sci-download";
+import {
+  createZoteroDownloadSettingsPorts,
+  zoteroSidecarDataRoot,
+} from "./platform/zotero-download-settings";
+import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -71,7 +78,25 @@ function createRuntime() {
         await Promise.all(
           Zotero.getMainWindows().map((window) => onMainWindowLoad(window)),
         );
-        handle = startReferenceForZotero(createReaderControllerFactory());
+        const packagedRootURI = resolvePackagedRootURI();
+        const scanSci = createZoteroScanSciPort({
+          packagedRootURI,
+          sidecarDataRoot: zoteroSidecarDataRoot(),
+        });
+        const downloadSetup = new DownloadSettingsCoordinator(
+          createZoteroDownloadSettingsPorts({
+            runtime: scanSci,
+          }),
+        );
+        handle = startReferenceForZotero({
+          factory: createReaderControllerFactory(
+            createScanSciDownloadDependencies({
+              runtime: scanSci,
+              setup: downloadSetup,
+            }),
+          ),
+          downloadSetup,
+        });
       },
       onMainWindowLoad,
       onMainWindowUnload,
@@ -85,4 +110,13 @@ function createRuntime() {
       },
     },
   };
+}
+
+function resolvePackagedRootURI(): string {
+  const value = (_globalThis as typeof _globalThis & { rootURI?: unknown })
+    .rootURI;
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Cannot resolve the packaged add-on root URI");
+  }
+  return value;
 }

@@ -1,0 +1,290 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  createSidecarRequest,
+  parseDownloadBatchPayload,
+  parseDownloadOnePayload,
+  parseProbePayload,
+  parseSidecarMessage,
+  protocolPaper,
+} from "../../src/scansci/sidecar-protocol";
+
+test("sidecar requests expose only the versioned four-operation contract", () => {
+  assert.deepEqual(createSidecarRequest("request-1", "downloadOne", {}), {
+    protocol: "reference-for-zotero.scansci-sidecar",
+    contractVersion: "1.1.0",
+    resultSchemaVersion: "1.0.0",
+    requestId: "request-1",
+    operation: "downloadOne",
+    params: {},
+  });
+  assert.deepEqual(
+    protocolPaper({
+      title: "Paper",
+      doi: "10.1000/example",
+      primaryResultURL: "https://publisher.example/private",
+    }),
+    { title: "Paper", doi: "10.1000/example" },
+  );
+});
+
+test("sidecar response parsing rejects incompatible protocol versions explicitly", () => {
+  assert.throws(
+    () =>
+      parseSidecarMessage(
+        JSON.stringify({
+          protocol: "reference-for-zotero.scansci-sidecar",
+          contractVersion: "2.0.0",
+          resultSchemaVersion: "1.0.0",
+          requestId: "request-1",
+          operation: "probe",
+          type: "complete",
+          ok: true,
+          payload: {},
+        }),
+        { requestID: "request-1", operation: "probe" },
+      ),
+    /identity is incompatible/u,
+  );
+});
+
+test("sidecar response parsing rejects unknown fields at every protocol boundary", () => {
+  assert.throws(
+    () =>
+      parseSidecarMessage(
+        JSON.stringify({
+          protocol: "reference-for-zotero.scansci-sidecar",
+          contractVersion: "1.1.0",
+          resultSchemaVersion: "1.0.0",
+          requestId: "request-1",
+          operation: "probe",
+          type: "complete",
+          ok: true,
+          payload: {},
+          fallback: "http",
+        }),
+        { requestID: "request-1", operation: "probe" },
+      ),
+    /unexpected fields/u,
+  );
+
+  assert.throws(
+    () =>
+      parseDownloadOnePayload({
+        result: downloadedResult(),
+        retry: true,
+      }),
+    /downloadOne completion is invalid/u,
+  );
+
+  assert.throws(
+    () =>
+      parseDownloadOnePayload({
+        result: { ...downloadedResult(), downloadUrl: "https://example.test" },
+      }),
+    /download result is invalid/u,
+  );
+});
+
+test("downloadBatch terminal counters must match the actual item results", () => {
+  assert.throws(
+    () =>
+      parseDownloadBatchPayload({
+        total: 2,
+        downloaded: 2,
+        failed: 0,
+        results: [
+          { itemId: "one", result: failedResult("10.1000/one") },
+          { itemId: "two", result: downloadedResult("10.1000/two") },
+        ],
+      }),
+    /downloadBatch completion is invalid/,
+  );
+});
+
+test("sidecar probe rejects a dirty vendored source and never promotes the institution candidate", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        source: { ...payload.source, dirty: true },
+      }),
+    /probe payload is incompatible/u,
+  );
+
+  const probe = parseProbePayload(payload);
+  assert.deepEqual(probe.routes[1], {
+    routeID: "institution-webvpn/ieee/one-click-single",
+    status: "candidate",
+    reason: "real-world-route-audit-pending",
+    operations: ["visibleLogin", "downloadOne"],
+  });
+});
+
+test("sidecar probe reports the exact incompatible dependency without an install fallback", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        compatibility: {
+          ...payload.compatibility,
+          status: "incompatible",
+          dependencies: compatibleDependencies().map((dependency) =>
+            dependency.name === "requests"
+              ? {
+                  ...dependency,
+                  installedVersion: undefined,
+                  status: "missing",
+                }
+              : dependency,
+          ),
+        },
+      }),
+    /requests==2\.34\.2 is missing/u,
+  );
+});
+
+test("sidecar probe rejects dependency details that contradict a compatible status", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        compatibility: {
+          ...payload.compatibility,
+          dependencies: compatibleDependencies().map((dependency) =>
+            dependency.name === "requests"
+              ? { ...dependency, installedVersion: "2.34.1" }
+              : dependency,
+          ),
+        },
+      }),
+    /requests==2\.34\.2 is incompatible \(installed 2\.34\.1\)/u,
+  );
+});
+
+test("sidecar probe requires exactly the audited capability routes and fields", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () => parseProbePayload({ ...payload, fallback: "external" }),
+    /probe payload is incompatible/u,
+  );
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        routeCapabilities: [
+          ...payload.routeCapabilities,
+          {
+            routeId: "unknown",
+            available: true,
+            sources: ["unknown"],
+            operations: ["downloadOne"],
+          },
+        ],
+      }),
+    /route capabilities are incompatible/u,
+  );
+});
+
+function compatibleProbePayload() {
+  return {
+    application: { name: "reference-for-zotero-scansci", version: "3.2.0" },
+    runtime: {
+      implementation: "CPython",
+      pythonVersion: "3.12.10",
+      executable: "C:\\Python312\\python.exe",
+      architecture: "x64",
+      platform: "Windows",
+    },
+    source: {
+      repository: "Rimagination/scansci-pdf",
+      revision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
+      installKind: "audited-plugin-fragments",
+      dirty: false,
+    },
+    contractVersion: "1.1.0",
+    resultSchemaVersion: "1.0.0",
+    operations: ["downloadBatch", "downloadOne", "probe", "visibleLogin"],
+    compatibility: {
+      status: "compatible",
+      minimumPython: "3.11",
+      dependencies: compatibleDependencies(),
+    },
+    routeCapabilities: [
+      {
+        routeId: "open-access",
+        available: true,
+        sources: ["arxiv", "pmc"],
+        operations: ["downloadOne", "downloadBatch"],
+        concurrency: "bounded",
+      },
+      {
+        routeId: "institution-webvpn/ieee/one-click-single",
+        status: "candidate",
+        available: false,
+        operations: ["visibleLogin", "downloadOne"],
+        concurrency: "single-profile-writer",
+        profileId: "zotero",
+        reason: "real-world-route-audit-pending",
+      },
+    ],
+    policy: {
+      mode: "legal-only",
+      disabledRoutes: [
+        "sci-hub",
+        "libgen",
+        "scibban",
+        "tor",
+        "proxy-pool",
+        "vpnsci",
+        "unknown",
+      ],
+    },
+  } as const;
+}
+
+function compatibleDependencies() {
+  return [
+    ["requests", "2.34.2"],
+    ["certifi", "2026.7.22"],
+    ["charset-normalizer", "3.4.9"],
+    ["idna", "3.18"],
+    ["urllib3", "2.7.0"],
+  ].map(([name, version]) => ({
+    name: name ?? "",
+    requirement: `==${version ?? ""}`,
+    installedVersion: version ?? "",
+    status: "available" as const,
+  }));
+}
+
+function downloadedResult(identifier = "2101.00001") {
+  return {
+    schemaVersion: "1.0.0",
+    status: "downloaded",
+    identifier,
+    sourceEvidence: {
+      routeId: "open-access",
+      source: "arxiv",
+      sourceUrl: "https://arxiv.org/pdf/2101.00001.pdf",
+      egressHosts: ["arxiv.org"],
+      legal: true,
+    },
+    relativePath: "paper.pdf",
+    error: null,
+  } as const;
+}
+
+function failedResult(identifier: string) {
+  return {
+    schemaVersion: "1.0.0",
+    status: "failed",
+    identifier,
+    sourceEvidence: null,
+    relativePath: null,
+    error: { code: "no-pdf", message: "No PDF" },
+  } as const;
+}

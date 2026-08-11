@@ -18,6 +18,12 @@ Returned records are accepted only through the plugin's identity, schema and rea
 
 Resolved literature data is stored under Zotero's data directory in `reference-for-zotero-cache/v1`. Cache identities include the current attachment, MinerU fingerprint and provider contract versions. The plugin does not persist Crossref-sourced Abstract text.
 
+## Download setup
+
+The Reader download area stores only the selected Download destination in Zotero preferences. Runtime identity and route capability come from the sidecar `probe` for the current process and are not persisted. The plugin does not create a private environment, install Python dependencies, modify a detected Python, or write global pip configuration.
+
+The plugin does not store institution usernames, passwords, verification codes, cookies, tokens, or browser-profile contents. WebVPN → IEEE Xplore remains an unavailable candidate until its complete real-world audit; the Reader does not expose an institution configuration or login command.
+
 ## Optional translation
 
 If Paper Translate is installed and compatible, text selected inside this plugin can be sent through Paper Translate's public translation API. The configured translation provider and its privacy policy are controlled by Paper Translate, not by Reference for Zotero.

@@ -1,6 +1,7 @@
 import { decodeHTML } from "entities";
 
-import { asArray, asNumber, asRecord, asString, normalizeDoi } from "./parse";
+import { normalizeDoi } from "../identifiers";
+import { asArray, asNumber, asRecord, asString } from "./parse";
 import { getJson } from "./transport";
 import { ProviderError, type ProviderPorts } from "./types";
 

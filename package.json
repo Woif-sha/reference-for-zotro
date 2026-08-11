@@ -1,9 +1,9 @@
 {
   "name": "reference-for-zotero",
-  "version": "1.0.1",
+  "version": "1.1.0-beta.1",
   "description": "References and citing papers in the Zotero 9 Reader.",
   "config": {
-    "addonName": "Reference for Zotero",
+    "addonName": "Reference for Zotero (Second-stage Test)",
     "addonID": "referenceforzotero@woif-sha.github.io",
     "addonRef": "referenceforzotero",
     "addonInstance": "ReferenceForZotero"
@@ -13,10 +13,17 @@
   "scripts": {
     "start": "zotero-plugin serve",
     "test": "node --test --test-concurrency=1 --test-timeout=60000 --import tsx test/**/*.test.ts",
+    "test:scansci-python": "python -B -m unittest discover -s test/python -p \"test_*.py\" -v",
+    "test:scansci-smoke": "tsx test/scansci/local-legal-smoke.ts",
+    "audit:scansci-xpi": "python -B test/python/audit_scansci_xpi.py",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && zotero-plugin build",
-    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json}\" eslint.config.js README.md CHANGELOG.md CONTRIBUTING.md PRIVACY.md SECURITY.md package.json tsconfig.json zotero-plugin.config.ts",
-    "lint": "eslint src test"
+    "build": "tsc --noEmit && zotero-plugin build && python -B scripts/repack_xpi.py",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.{ts,json}\" \"typings/**/*.d.ts\" \"addon/**/*.{js,json,md}\" \"docs/**/*.md\" AGENTS.md eslint.config.js README.md CHANGELOG.md CONTRIBUTING.md PRIVACY.md SECURITY.md package.json tsconfig.json zotero-plugin.config.ts",
+    "format:workflows": "prettier --check \".github/workflows/*.yml\"",
+    "lint": "eslint src test",
+    "verify:source": "npm test && npm run test:scansci-python && npm run typecheck && npm run lint && npm run format:check && npm run format:workflows",
+    "verify:artifact": "npm run build && npm run audit:scansci-xpi",
+    "verify": "npm run verify:source && npm run verify:artifact"
   },
   "repository": {
     "type": "git",

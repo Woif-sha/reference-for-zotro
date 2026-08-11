@@ -1,6 +1,6 @@
 import { decodeHTML } from "entities";
 
-import { normalizeDoi } from "./parse";
+import { normalizeDoi } from "../identifiers";
 
 export type TrustedLandingMetadata = Readonly<{
   title?: string;

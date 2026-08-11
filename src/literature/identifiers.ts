@@ -29,6 +29,33 @@ export function extractStableIdentifiers(text: string): StableIdentifiers {
   return result;
 }
 
+export type ScholarlyIdentifierScheme =
+  "doi" | "arxiv" | "pmid" | "pmcid" | "omid";
+
+export function normalizeScholarlyIdentifier(
+  scheme: ScholarlyIdentifierScheme,
+  value: string | undefined,
+): string | undefined {
+  if (scheme === "doi") return normalizeDoi(value);
+  const normalized = value?.normalize("NFKC").trim().toLowerCase();
+  return normalized || undefined;
+}
+
+export function normalizeDoi(value: string | undefined): string | undefined {
+  const withoutPrefix = value
+    ?.replace(/^https?:\/\/doi\.org\//iu, "")
+    .replace(/^doi:\s*/iu, "")
+    .trim();
+  if (!withoutPrefix) return undefined;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(withoutPrefix);
+  } catch (error) {
+    throw new Error("DOI contains invalid percent-encoding", { cause: error });
+  }
+  return decoded.normalize("NFKC").trim().toLowerCase() || undefined;
+}
+
 export function findMalformedStableIdentifier(
   text: string,
   identifiers = extractStableIdentifiers(text),

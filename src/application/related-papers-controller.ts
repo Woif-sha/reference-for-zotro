@@ -14,6 +14,7 @@ import type {
 import { canOpenPrimaryResult } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
+import { normalizeScholarlyIdentifier } from "../literature/identifiers";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
@@ -163,14 +164,14 @@ export class RelatedPapersController implements ReaderSectionController {
     const selection = this.state.downloadSelection;
     const entry = { originTab: tab, paperID } as const;
     const alreadySelected = selection.some((selectedEntry) =>
-      sameSelectionEntry(selectedEntry, entry),
+      this.sameDownloadPaper(selectedEntry, entry),
     );
     if (selected === alreadySelected) return;
     this.update({
       downloadSelection: selected
         ? [...selection, entry]
         : selection.filter(
-            (selectedEntry) => !sameSelectionEntry(selectedEntry, entry),
+            (selectedEntry) => !this.sameDownloadPaper(selectedEntry, entry),
           ),
     });
   }
@@ -184,7 +185,7 @@ export class RelatedPapersController implements ReaderSectionController {
       const entry = { originTab: tab, paperID: paper.id } as const;
       if (
         !eligibleEntries.some((candidate) =>
-          sameSelectionEntry(candidate, entry),
+          this.sameDownloadPaper(candidate, entry),
         )
       ) {
         eligibleEntries.push(entry);
@@ -198,14 +199,14 @@ export class RelatedPapersController implements ReaderSectionController {
           ...eligibleEntries.filter(
             (entry) =>
               !selection.some((selectedEntry) =>
-                sameSelectionEntry(selectedEntry, entry),
+                this.sameDownloadPaper(selectedEntry, entry),
               ),
           ),
         ]
       : selection.filter(
           (selectedEntry) =>
             !eligibleEntries.some((entry) =>
-              sameSelectionEntry(selectedEntry, entry),
+              this.sameDownloadPaper(selectedEntry, entry),
             ),
         );
     if (sameOrderedSelection(selection, next)) return;
@@ -659,6 +660,18 @@ export class RelatedPapersController implements ReaderSectionController {
     return papers.find((candidate) => candidate.id === paperID);
   }
 
+  private sameDownloadPaper(
+    left: Readonly<{ originTab: ReaderTab; paperID: string }>,
+    right: Readonly<{ originTab: ReaderTab; paperID: string }>,
+  ): boolean {
+    const leftPaper = this.findPaperInTab(left.originTab, left.paperID);
+    const rightPaper = this.findPaperInTab(right.originTab, right.paperID);
+    if (!leftPaper || !rightPaper) return sameSelectionEntry(left, right);
+    return (
+      downloadPaperIdentity(leftPaper) === downloadPaperIdentity(rightPaper)
+    );
+  }
+
   private assertActive(): void {
     if (this.disposed) throw new Error("RelatedPapersController is disposed");
   }
@@ -731,6 +744,15 @@ function sameSelectionEntry(
   right: Readonly<{ originTab: ReaderTab; paperID: string }>,
 ): boolean {
   return left.paperID === right.paperID;
+}
+
+function downloadPaperIdentity(paper: ReaderPaper): string {
+  const doi = normalizeScholarlyIdentifier("doi", paper.doi);
+  if (doi) return `doi:${doi}`;
+  const arxiv = normalizeScholarlyIdentifier("arxiv", paper.arxivID);
+  if (arxiv) return `arxiv:${arxiv}`;
+  const pmcid = normalizeScholarlyIdentifier("pmcid", paper.pmcid);
+  return pmcid ? `pmcid:${pmcid}` : `row:${paper.id}`;
 }
 
 function sameOrderedSelection(

@@ -960,6 +960,9 @@ test("Reader section translates only text selected inside the extension UI", asy
     pretendToBeVisual: true,
   });
   const translated: string[] = [];
+  const paperSelections: string[] = [];
+  const downloadSelections: string[] = [];
+  let downloads = 0;
   let state: ReaderSectionState = {
     ...readyState(),
     selectedPaperID: "ref-1",
@@ -985,10 +988,18 @@ test("Reader section translates only text selected inside the extension UI", asy
     },
     selectTab() {},
     setCitationLimit() {},
-    selectPaper() {},
+    selectPaper(paperID) {
+      paperSelections.push(paperID);
+    },
     refresh() {},
     openPaper() {},
     performPaperAction() {},
+    setPaperDownloadSelected(_tab, paperID) {
+      downloadSelections.push(paperID);
+    },
+    async downloadSelected() {
+      downloads += 1;
+    },
     async translateSelection(text) {
       translated.push(text);
       return "第一篇参考文献";
@@ -1058,6 +1069,9 @@ test("Reader section translates only text selected inside the extension UI", asy
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.deepEqual(translated, ["First reference"]);
+  assert.deepEqual(paperSelections, []);
+  assert.deepEqual(downloadSelections, []);
+  assert.equal(downloads, 0);
   assert.equal(
     dom.window.document.querySelector("[data-translation-result]")?.textContent,
     "第一篇参考文献",
@@ -1153,18 +1167,29 @@ test("a translation failure ends only that request and the next selection can re
     pretendToBeVisual: true,
   });
   let translationCalls = 0;
+  const opened: string[] = [];
+  let downloads = 0;
+  const state: ReaderSectionState = {
+    ...readyState(),
+    downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
+  };
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
       ...downloadControllerStubs(),
-      getState: readyState,
+      getState: () => state,
       subscribe: () => () => {},
       selectTab() {},
       setCitationLimit() {},
       selectPaper() {},
       refresh() {},
-      openPaper() {},
+      openPaper(paperID) {
+        opened.push(paperID);
+      },
       performPaperAction() {},
+      async downloadSelected() {
+        downloads += 1;
+      },
       async translateSelection() {
         translationCalls += 1;
         if (translationCalls === 1) {
@@ -1200,6 +1225,16 @@ test("a translation failure ends only that request and the next selection can re
     ),
     ["First reference", "Second reference"],
   );
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true, ctrlKey: true }),
+  );
+  (
+    dom.window.document.querySelector(
+      "[data-download-selected]",
+    ) as HTMLButtonElement
+  ).click();
+  assert.deepEqual(opened, ["ref-1"]);
+  assert.equal(downloads, 1);
 
   selectNodeContents(dom, secondTitle);
   secondTitle.dispatchEvent(

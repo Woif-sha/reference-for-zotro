@@ -537,11 +537,12 @@ test("current-generation persistent cache failures are visible", async () => {
 
 test("download selection accepts only confirmed papers, deduplicates identity, and preserves user order", async () => {
   const sharedReference = {
-    id: "10.1000/shared",
+    id: "reference:shared",
     ordinal: 0,
     title: "Shared paper in References",
     status: "resolved" as const,
     primaryResultURL: "https://doi.org/10.1000/shared",
+    doi: "10.1000/shared",
   };
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
@@ -557,6 +558,7 @@ test("download selection accepts only confirmed papers, deduplicates identity, a
     loadCitingPapers: async () => [
       {
         ...sharedReference,
+        id: "citation:shared",
         title: "Shared paper in Citations",
       },
       {
@@ -572,21 +574,21 @@ test("download selection accepts only confirmed papers, deduplicates identity, a
   await controller.refreshAsync();
 
   controller.setPaperDownloadSelected("references", "unresolved", true);
-  controller.setPaperDownloadSelected("references", "10.1000/shared", true);
+  controller.setPaperDownloadSelected("references", "reference:shared", true);
   controller.selectTab("citations");
   await waitFor(() => controller.getState().citingPapers.length === 2);
   controller.setTabDownloadSelected("citations", true);
 
   assert.deepEqual(controller.getState().downloadSelection, [
-    { originTab: "references", paperID: "10.1000/shared" },
+    { originTab: "references", paperID: "reference:shared" },
     { originTab: "citations", paperID: "citation:second" },
   ]);
 
-  controller.setPaperDownloadSelected("references", "10.1000/shared", false);
-  controller.setPaperDownloadSelected("references", "10.1000/shared", true);
+  controller.setPaperDownloadSelected("citations", "citation:shared", false);
+  controller.setPaperDownloadSelected("references", "reference:shared", true);
   assert.deepEqual(controller.getState().downloadSelection.at(-1), {
     originTab: "references",
-    paperID: "10.1000/shared",
+    paperID: "reference:shared",
   });
 });
 
@@ -708,6 +710,67 @@ test("download command snapshots selection and consumes one batch progress strea
   controller.openDownloadedFolder("reference:first");
   controller.openDownloadedFolder("reference:second");
   assert.deepEqual(revealed, ["E:\\paper\\First.pdf"]);
+});
+
+test("a sidecar download failure leaves relationships, landing pages, details, and translation usable", async () => {
+  const opened: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        id: "10.1000/one",
+        ordinal: 0,
+        title: "Confirmed paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/one",
+      },
+    ],
+    loadCitingPapers: async () => [
+      {
+        id: "10.1000/citing",
+        ordinal: 0,
+        title: "Citing paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/citing",
+        doi: "10.1000/citing",
+      },
+    ],
+    async downloadPapers() {
+      throw new Error("ScanSci sidecar probe failed");
+    },
+    translateSelection: async (text) => `translated:${text}`,
+    openURL: (url) => opened.push(url),
+  });
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 1);
+  controller.setPaperDownloadSelected("references", "10.1000/one", true);
+
+  await controller.downloadSelected();
+
+  assert.equal(controller.getState().status, "ready");
+  assert.equal(controller.getState().references[0]?.title, "Confirmed paper");
+  assert.equal(controller.getState().citingPapers[0]?.title, "Citing paper");
+  assert.deepEqual(controller.getState().paperDownloads, [
+    {
+      originTab: "references",
+      paperID: "10.1000/one",
+      status: "failed",
+      error: "ScanSci sidecar probe failed",
+    },
+  ]);
+  controller.openPaper("10.1000/one");
+  controller.openPaper("10.1000/citing");
+  controller.selectPaper("10.1000/one");
+  assert.deepEqual(opened, [
+    "https://doi.org/10.1000/one",
+    "https://doi.org/10.1000/citing",
+  ]);
+  assert.equal(controller.getState().selectedPaperID, "10.1000/one");
+  assert.equal(
+    await controller.translateSelection("Academic text"),
+    "translated:Academic text",
+  );
 });
 
 test("paper refresh cancels the active sidecar batch", async () => {

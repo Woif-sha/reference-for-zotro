@@ -15,11 +15,8 @@ npm ci
 Run the complete gate before submitting a change:
 
 ```powershell
-npm test
-npm run lint
-npm run typecheck
-npm run format:check
-npm run build
+npm run verify
+git diff --check
 ```
 
 Reader UI changes must keep browser-like DOM coverage and pass the automated build gate on each implementation ticket. Installing the generated XPI and checking it in a real Zotero 9 Reader is deferred to the explicit final integration acceptance ticket, where XUL/XML runtime validation is performed once against the assembled feature set. Individual implementation tickets are not blocked on repeated manual XPI acceptance unless their issue explicitly requires it.

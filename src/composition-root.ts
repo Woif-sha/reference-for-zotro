@@ -6,6 +6,7 @@ import {
 } from "./application/related-papers-controller";
 import {
   candidateToReaderPaper,
+  confirmedReaderPaperID,
   resolutionToReaderPaper,
   unresolvedPaper,
 } from "./application/reader-paper-presentation";
@@ -378,7 +379,14 @@ function directLandingToReaderPaper(
     metadata.publicationYear === undefined ||
     !metadata.venue;
   return {
-    id: metadata.doi ?? `reference:${ordinal}`,
+    id: confirmedReaderPaperID(
+      {
+        doi: metadata.doi,
+        arxiv: identifiers.arxiv,
+        pmcid: identifiers.pmcid,
+      },
+      `reference:${ordinal}`,
+    ),
     ordinal,
     title: metadata.title ?? fallbackTitle,
     authors:

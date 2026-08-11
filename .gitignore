@@ -4,6 +4,8 @@ build/
 .scaffold/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.py[cod]
 
 # Local configuration and secrets
 .env

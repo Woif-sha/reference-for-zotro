@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createSidecarRequest,
+  parseDownloadBatchPayload,
   parseDownloadOnePayload,
   parseProbePayload,
   parseSidecarMessage,
@@ -82,6 +83,22 @@ test("sidecar response parsing rejects unknown fields at every protocol boundary
         result: { ...downloadedResult(), downloadUrl: "https://example.test" },
       }),
     /download result is invalid/u,
+  );
+});
+
+test("downloadBatch terminal counters must match the actual item results", () => {
+  assert.throws(
+    () =>
+      parseDownloadBatchPayload({
+        total: 2,
+        downloaded: 2,
+        failed: 0,
+        results: [
+          { itemId: "one", result: failedResult("10.1000/one") },
+          { itemId: "two", result: downloadedResult("10.1000/two") },
+        ],
+      }),
+    /downloadBatch completion is invalid/,
   );
 });
 
@@ -244,11 +261,11 @@ function compatibleDependencies() {
   }));
 }
 
-function downloadedResult() {
+function downloadedResult(identifier = "2101.00001") {
   return {
     schemaVersion: "1.0.0",
     status: "downloaded",
-    identifier: "2101.00001",
+    identifier,
     sourceEvidence: {
       routeId: "open-access",
       source: "arxiv",
@@ -258,5 +275,16 @@ function downloadedResult() {
     },
     relativePath: "paper.pdf",
     error: null,
+  } as const;
+}
+
+function failedResult(identifier: string) {
+  return {
+    schemaVersion: "1.0.0",
+    status: "failed",
+    identifier,
+    sourceEvidence: null,
+    relativePath: null,
+    error: { code: "no-pdf", message: "No PDF" },
   } as const;
 }

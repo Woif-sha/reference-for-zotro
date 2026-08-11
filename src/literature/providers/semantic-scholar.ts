@@ -1,5 +1,6 @@
 import { getJson } from "./transport";
-import { asRecord, asString, normalizeDoi } from "./parse";
+import { normalizeDoi } from "../identifiers";
+import { asRecord, asString } from "./parse";
 import { ProviderError, type ProviderPorts } from "./types";
 
 export type SemanticScholarAbstract = Readonly<{

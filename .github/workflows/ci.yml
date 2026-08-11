@@ -49,23 +49,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Verify source and contracts
+        run: npm run verify:source
 
-      - name: Run ScanSci Python tests
-        run: npm run test:scansci-python
-
-      - name: Check types
-        run: npm run typecheck
-
-      - name: Lint source and tests
-        run: npm run lint
-
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Check workflow formatting
-        run: npx prettier --check ".github/workflows/*.yml"
+      - name: Check diff whitespace
+        if: github.event_name == 'pull_request'
+        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
 
   scansci-windows:
     name: ScanSci Windows boundaries
@@ -101,7 +90,7 @@ jobs:
         run: npm run typecheck
 
   package:
-    name: Package XPI
+    name: Validate XPI
     needs:
       - verify
       - scansci-windows
@@ -127,18 +116,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build production XPI
-        run: npm run build
-
-      - name: Audit ScanSci XPI contents
-        run: npm run audit:scansci-xpi
-
-      - name: Upload packaged extension
-        uses: actions/upload-artifact@v7
-        with:
-          name: reference-for-zotero-${{ github.sha }}
-          path: |
-            build/reference-for-zotero.xpi
-            build/update.json
-          if-no-files-found: error
-          retention-days: 14
+      - name: Build and audit intermediate XPI
+        run: npm run verify:artifact

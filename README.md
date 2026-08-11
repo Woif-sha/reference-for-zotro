@@ -75,14 +75,11 @@ WebVPN → IEEE Xplore 在真实审计完成前只是不可用的 acceptance can
 
 ```powershell
 npm ci
-npm test
-npm run lint
-npm run typecheck
-npm run format:check
-npm run build
+npm run verify
+git diff --check
 ```
 
-生成的 XPI 位于 `build/reference-for-zotero.xpi`。贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+验证中生成的中间 XPI 位于 `build/reference-for-zotero-second-stage-test.xpi`，只用于内容审计，不作为最终用户验收产物交付。贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可证
 

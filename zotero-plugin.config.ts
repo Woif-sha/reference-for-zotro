@@ -24,7 +24,6 @@ export default defineConfig({
       description: pkg.description,
       homepage: pkg.homepage,
       buildVersion: pkg.version,
-      buildTime: "{{buildTime}}",
     },
     esbuildOptions: [
       {
@@ -42,10 +41,12 @@ export default defineConfig({
     },
     hooks: {
       async "build:makeUpdateJSON"({ dist }) {
-        await Promise.all([
-          rm(`${dist}/update.json`, { force: true }),
-          rm(`${dist}/update-beta.json`, { force: true }),
-        ]);
+        if (pkg.version.includes("-")) {
+          await Promise.all([
+            rm(`${dist}/update.json`, { force: true }),
+            rm(`${dist}/update-beta.json`, { force: true }),
+          ]);
+        }
       },
     },
   },

@@ -134,7 +134,12 @@ class ScanSciSidecarTest(unittest.TestCase):
         missing_protocol = request("probe")
         del missing_protocol["protocol"]
         self.assertEqual(
-            service.handle(missing_protocol)["error"]["code"], "incompatible-protocol"
+            service.handle(missing_protocol)["error"]["code"], "invalid-request"
+        )
+        missing_params = request("probe")
+        del missing_params["params"]
+        self.assertEqual(
+            service.handle(missing_params)["error"]["code"], "invalid-request"
         )
         incompatible_probe = request("probe")
         incompatible_probe["contractVersion"] = "99"
@@ -359,6 +364,7 @@ class ScanSciSidecarTest(unittest.TestCase):
         writer.write("Authorization: Basic dXNlcjpwYXNz\n")
         writer.write("Cookie: sid=secret; token=also-secret\n")
         writer.write('{"password":"json-secret"}\n')
+        writer.write('{"token":12345}\n')
         writer.write("https://example.test/path?token=url-secret\n")
         writer.write("x" * 1000)
         writer.write("y" * 1000)
@@ -366,8 +372,33 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertNotIn("dXNlcjpwYXNz", value)
         self.assertNotIn("sid=secret", value)
         self.assertNotIn("json-secret", value)
+        self.assertNotIn("12345", value)
         self.assertNotIn("url-secret", value)
         self.assertEqual(value.count("diagnostics truncated"), 1)
+
+    def test_run_keeps_dependency_output_out_of_stdout_and_redacts_process_stderr(self):
+        output = io.StringIO()
+        diagnostics = io.StringIO()
+
+        def noisy_handle(service, value):
+            print("dependency wrote to stdout")
+            print('{"token":12345}', file=sys.stderr)
+            return service._complete(value["requestId"], value["operation"], payload={})
+
+        with mock.patch.object(sidecar.Sidecar, "handle", noisy_handle):
+            exit_code = sidecar.run(
+                io.StringIO(json.dumps(request("probe")) + "\n"),
+                output,
+                diagnostics,
+            )
+
+        self.assertEqual(exit_code, 0)
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(messages), 1)
+        self.assertTrue(messages[0]["ok"])
+        self.assertNotIn("dependency wrote", output.getvalue())
+        self.assertIn("dependency wrote to stdout", diagnostics.getvalue())
+        self.assertNotIn("12345", diagnostics.getvalue())
 
     def test_download_errors_never_return_header_cookie_or_url_secrets(self):
         def failing_download(_value):

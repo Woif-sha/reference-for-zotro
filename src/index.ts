@@ -50,7 +50,6 @@ function defineRuntimeGlobal(name: string): void {
 
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
-  let downloadSetup: DownloadSettingsCoordinator | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -84,28 +83,26 @@ function createRuntime() {
           packagedRootURI,
           sidecarDataRoot: zoteroSidecarDataRoot(),
         });
-        downloadSetup = new DownloadSettingsCoordinator(
+        const downloadSetup = new DownloadSettingsCoordinator(
           createZoteroDownloadSettingsPorts({
             runtime: scanSci,
           }),
         );
-        await downloadSetup.probeRuntime();
-        handle = startReferenceForZotero(
-          createReaderControllerFactory(
+        handle = startReferenceForZotero({
+          factory: createReaderControllerFactory(
             createScanSciDownloadDependencies({
               runtime: scanSci,
               setup: downloadSetup,
             }),
           ),
-        );
+          downloadSetup,
+        });
       },
       onMainWindowLoad,
       onMainWindowUnload,
       onShutdown(): void {
         handle?.shutdown();
         handle = undefined;
-        downloadSetup?.dispose();
-        downloadSetup = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

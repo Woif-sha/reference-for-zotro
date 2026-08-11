@@ -80,15 +80,10 @@ export function createZoteroScanSciPort(
 export function createZoteroScanSciRuntime(
   options: ZoteroScanSciRuntimeOptions,
 ): PythonScanSciRuntime {
-  let materialization: Promise<void> | undefined;
   return {
     runProcess: runZoteroSubprocess,
     ensureModuleAssets() {
-      materialization ??= materializeModuleAssets(options).catch((error) => {
-        materialization = undefined;
-        throw error;
-      });
-      return materialization;
+      return materializeModuleAssets(options);
     },
     files: {
       pathExists(path) {

@@ -417,6 +417,15 @@ export function parseDownloadBatchPayload(
   if (new Set(results.map(({ itemID }) => itemID)).size !== results.length) {
     throw new Error("ScanSci downloadBatch item ids are not unique");
   }
+  const downloaded = results.filter(
+    ({ result }) => result.status === "downloaded",
+  ).length;
+  if (
+    downloaded !== value.downloaded ||
+    results.length - downloaded !== value.failed
+  ) {
+    throw new Error("ScanSci downloadBatch completion is invalid");
+  }
   return results;
 }
 

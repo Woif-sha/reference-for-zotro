@@ -101,11 +101,31 @@ test("compatibility module contains no unregistered vendored or forbidden assets
     ].sort(),
   );
 
+  const policy = JSON.parse(
+    await readFile("test/xpi/package-policy.json", "utf8"),
+  ) as {
+    forbiddenPathSegments: string[];
+    forbiddenNameFragments: string[];
+    forbiddenSuffixes: string[];
+  };
   const allFiles = await filesBelow(moduleRoot);
-  const forbiddenPath =
-    /(?:^|[/\\])(?:_core|BrowserMetrics|GrShaderCache|GraphiteDawnCache|ShaderCache|component_crx_cache|extensions_crx_cache|browser-profile|cookies?|tokens?|venv)(?:[/\\]|$)|\.(?:pyd|so|dll|dylib|exe|pak|bin|zip)$/iu;
   for (const file of allFiles) {
-    assert.doesNotMatch(path.relative(moduleRoot, file), forbiddenPath);
+    const relative = path.relative(moduleRoot, file).replaceAll("\\", "/");
+    const normalized = relative.toLowerCase();
+    const segments = new Set(normalized.split("/"));
+    assert.equal(
+      policy.forbiddenPathSegments.some((part) =>
+        segments.has(part.toLowerCase()),
+      ) ||
+        policy.forbiddenNameFragments.some((fragment) =>
+          normalized.includes(fragment.toLowerCase()),
+        ) ||
+        policy.forbiddenSuffixes.some((suffix) =>
+          normalized.endsWith(suffix.toLowerCase()),
+        ),
+      false,
+      `forbidden compatibility asset: ${relative}`,
+    );
     if (file.endsWith(".py")) {
       assert.doesNotMatch(
         await readFile(file, "utf8"),

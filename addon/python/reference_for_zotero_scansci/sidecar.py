@@ -81,7 +81,10 @@ class BoundedRedactingWriter:
         r"(?i)(api[_-]?key|token|secret|password|cookie|authorization)\s*[:=]\s*[^\s,;]+"
     )
     _json_secret = re.compile(
-        r'(?i)(["\'](?:api[_-]?key|token|secret|password|cookie|authorization)["\']\s*:\s*)["\'][^"\']*["\']'
+        r'''(?ix)
+        (["'](?:api[_-]?key|token|secret|password|cookie|authorization)["']\s*:\s*)
+        (?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^,}\]\r\n]+)
+        '''
     )
     _url_query = re.compile(r"(https?://[^\s?]+)\?[^\s]+")
 
@@ -126,7 +129,11 @@ class Sidecar:
         capability_probe: Callable[[], dict[str, Any]] = bridge.probe,
     ) -> None:
         self._emit = emit
-        self._diagnostics = BoundedRedactingWriter(diagnostics)
+        self._diagnostics = (
+            diagnostics
+            if isinstance(diagnostics, BoundedRedactingWriter)
+            else BoundedRedactingWriter(diagnostics)
+        )
         self._download = download
         self._capability_probe = capability_probe
 
@@ -167,7 +174,7 @@ class Sidecar:
             )
 
     def _validate_request(self, request: Any) -> tuple[str, str, dict[str, Any]]:
-        if not isinstance(request, dict) or set(request) - REQUEST_KEYS:
+        if not isinstance(request, dict) or set(request) != REQUEST_KEYS:
             raise ProtocolError("invalid-request", "The protocol request is invalid.")
         if request.get("protocol") != PROTOCOL:
             raise ProtocolError("incompatible-protocol", "The protocol identity is incompatible.")
@@ -177,12 +184,12 @@ class Sidecar:
         operation = request.get("operation")
         if not isinstance(operation, str) or operation not in OPERATIONS:
             raise ProtocolError("unsupported-operation", "The requested operation is not exposed.")
-        params = request.get("params", {})
+        params = request["params"]
         if not isinstance(params, dict):
             raise ProtocolError("invalid-request", "params must be an object.")
         _reject_forbidden(params)
-        if set(params) - PARAM_KEYS[operation]:
-            raise ProtocolError("invalid-request", "The operation contains unsupported parameters.")
+        if set(params) != PARAM_KEYS[operation]:
+            raise ProtocolError("invalid-request", "The operation parameters are invalid.")
         if request.get("contractVersion") != CONTRACT_VERSION:
             raise ProtocolError("incompatible-contract", "The contract version is incompatible.")
         if request.get("resultSchemaVersion") != RESULT_SCHEMA_VERSION:
@@ -378,7 +385,7 @@ def run(
 ) -> int:
     source = input_stream or sys.stdin
     target = output_stream or sys.stdout
-    diagnostics = error_stream or sys.stderr
+    diagnostics = BoundedRedactingWriter(error_stream or sys.stderr)
     write_lock = threading.Lock()
 
     for name in bridge.PROXY_ENVIRONMENT:
@@ -393,39 +400,47 @@ def run(
             target.flush()
 
     sidecar = Sidecar(emit, diagnostics)
-    for raw_line in source:
-        if len(raw_line.encode("utf-8", errors="replace")) > MAX_REQUEST_BYTES:
-            emit(
-                sidecar._complete(
-                    None,
-                    None,
-                    error={
-                        "code": "request-too-large",
-                        "message": "The request exceeds the size limit.",
-                        "retryable": False,
-                    },
+    previous_stdout = sys.stdout
+    previous_stderr = sys.stderr
+    sys.stdout = diagnostics
+    sys.stderr = diagnostics
+    try:
+        for raw_line in source:
+            if len(raw_line.encode("utf-8", errors="replace")) > MAX_REQUEST_BYTES:
+                emit(
+                    sidecar._complete(
+                        None,
+                        None,
+                        error={
+                            "code": "request-too-large",
+                            "message": "The request exceeds the size limit.",
+                            "retryable": False,
+                        },
+                    )
                 )
-            )
-            continue
-        if not raw_line.strip():
-            continue
-        try:
-            request = json.loads(raw_line)
-        except json.JSONDecodeError:
-            emit(
-                sidecar._complete(
-                    None,
-                    None,
-                    error={
-                        "code": "invalid-json",
-                        "message": "The request is not valid JSON.",
-                        "retryable": False,
-                    },
+                continue
+            if not raw_line.strip():
+                continue
+            try:
+                request = json.loads(raw_line)
+            except json.JSONDecodeError:
+                emit(
+                    sidecar._complete(
+                        None,
+                        None,
+                        error={
+                            "code": "invalid-json",
+                            "message": "The request is not valid JSON.",
+                            "retryable": False,
+                        },
+                    )
                 )
-            )
-            continue
-        emit(sidecar.handle(request))
-    return 0
+                continue
+            emit(sidecar.handle(request))
+        return 0
+    finally:
+        sys.stdout = previous_stdout
+        sys.stderr = previous_stderr
 
 
 def _reject_forbidden(value: Any) -> None:

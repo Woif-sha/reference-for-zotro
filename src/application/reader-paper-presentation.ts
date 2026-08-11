@@ -5,6 +5,7 @@ import type {
   VerifiedScholarlyCandidate,
 } from "../literature/gateway";
 import type { ScholarlyCandidate } from "../literature/providers/types";
+import { normalizeScholarlyIdentifier } from "../literature/identifiers";
 import type { ReaderPaper } from "../reader/mountReaderSection";
 
 export function resolutionToReaderPaper(
@@ -70,9 +71,10 @@ export function candidateToReaderPaper(
     throw new Error("Resolved paper has no verified Paper landing page");
   }
   return {
-    id:
-      candidate.identifiers.doi ??
+    id: confirmedReaderPaperID(
+      candidate.identifiers,
       `${candidate.source}:${candidate.sourceRecordID}`,
+    ),
     ordinal,
     title: candidate.title ?? candidate.sourceRecordID,
     authors:
@@ -107,6 +109,23 @@ export function candidateToReaderPaper(
     providerFailures: formatProviderFailures(outcomes),
     connectedPaperInfo: formatConnectionInfo(candidate.rawProvenance),
   };
+}
+
+export function confirmedReaderPaperID(
+  identifiers: Readonly<{
+    doi?: string;
+    arxiv?: string;
+    pmid?: string;
+    pmcid?: string;
+    omid?: string;
+  }>,
+  fallback: string,
+): string {
+  for (const scheme of ["doi", "arxiv", "pmid", "pmcid", "omid"] as const) {
+    const value = normalizeScholarlyIdentifier(scheme, identifiers[scheme]);
+    if (value) return scheme === "doi" ? value : `${scheme}:${value}`;
+  }
+  return fallback;
 }
 
 export function unresolvedPaper(

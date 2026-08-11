@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
+import { startReferenceForZotero } from "../../src/addon";
+import type { DownloadSettingsController } from "../../src/application/download-settings";
 import {
   registerReaderSection,
   type ItemPaneManagerPort,
@@ -10,6 +12,60 @@ import {
   type ReaderSectionRegistration,
 } from "../../src/reader/registerReaderSection";
 import type { ReaderSectionState } from "../../src/reader/mountReaderSection";
+
+test("Reader registration completes before the sidecar probe settles", () => {
+  const events: string[] = [];
+  let resolveProbe!: () => void;
+  const itemPaneManager: ItemPaneManagerPort = {
+    registerSection() {
+      events.push("register");
+      return "reader-section";
+    },
+    unregisterSection() {
+      events.push("unregister");
+    },
+  };
+  const downloadSetup: DownloadSettingsController = {
+    getState() {
+      throw new Error("State is not read at the startup boundary");
+    },
+    subscribe() {
+      return () => {};
+    },
+    async changeDownloadDestination() {},
+    resetDownloadDestination() {},
+    probeRuntime() {
+      events.push("probe");
+      return new Promise<void>((resolve) => {
+        resolveProbe = resolve;
+      });
+    },
+    dispose() {
+      events.push("dispose-download-setup");
+    },
+  };
+  const factory: ReaderControllerFactory = {
+    create() {
+      throw new Error("Reader rendering is outside this startup test");
+    },
+  };
+
+  const handle = startReferenceForZotero({
+    factory,
+    itemPaneManager,
+    downloadSetup,
+  });
+
+  assert.deepEqual(events, ["register", "probe"]);
+  handle.shutdown();
+  assert.deepEqual(events, [
+    "register",
+    "probe",
+    "unregister",
+    "dispose-download-setup",
+  ]);
+  resolveProbe();
+});
 
 test("Reader lifecycle enables only Reader tabs and removes section work on destroy and shutdown", () => {
   let registration: ReaderSectionRegistration | undefined;

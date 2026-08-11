@@ -1,4 +1,5 @@
 import { config } from "../package.json";
+import type { DownloadSettingsController } from "./application/download-settings";
 import {
   registerReaderSection,
   type ItemPaneManagerPort,
@@ -9,16 +10,24 @@ export interface ReferenceForZoteroHandle {
   shutdown(): void;
 }
 
-export function startReferenceForZotero(
-  factory: ReaderControllerFactory,
-  itemPaneManager: ItemPaneManagerPort = Zotero.ItemPaneManager as unknown as ItemPaneManagerPort,
-): ReferenceForZoteroHandle {
+export type ReferenceForZoteroStartOptions = Readonly<{
+  factory: ReaderControllerFactory;
+  downloadSetup: DownloadSettingsController;
+  itemPaneManager?: ItemPaneManagerPort;
+}>;
+
+export function startReferenceForZotero({
+  factory,
+  downloadSetup,
+  itemPaneManager = Zotero.ItemPaneManager as unknown as ItemPaneManagerPort,
+}: ReferenceForZoteroStartOptions): ReferenceForZoteroHandle {
   const unregister = registerReaderSection({
     itemPaneManager,
     pluginID: config.addonID,
     localeNamespace: config.addonRef,
     controllerFactory: factory,
   });
+  void downloadSetup.probeRuntime();
   let active = true;
 
   return {
@@ -26,6 +35,7 @@ export function startReferenceForZotero(
       if (!active) return;
       active = false;
       unregister();
+      downloadSetup.dispose();
     },
   };
 }

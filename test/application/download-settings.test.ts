@@ -56,6 +56,37 @@ test("download settings keep only the destination and automatically probed capab
   assert.deepEqual(preferenceWrites, []);
 });
 
+test("a failed automatic probe becomes an explicit unavailable state", async () => {
+  const settings = new DownloadSettingsCoordinator({
+    runtime: {
+      async probe() {
+        throw new Error("compatible ScanSci sidecar is missing");
+      },
+      async startVisibleLogin() {
+        throw new Error("Institution login remains unavailable");
+      },
+      async downloadPapers() {
+        return [];
+      },
+    },
+    getPreference() {
+      return undefined;
+    },
+    setPreference() {},
+    clearPreference() {},
+    async chooseDownloadDestination() {
+      return undefined;
+    },
+  });
+
+  await settings.probeRuntime();
+
+  assert.deepEqual(settings.getState().runtime, {
+    status: "unavailable",
+    error: "compatible ScanSci sidecar is missing",
+  });
+});
+
 function capability(): ScanSciCapability {
   return {
     status: "available",

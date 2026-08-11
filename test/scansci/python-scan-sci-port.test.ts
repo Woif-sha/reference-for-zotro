@@ -84,6 +84,80 @@ test("automatic probe returns the exact incompatibility without creating or swit
   );
 });
 
+test("production adapter rejects malformed, duplicate, missing, unexpected, and truncated process output", async () => {
+  const cases: ReadonlyArray<
+    readonly [
+      string,
+      (request: PythonProcessRequest) => Promise<PythonProcessResult>,
+    ]
+  > = [
+    ["invalid JSON", async () => processResult("{bad-json}\n")],
+    [
+      "data after completion",
+      async (request) => {
+        const input = protocolInput(request);
+        const complete = JSON.stringify(
+          sidecarCompletion(input, probePayload(request.command, "3.12.10")),
+        );
+        return processResult(`${complete}\n${complete}\n`);
+      },
+    ],
+    ["without a completion", async () => processResult("")],
+    [
+      "unexpected progress",
+      async (request) => {
+        const input = protocolInput(request);
+        return processResult(
+          `${JSON.stringify(sidecarProgress(input, 1, 1, "item-1", {}))}\n`,
+        );
+      },
+    ],
+    [
+      "bounded output budget",
+      async (request) => ({
+        ...sidecarComplete(
+          protocolInput(request),
+          probePayload(request.command, "3.12.10"),
+        ),
+        stdoutTruncated: true,
+      }),
+    ],
+  ];
+
+  for (const [message, candidateResult] of cases) {
+    const runtime = runtimeWith(async (request) =>
+      request.arguments.includes("-0p")
+        ? processResult("-V:3.12 C:\\Python312\\python.exe\n")
+        : candidateResult(request),
+    );
+    const port = createPythonScanSciPort(runtime, adapterOptions());
+    await assert.rejects(port.probe(), new RegExp(message, "u"));
+  }
+});
+
+test("production adapter propagates probe cancellation", async () => {
+  const runtime = runtimeWith(async (request) => {
+    if (request.arguments.includes("-0p")) {
+      return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+    }
+    return new Promise<PythonProcessResult>((_resolve, reject) => {
+      request.signal?.addEventListener(
+        "abort",
+        () => reject(new DOMException("aborted", "AbortError")),
+        { once: true },
+      );
+    });
+  });
+  const port = createPythonScanSciPort(runtime, adapterOptions());
+  const controller = new AbortController();
+
+  const probing = port.probe({ signal: controller.signal });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  controller.abort();
+
+  await assert.rejects(probing, { name: "AbortError" });
+});
+
 test("one paper uses one downloadOne operation and one isolated request directory", async () => {
   const requestID = "33333333-3333-4333-8333-333333333333";
   const calls: PythonProcessRequest[] = [];

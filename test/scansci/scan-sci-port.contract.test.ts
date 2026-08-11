@@ -27,18 +27,12 @@ for (const adapter of [
 }
 
 async function assertScanSciPortContract(port: ScanSciPort): Promise<void> {
-  const preparation = await port.prepareRuntime({
-    allowInstall: false,
-    executableOverride: "D:\\Python\\Python3.12\\python.exe",
-  });
-  assert.equal(preparation.status, "ready");
-  if (preparation.status !== "ready") return;
-  const capability = preparation.capability;
+  const capability = await port.probe();
   assert.equal(capability.schemaVersion, 3);
   assert.equal(capability.sourceRulesVersion, 3);
   assert.equal(capability.features.onePaperDownload, "available");
   assert.equal(capability.features.batchDownload, "available");
-  assert.equal(capability.sidecar.contractVersion, "1.0.0");
+  assert.equal(capability.sidecar.contractVersion, "1.1.0");
 
   assert.deepEqual(
     await port.startVisibleLogin({
@@ -64,8 +58,8 @@ async function assertScanSciPortContract(port: ScanSciPort): Promise<void> {
 }
 
 class FakeScanSciPort implements ScanSciPort {
-  async prepareRuntime() {
-    return { status: "ready" as const, capability: availableCapability() };
+  async probe() {
+    return availableCapability();
   }
 
   async startVisibleLogin(): Promise<VisibleLoginResult> {
@@ -92,8 +86,13 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
   const runtime: PythonScanSciRuntime = {
     async ensureModuleAssets() {},
     async runProcess(request) {
-      if (request.arguments.includes("-c")) {
-        return runtimeInspectionResult(request.command);
+      if (request.arguments.includes("-0p")) {
+        return {
+          exitCode: 0,
+          stdout: "-V:3.12 C:\\Python\\python.exe\n",
+          stderr: "",
+          timedOut: false,
+        };
       }
       const input = JSON.parse(request.stdin) as {
         requestId: string;
@@ -195,7 +194,6 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
   };
   return createPythonScanSciPort(runtime, {
     moduleRoot: "C:\\addon\\python\\reference_for_zotero_scansci",
-    privateRuntimeRoot: "C:\\profile\\reference-for-zotero\\python",
     hostArchitecture: "x64",
   });
 }
@@ -206,10 +204,9 @@ function availableCapability(): ScanSciCapability {
     executable: "D:\\Python\\Python3.12\\python.exe",
     pythonVersion: "3.12.10",
     architecture: "x64",
-    moduleVersion: "3.0.0",
+    moduleVersion: "3.1.0",
     schemaVersion: 3,
     sourceRulesVersion: 3,
-    selectionReason: "configured override",
     dependencies: [
       ["requests", "2.34.2"],
       ["certifi", "2026.7.22"],
@@ -243,28 +240,11 @@ function availableCapability(): ScanSciCapability {
     ],
     sidecar: {
       protocol: "reference-for-zotero.scansci-sidecar",
-      contractVersion: "1.0.0",
+      contractVersion: "1.1.0",
       resultSchemaVersion: "1.0.0",
       upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
       dirty: false,
     },
-  };
-}
-
-function runtimeInspectionResult(executable: string) {
-  const capability = availableCapability();
-  return {
-    exitCode: 0,
-    stdout: `${JSON.stringify({
-      executable,
-      pythonVersion: capability.pythonVersion,
-      architecture: capability.architecture,
-      moduleVersion: capability.moduleVersion,
-      dependencies: capability.dependencies,
-      dependencySetAvailable: true,
-    })}\n`,
-    stderr: "",
-    timedOut: false,
   };
 }
 
@@ -273,7 +253,7 @@ function sidecarProbeResult(
   executable: string,
 ) {
   return sidecarComplete(request, {
-    application: { name: "reference-for-zotero-scansci", version: "3.0.0" },
+    application: { name: "reference-for-zotero-scansci", version: "3.1.0" },
     runtime: {
       implementation: "CPython",
       pythonVersion: "3.12.10",
@@ -287,9 +267,14 @@ function sidecarProbeResult(
       installKind: "audited-plugin-fragments",
       dirty: false,
     },
-    contractVersion: "1.0.0",
+    contractVersion: "1.1.0",
     resultSchemaVersion: "1.0.0",
     operations: ["downloadBatch", "downloadOne", "probe", "visibleLogin"],
+    compatibility: {
+      status: "compatible",
+      minimumPython: "3.11",
+      dependencies: availableCapability().dependencies,
+    },
     routeCapabilities: [
       {
         routeId: "open-access",
@@ -329,7 +314,7 @@ function sidecarComplete(
     exitCode: 0,
     stdout: `${JSON.stringify({
       protocol: "reference-for-zotero.scansci-sidecar",
-      contractVersion: "1.0.0",
+      contractVersion: "1.1.0",
       resultSchemaVersion: "1.0.0",
       requestId: request.requestId,
       operation: request.operation,

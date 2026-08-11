@@ -4,14 +4,22 @@ import {
   SCANSCI_SIDECAR_RESULT_SCHEMA_VERSION,
   type ConfirmedPaper,
   type ScanSciArchitecture,
+  type ScanSciDependency,
   type ScanSciRouteCapability,
 } from "./scan-sci-port";
 
-export const SCANSCI_MODULE_VERSION = "3.0.0" as const;
+export const SCANSCI_MODULE_VERSION = "3.1.0" as const;
 export const SCANSCI_UPSTREAM_REVISION =
   "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5" as const;
 export const INSTITUTION_ROUTE_ID =
   "institution-webvpn/ieee/one-click-single" as const;
+const EXPECTED_DEPENDENCIES = [
+  ["requests", "==2.34.2"],
+  ["certifi", "==2026.7.22"],
+  ["charset-normalizer", "==3.4.9"],
+  ["idna", "==3.18"],
+  ["urllib3", "==2.7.0"],
+] as const;
 
 export type SidecarOperation =
   "probe" | "visibleLogin" | "downloadOne" | "downloadBatch";
@@ -32,6 +40,7 @@ export type SidecarProbe = Readonly<{
   architecture: ScanSciArchitecture;
   upstreamRevision: typeof SCANSCI_UPSTREAM_REVISION;
   dirty: false;
+  dependencies: readonly ScanSciDependency[];
   routes: readonly ScanSciRouteCapability[];
 }>;
 
@@ -213,6 +222,9 @@ export function parseProbePayload(value: unknown): SidecarProbe {
       "visibleLogin",
     ]) ||
     !Array.isArray(value.routeCapabilities) ||
+    !isRecord(value.compatibility) ||
+    value.compatibility.minimumPython !== "3.11" ||
+    !Array.isArray(value.compatibility.dependencies) ||
     !isRecord(value.policy) ||
     value.policy.mode !== "legal-only" ||
     !Array.isArray(value.policy.disabledRoutes)
@@ -233,6 +245,34 @@ export function parseProbePayload(value: unknown): SidecarProbe {
       throw new Error(`ScanSci sidecar policy does not disable ${required}`);
     }
   }
+  const dependencies =
+    value.compatibility.dependencies.map(parseProbeDependency);
+  const requirements = new Map(
+    dependencies.map(({ name, requirement }) => [name, requirement]),
+  );
+  if (
+    dependencies.length !== EXPECTED_DEPENDENCIES.length ||
+    EXPECTED_DEPENDENCIES.some(
+      ([name, requirement]) => requirements.get(name) !== requirement,
+    )
+  ) {
+    throw new Error("ScanSci sidecar dependency set is incompatible");
+  }
+  const issues = dependencies
+    .filter(
+      ({ requirement, installedVersion, status }) =>
+        status !== "available" || installedVersion !== requirement.slice(2),
+    )
+    .map(({ name, requirement, installedVersion, status }) =>
+      status === "missing"
+        ? `${name}${requirement} is missing`
+        : `${name}${requirement} is incompatible (installed ${installedVersion ?? "unknown"})`,
+    );
+  if (value.compatibility.status !== "compatible" || issues.length > 0) {
+    throw new Error(
+      `ScanSci sidecar runtime is incompatible: ${issues.join("; ") || `Python ${value.runtime.pythonVersion} is older than 3.11`}`,
+    );
+  }
   const routes = parseRoutes(value.routeCapabilities);
   return {
     applicationVersion: SCANSCI_MODULE_VERSION,
@@ -241,7 +281,31 @@ export function parseProbePayload(value: unknown): SidecarProbe {
     architecture: value.runtime.architecture,
     upstreamRevision: SCANSCI_UPSTREAM_REVISION,
     dirty: false,
+    dependencies,
     routes,
+  };
+}
+
+function parseProbeDependency(value: unknown): ScanSciDependency {
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    typeof value.requirement !== "string" ||
+    (value.installedVersion !== undefined &&
+      typeof value.installedVersion !== "string") ||
+    (value.status !== "available" &&
+      value.status !== "missing" &&
+      value.status !== "incompatible")
+  ) {
+    throw new Error("ScanSci sidecar dependency capability is invalid");
+  }
+  return {
+    name: value.name,
+    requirement: value.requirement,
+    ...(value.installedVersion
+      ? { installedVersion: value.installedVersion }
+      : {}),
+    status: value.status,
   };
 }
 

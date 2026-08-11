@@ -2,8 +2,8 @@ import type { ReferenceEntry } from "../domain/reference";
 import type { PaperIdentity, SessionToken } from "../domain/literature";
 import {
   DEFAULT_DOWNLOAD_DESTINATION,
-  type DownloadFirstUseController,
-} from "./download-first-use";
+  type DownloadSettingsController,
+} from "./download-settings";
 import type {
   ReaderPaper,
   ReaderPaperAction,
@@ -78,7 +78,7 @@ export interface RelatedPapersPorts {
     }>,
   ): Promise<readonly PaperDownloadProgress[]>;
   revealDownloadedFile?(savedPath: string): void;
-  downloadSetup?: DownloadFirstUseController;
+  downloadSetup?: DownloadSettingsController;
   copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
@@ -302,24 +302,6 @@ export class RelatedPapersController implements ReaderSectionController {
 
   resetDownloadDestination(): void {
     this.ports.downloadSetup?.resetDownloadDestination();
-  }
-
-  checkDownloadRuntime(): Promise<void> {
-    return this.ports.downloadSetup?.checkRuntime() ?? Promise.resolve();
-  }
-
-  choosePythonExecutable(): Promise<void> {
-    return (
-      this.ports.downloadSetup?.choosePythonExecutable() ?? Promise.resolve()
-    );
-  }
-
-  installDownloadRuntime(): Promise<void> {
-    return this.ports.downloadSetup?.installRuntime() ?? Promise.resolve();
-  }
-
-  cancelDownloadRuntimeInstallation(): void {
-    this.ports.downloadSetup?.cancelRuntimeInstallation();
   }
 
   selectPaper(paperID: string): void {
@@ -687,10 +669,6 @@ function defaultDownloadSetupState(): ReaderSectionState["downloadSetup"] {
     downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
     usingDefaultDestination: true,
     runtime: { status: "unchecked" },
-    institutionLogin: {
-      status: "unavailable",
-      error: "Institution browser policy is not connected",
-    },
   };
 }
 

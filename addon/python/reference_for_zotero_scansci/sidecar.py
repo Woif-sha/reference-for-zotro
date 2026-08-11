@@ -20,7 +20,7 @@ sys.dont_write_bytecode = True
 import bridge
 
 PROTOCOL = "reference-for-zotero.scansci-sidecar"
-CONTRACT_VERSION = "1.0.0"
+CONTRACT_VERSION = "1.1.0"
 RESULT_SCHEMA_VERSION = "1.0.0"
 INSTITUTION_ROUTE_ID = "institution-webvpn/ieee/one-click-single"
 OPERATIONS = frozenset({"probe", "visibleLogin", "downloadOne", "downloadBatch"})
@@ -200,6 +200,7 @@ class Sidecar:
         open_access_available = (
             capability.get("features", {}).get("onePaperDownload") == "available"
         )
+        dependencies = capability.get("dependencies", [])
         return {
             "application": {
                 "name": "reference-for-zotero-scansci",
@@ -221,6 +222,11 @@ class Sidecar:
             "contractVersion": CONTRACT_VERSION,
             "resultSchemaVersion": RESULT_SCHEMA_VERSION,
             "operations": sorted(OPERATIONS),
+            "compatibility": {
+                "status": "compatible" if open_access_available else "incompatible",
+                "minimumPython": "3.11",
+                "dependencies": dependencies,
+            },
             "routeCapabilities": [
                 {
                     "routeId": "open-access",

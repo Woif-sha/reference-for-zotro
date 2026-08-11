@@ -16,8 +16,6 @@ REQUIRED_ASSETS = {
     "python/reference_for_zotero_scansci/VENDORED-SOURCE.json",
     "python/reference_for_zotero_scansci/MODIFICATIONS.md",
     "python/reference_for_zotero_scansci/requirements.lock",
-    "python/reference_for_zotero_scansci/institution-requirements.lock",
-    "python/reference_for_zotero_scansci/browser-runtime-policy-v3.json",
     "python/reference_for_zotero_scansci/vendored/__init__.py",
     "python/reference_for_zotero_scansci/THIRD-PARTY-LICENSES/SCANSci-APACHE-2.0.txt",
     "python/reference_for_zotero_scansci/vendored/sources.py",
@@ -123,6 +121,17 @@ def main():
         )
     if '"download-one"' in production_javascript:
         raise SystemExit("XPI production adapter still contains the legacy bridge protocol")
+    for forbidden_marker in (
+        "prepareRuntime",
+        "pythonExecutable",
+        "privateRuntimeRoot",
+        "allowInstall",
+        "executableOverride",
+    ):
+        if forbidden_marker in production_javascript:
+            raise SystemExit(
+                f"XPI production adapter still contains obsolete runtime path: {forbidden_marker}"
+            )
 
     forbidden = []
     for name in sorted(names):

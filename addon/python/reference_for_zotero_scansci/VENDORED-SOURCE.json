@@ -1,6 +1,6 @@
 {
   "manifestVersion": 1,
-  "moduleVersion": "3.0.0",
+  "moduleVersion": "3.1.0",
   "upstream": {
     "repository": "Rimagination/scansci-pdf",
     "commit": "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
@@ -46,8 +46,7 @@
   "projectNamespaceFiles": ["vendored/__init__.py"],
   "runtimeDependencies": {
     "lockPath": "requirements.lock",
-    "packageIndex": "https://pypi.tuna.tsinghua.edu.cn/simple",
-    "installPolicy": "Private venv only; --isolated --require-hashes --only-binary=:all:; no trusted-host or fallback index.",
+    "installPolicy": "Compatibility declaration only. The plugin never creates an environment or installs dependencies.",
     "packages": [
       "requests==2.34.2",
       "certifi==2026.7.22",
@@ -58,10 +57,9 @@
     "reason": "Complete direct and transitive closure for strict HTTPS streaming on the enabled arXiv and PMC routes."
   },
   "institutionBrowserDependencyGovernance": {
-    "status": "disabled-pending-acceptance",
-    "pythonLockPath": "institution-requirements.lock",
-    "browserPolicyPath": "browser-runtime-policy-v3.json",
-    "reason": "CloakBrowser Python packages and its external Chromium runtime are governed separately; neither is installed or launched while the institution route is disabled."
+    "status": "candidate",
+    "routeId": "institution-webvpn/ieee/one-click-single",
+    "reason": "Unavailable until complete real-world audit; no browser runtime, profile, credential or login command is exposed."
   },
   "excluded": [
     "complete upstream tree",

@@ -17,9 +17,6 @@ const MODULE_ASSETS = [
   "sidecar.py",
   "strict_http.py",
   "source-rules-v3.json",
-  "requirements.lock",
-  "institution-requirements.lock",
-  "browser-runtime-policy-v3.json",
   "VENDORED-SOURCE.json",
   "MODIFICATIONS.md",
   "THIRD-PARTY-LICENSES/SCANSci-APACHE-2.0.txt",
@@ -61,14 +58,13 @@ export type ZoteroScanSciRuntimeOptions = Readonly<{
 
 export type ZoteroScanSciPortOptions = Readonly<{
   packagedRootURI: string;
-  privateRuntimeRoot: string;
+  sidecarDataRoot: string;
 }>;
 
 export function createZoteroScanSciPort(
   options: ZoteroScanSciPortOptions,
 ): ScanSciPort {
-  const moduleRoot = joinWindows(options.privateRuntimeRoot, "module-3.0.0");
-  const pythonRuntimeRoot = joinWindows(options.privateRuntimeRoot, "python");
+  const moduleRoot = joinWindows(options.sidecarDataRoot, "module-3.1.0");
   return createPythonScanSciPort(
     createZoteroScanSciRuntime({
       packagedRootURI: options.packagedRootURI,
@@ -76,7 +72,6 @@ export function createZoteroScanSciPort(
     }),
     {
       moduleRoot,
-      privateRuntimeRoot: pythonRuntimeRoot,
       hostArchitecture: zoteroArchitecture(),
     },
   );

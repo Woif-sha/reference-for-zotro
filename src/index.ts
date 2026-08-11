@@ -5,12 +5,12 @@ import {
   type ReferenceForZoteroHandle,
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
-import { DownloadFirstUseCoordinator } from "./application/download-first-use";
+import { DownloadSettingsCoordinator } from "./application/download-settings";
 import { createScanSciDownloadDependencies } from "./application/scan-sci-download";
 import {
-  createZoteroDownloadFirstUsePorts,
-  zoteroPrivateRuntimeRoot,
-} from "./platform/zotero-download-first-use";
+  createZoteroDownloadSettingsPorts,
+  zoteroSidecarDataRoot,
+} from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
 
 const basicTool = new BasicTool();
@@ -50,7 +50,7 @@ function defineRuntimeGlobal(name: string): void {
 
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
-  let downloadSetup: DownloadFirstUseCoordinator | undefined;
+  let downloadSetup: DownloadSettingsCoordinator | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -82,15 +82,14 @@ function createRuntime() {
         const packagedRootURI = resolvePackagedRootURI();
         const scanSci = createZoteroScanSciPort({
           packagedRootURI,
-          privateRuntimeRoot: zoteroPrivateRuntimeRoot(),
+          sidecarDataRoot: zoteroSidecarDataRoot(),
         });
-        downloadSetup = new DownloadFirstUseCoordinator(
-          createZoteroDownloadFirstUsePorts({
+        downloadSetup = new DownloadSettingsCoordinator(
+          createZoteroDownloadSettingsPorts({
             runtime: scanSci,
-            packagedRootURI,
           }),
         );
-        await downloadSetup.checkRuntime();
+        await downloadSetup.probeRuntime();
         handle = startReferenceForZotero(
           createReaderControllerFactory(
             createScanSciDownloadDependencies({

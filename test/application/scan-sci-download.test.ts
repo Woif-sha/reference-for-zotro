@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type {
-  DownloadFirstUseController,
-  DownloadFirstUseState,
-} from "../../src/application/download-first-use";
+  DownloadSettingsController,
+  DownloadSettingsState,
+} from "../../src/application/download-settings";
 import {
   createScanSciDownloadDependencies,
   createScanSciDownloadPapers,
@@ -86,7 +86,7 @@ test("production download dependencies expose setup and the live ScanSci adapter
   assert.equal(typeof dependencies.downloadPapers, "function");
 });
 
-test("production download adapter fails explicitly until runtime preparation is ready", async () => {
+test("production download adapter fails explicitly until the sidecar probe is ready", async () => {
   let called = false;
   const runtime = runtimeWithDownload(async () => {
     called = true;
@@ -117,7 +117,7 @@ test("production download adapter fails explicitly until runtime preparation is 
 
   assert.equal(result[0]?.result.status, "failed");
   if (result[0]?.result.status !== "failed") return;
-  assert.match(result[0].result.error, /runtime is not ready/u);
+  assert.match(result[0].result.error, /sidecar capability is not ready/u);
   assert.equal(called, false);
 });
 
@@ -126,7 +126,7 @@ test("Windows filename generation rejects device names and trims unsafe suffixes
   assert.equal(safeWindowsFilenameStem("  title...  "), "title");
 });
 
-function readyState(destination: string): DownloadFirstUseState {
+function readyState(destination: string): DownloadSettingsState {
   return {
     downloadDestination: destination,
     usingDefaultDestination: destination === "E:\\paper",
@@ -137,10 +137,9 @@ function readyState(destination: string): DownloadFirstUseState {
         executable: "C:\\runtime\\python.exe",
         pythonVersion: "3.12.10",
         architecture: "x64",
-        moduleVersion: "3.0.0",
+        moduleVersion: "3.1.0",
         schemaVersion: 3,
         sourceRulesVersion: 3,
-        selectionReason: "private environment",
         dependencies: [],
         features: {
           onePaperDownload: "available",
@@ -163,32 +162,25 @@ function readyState(destination: string): DownloadFirstUseState {
         ],
         sidecar: {
           protocol: "reference-for-zotero.scansci-sidecar",
-          contractVersion: "1.0.0",
+          contractVersion: "1.1.0",
           resultSchemaVersion: "1.0.0",
           upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
           dirty: false,
         },
       },
     },
-    institutionLogin: {
-      status: "unavailable",
-      error: "not relevant",
-    },
   };
 }
 
 function setupController(
-  getState: () => DownloadFirstUseState,
-): DownloadFirstUseController {
+  getState: () => DownloadSettingsState,
+): DownloadSettingsController {
   return {
     getState,
     subscribe: () => () => undefined,
     async changeDownloadDestination() {},
     resetDownloadDestination() {},
-    async checkRuntime() {},
-    async choosePythonExecutable() {},
-    async installRuntime() {},
-    cancelRuntimeInstallation() {},
+    async probeRuntime() {},
     dispose() {},
   };
 }
@@ -197,7 +189,7 @@ function runtimeWithDownload(
   downloadPapers: ScanSciPort["downloadPapers"],
 ): ScanSciPort {
   return {
-    async prepareRuntime() {
+    async probe() {
       throw new Error("not used");
     },
     async startVisibleLogin() {

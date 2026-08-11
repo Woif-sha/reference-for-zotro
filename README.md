@@ -17,7 +17,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - `Ctrl + 左键` 打开经过确认的论文落地页。
 - 可选调用 Paper Translate 的公开接口翻译插件界面内选中的文字。
 - 在 Reader 下载区域显示当前保存目录；默认使用 `E:\paper`，也可通过 Windows 原生目录选择器修改或恢复默认值。
-- 按需探测 Python 3.11+；依赖缺失时先展示精确的私有 venv、清华镜像及 hash-lock 安装计划，只有确认后才安装。
+- 启动及每次下载前自动探测已有 Python 3.11+ 兼容运行时，并只通过插件自有 sidecar 的版本化 `probe` 建立下载能力；插件不会创建、安装或切换 Python 环境。
 
 ## 运行要求
 
@@ -36,7 +36,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 
 后续稳定版可通过插件更新地址获取 `update.json`。也可以下载新 XPI 后按相同步骤覆盖安装。
 
-第二阶段测试构建不包含 `update_url`，不会自动进入稳定版或 beta 更新渠道。完整首次使用与验收步骤见 [第二阶段测试 XPI 验收说明](docs/testing/second-stage-xpi.md)。
+第二阶段测试构建仅为通过 Zotero bootstrap 清单校验而保留 `update_url`；本任务不发布对应的更新元数据，因此不会自动进入稳定版或 beta 更新渠道。完整首次使用与验收步骤见 [第二阶段测试 XPI 验收说明](docs/testing/second-stage-xpi.md)。
 
 ## 使用
 
@@ -49,9 +49,9 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - `Ctrl + 左键`：在浏览器打开已验证的学术落地页。
 - **Refresh**：跳过当前缓存并重新解析。
 - **Change folder**：选择 Download destination；插件不会创建独立设置页。
-- **Check environment**：只探测 Python 和精确锁定依赖；若需要安装，会先显示完整计划和取消结果。
+- ScanSci 能力由插件在后台自动探测。若 runtime、协议、schema、来源清单、legal-only policy 或 route capability 不兼容，下载会显示具体错误，不会尝试安装或 fallback。
 
-机构登录入口目前明确处于禁用状态：在具体机构与 publisher 路线完成 vendor、binary license、签名、strict-TLS/egress 和 Windows/Zotero 验收前，插件不会下载约 200 MiB 的 CloakBrowser Chromium runtime，也不会启动登录浏览器。
+WebVPN → IEEE Xplore 在真实审计完成前只是不可用的 acceptance candidate，不在 Reader 中显示为支持项，也不会启动浏览器或读取 profile、凭据与会话数据。
 
 ## 数据与匹配
 

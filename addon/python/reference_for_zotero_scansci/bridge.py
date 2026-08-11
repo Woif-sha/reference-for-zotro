@@ -25,7 +25,7 @@ from vendored.sources import (
 
 SCHEMA_VERSION = 3
 SOURCE_RULES_VERSION = 3
-MODULE_VERSION = "3.0.0"
+MODULE_VERSION = "3.1.0"
 PROXY_ENVIRONMENT = (
     "ALL_PROXY",
     "HTTPS_PROXY",

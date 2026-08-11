@@ -42,7 +42,7 @@ def fake_capability():
         "executable": str(Path(sys.executable).resolve()),
         "pythonVersion": "3.12.10",
         "architecture": "x64",
-        "moduleVersion": "3.0.0",
+        "moduleVersion": "3.1.0",
         "dependencies": [],
         "features": {"onePaperDownload": "available", "visibleLogin": "disabled"},
     }
@@ -72,7 +72,7 @@ class ScanSciSidecarTest(unittest.TestCase):
         self.assertTrue(response["ok"])
         payload = response["payload"]
         self.assertEqual(payload["application"]["name"], "reference-for-zotero-scansci")
-        self.assertEqual(payload["contractVersion"], "1.0.0")
+        self.assertEqual(payload["contractVersion"], "1.1.0")
         self.assertEqual(payload["resultSchemaVersion"], "1.0.0")
         self.assertEqual(
             payload["operations"], ["downloadBatch", "downloadOne", "probe", "visibleLogin"]
@@ -83,6 +83,14 @@ class ScanSciSidecarTest(unittest.TestCase):
             "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
         )
         self.assertFalse(payload["source"]["dirty"])
+        self.assertEqual(
+            payload["compatibility"],
+            {
+                "status": "compatible",
+                "minimumPython": "3.11",
+                "dependencies": [],
+            },
+        )
         candidate = next(
             route
             for route in payload["routeCapabilities"]

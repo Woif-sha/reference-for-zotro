@@ -17,9 +17,10 @@ bounded batch scheduling, per-paper progress, result normalization, and the
 non-available IEEE/WebVPN candidate projection. It delegates downloads to the
 same audited bridge implementation and does not import or modify an installed
 `scansci_pdf` package.
-The enabled open-access route uses a complete wheel-only hash lock installed
-only into a user-confirmed private venv through the fixed Tsinghua PyPI index.
-The dormant CloakBrowser Python closure has a separate hash lock, and its
-external Chromium runtime has a separate no-auto-download confirmation policy.
-Institution/browser access remains disabled until a concrete route passes
-strict-TLS, source, egress, Windows, and installed-Zotero acceptance.
+The enabled open-access route declares its exact compatibility dependency set
+in `requirements.lock`. The plugin does not install that set or create a private
+environment; it accepts only an already-compatible runtime whose sidecar
+`probe` reports the required identity, provenance, policy and capabilities.
+Institution/browser access remains an unavailable candidate until a concrete
+route passes strict-TLS, source, egress, profile-ownership, Windows, and
+installed-Zotero acceptance.

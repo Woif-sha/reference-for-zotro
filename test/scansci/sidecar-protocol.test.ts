@@ -10,7 +10,7 @@ import {
 test("sidecar requests expose only the versioned four-operation contract", () => {
   assert.deepEqual(createSidecarRequest("request-1", "downloadOne", {}), {
     protocol: "reference-for-zotero.scansci-sidecar",
-    contractVersion: "1.0.0",
+    contractVersion: "1.1.0",
     resultSchemaVersion: "1.0.0",
     requestId: "request-1",
     operation: "downloadOne",
@@ -66,9 +66,52 @@ test("sidecar probe rejects a dirty vendored source and never promotes the insti
   });
 });
 
+test("sidecar probe reports the exact incompatible dependency without an install fallback", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        compatibility: {
+          ...payload.compatibility,
+          status: "incompatible",
+          dependencies: compatibleDependencies().map((dependency) =>
+            dependency.name === "requests"
+              ? {
+                  ...dependency,
+                  installedVersion: undefined,
+                  status: "missing",
+                }
+              : dependency,
+          ),
+        },
+      }),
+    /requests==2\.34\.2 is missing/u,
+  );
+});
+
+test("sidecar probe rejects dependency details that contradict a compatible status", () => {
+  const payload = compatibleProbePayload();
+  assert.throws(
+    () =>
+      parseProbePayload({
+        ...payload,
+        compatibility: {
+          ...payload.compatibility,
+          dependencies: compatibleDependencies().map((dependency) =>
+            dependency.name === "requests"
+              ? { ...dependency, installedVersion: "2.34.1" }
+              : dependency,
+          ),
+        },
+      }),
+    /requests==2\.34\.2 is incompatible \(installed 2\.34\.1\)/u,
+  );
+});
+
 function compatibleProbePayload() {
   return {
-    application: { name: "reference-for-zotero-scansci", version: "3.0.0" },
+    application: { name: "reference-for-zotero-scansci", version: "3.1.0" },
     runtime: {
       implementation: "CPython",
       pythonVersion: "3.12.10",
@@ -82,9 +125,14 @@ function compatibleProbePayload() {
       installKind: "audited-plugin-fragments",
       dirty: false,
     },
-    contractVersion: "1.0.0",
+    contractVersion: "1.1.0",
     resultSchemaVersion: "1.0.0",
     operations: ["downloadBatch", "downloadOne", "probe", "visibleLogin"],
+    compatibility: {
+      status: "compatible",
+      minimumPython: "3.11",
+      dependencies: compatibleDependencies(),
+    },
     routeCapabilities: [
       {
         routeId: "open-access",
@@ -113,4 +161,19 @@ function compatibleProbePayload() {
       ],
     },
   } as const;
+}
+
+function compatibleDependencies() {
+  return [
+    ["requests", "2.34.2"],
+    ["certifi", "2026.7.22"],
+    ["charset-normalizer", "3.4.9"],
+    ["idna", "3.18"],
+    ["urllib3", "2.7.0"],
+  ].map(([name, version]) => ({
+    name: name ?? "",
+    requirement: `==${version ?? ""}`,
+    installedVersion: version ?? "",
+    status: "available" as const,
+  }));
 }

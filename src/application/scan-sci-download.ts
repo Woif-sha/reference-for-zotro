@@ -1,9 +1,9 @@
 import type { ReaderPaper } from "../reader/mountReaderSection";
 import type { ScanSciPort } from "../scansci/scan-sci-port";
 import type {
-  DownloadFirstUseController,
-  DownloadFirstUseState,
-} from "./download-first-use";
+  DownloadSettingsController,
+  DownloadSettingsState,
+} from "./download-settings";
 import type {
   PaperDownloadProgress,
   RelatedPapersPorts,
@@ -15,7 +15,7 @@ const WINDOWS_RESERVED_FILENAME =
 
 export function createScanSciDownloadPapers(options: {
   runtime: ScanSciPort;
-  setup: DownloadFirstUseController;
+  setup: DownloadSettingsController;
 }): NonNullable<RelatedPapersPorts["downloadPapers"]> {
   return async (request) => {
     const setup = options.setup.getState();
@@ -51,7 +51,7 @@ export function createScanSciDownloadPapers(options: {
 
 export function createScanSciDownloadDependencies(options: {
   runtime: ScanSciPort;
-  setup: DownloadFirstUseController;
+  setup: DownloadSettingsController;
 }) {
   return {
     downloadSetup: options.setup,
@@ -89,12 +89,12 @@ export function safeWindowsFilenameStem(title: string): string {
 }
 
 function runtimeReadinessError(
-  setup: DownloadFirstUseState,
+  setup: DownloadSettingsState,
 ): string | undefined {
   if (setup.destinationError) return setup.destinationError;
-  if (setup.runtime.status !== "ready") {
-    return "ScanSci runtime is not ready; check or install it in the Reader download area";
-  }
+  if (setup.runtime.status === "unavailable") return setup.runtime.error;
+  if (setup.runtime.status !== "ready")
+    return "ScanSci sidecar capability is not ready";
   return undefined;
 }
 

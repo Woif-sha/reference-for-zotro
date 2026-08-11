@@ -67,19 +67,9 @@ const runtime: PythonScanSciRuntime = {
 };
 const port = createPythonScanSciPort(runtime, {
   moduleRoot,
-  privateRuntimeRoot: path.join(destination, ".rfz-python-runtime"),
   hostArchitecture: hostArchitecture(),
 });
-const preparation = await port.prepareRuntime({
-  allowInstall: true,
-  ...(process.env.RFZ_PYTHON
-    ? { executableOverride: process.env.RFZ_PYTHON }
-    : {}),
-});
-if (preparation.status !== "ready") {
-  throw new Error(JSON.stringify(preparation));
-}
-const capability = preparation.capability;
+const capability = await port.probe();
 const target = path.join(destination, `RFZ legal smoke ${arxivID}.pdf`);
 const [download] = await port.downloadPapers({
   items: [

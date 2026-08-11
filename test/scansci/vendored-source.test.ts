@@ -160,7 +160,7 @@ test("source-rules v3 enables only fixed open-access routes and forces legal-onl
   ]);
 });
 
-test("runtime locks are complete, hash-only, and keep browser deployment dormant", async () => {
+test("runtime lock is compatibility-only and no institution deployment assets remain", async () => {
   const openAccessLock = await readFile(
     path.join(moduleRoot, "requirements.lock"),
     "utf8",
@@ -175,46 +175,27 @@ test("runtime locks are complete, hash-only, and keep browser deployment dormant
   assert.doesNotMatch(openAccessLock, /trusted-host|index-url|https?:\/\//iu);
   assert.match(openAccessLock, /--hash=sha256:[0-9a-f]{64}/u);
 
-  const institutionLock = await readFile(
-    path.join(moduleRoot, "institution-requirements.lock"),
-    "utf8",
-  );
-  assert.equal(pinnedPackages(institutionLock)[0], "cloakbrowser==0.4.11");
-  assert.doesNotMatch(institutionLock, /trusted-host|index-url|https?:\/\//iu);
-  const browserPolicy = JSON.parse(
-    await readFile(
-      path.join(moduleRoot, "browser-runtime-policy-v3.json"),
-      "utf8",
-    ),
+  const manifest = JSON.parse(
+    await readFile(path.join(moduleRoot, "VENDORED-SOURCE.json"), "utf8"),
   ) as {
-    status: string;
-    python: { requirement: string; lockPath: string };
-    binary: {
-      automaticDownload: boolean;
-      approximateDownloadBytes: number;
-      requiresSeparateUserConfirmation: boolean;
-      confirmationMustDisplay: string[];
+    runtimeDependencies: { installPolicy: string };
+    institutionBrowserDependencyGovernance: {
+      status: string;
+      routeId: string;
     };
   };
-  assert.equal(browserPolicy.status, "disabled-pending-acceptance");
-  assert.deepEqual(browserPolicy.python, {
-    requirement: "cloakbrowser==0.4.11",
-    lockPath: "institution-requirements.lock",
-    packageIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
-    privateVenvOnly: true,
-    supportedArchitecture: "x64",
+  assert.match(manifest.runtimeDependencies.installPolicy, /never.*install/iu);
+  assert.deepEqual(manifest.institutionBrowserDependencyGovernance, {
+    status: "candidate",
+    routeId: "institution-webvpn/ieee/one-click-single",
+    reason:
+      "Unavailable until complete real-world audit; no browser runtime, profile, credential or login command is exposed.",
   });
-  assert.equal(browserPolicy.binary.automaticDownload, false);
-  assert.equal(browserPolicy.binary.approximateDownloadBytes, 209_715_200);
-  assert.equal(browserPolicy.binary.requiresSeparateUserConfirmation, true);
-  assert.deepEqual(browserPolicy.binary.confirmationMustDisplay, [
-    "vendor",
-    "source",
-    "approximateDownloadBytes",
-    "binaryLicense",
-    "target",
-    "signatureVerification",
-  ]);
+  const files = (await filesBelow(moduleRoot)).map((file) =>
+    path.basename(file),
+  );
+  assert.equal(files.includes("institution-requirements.lock"), false);
+  assert.equal(files.includes("browser-runtime-policy-v3.json"), false);
 });
 
 async function sha256(file: string): Promise<string> {

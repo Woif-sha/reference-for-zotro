@@ -14,8 +14,8 @@
 1. 运行 `npm ci`、`npm test`、`npm run build` 和 `npm run audit:scansci-xpi`。Windows 上可再运行 `pwsh -File test/xpi/zotero-installability.ps1 -XpiPath build/reference-for-zotero-second-stage-test.xpi -ZoteroPath <zotero.exe>`，确认真实 Zotero 接受清单；随后安装 XPI 并完全重启 Zotero。
 2. 打开真实论文 PDF，在 Reader 的 Related Papers 区域确认 References/Citations 与第一阶段详情功能仍正常。
 3. Download destination 默认是 `E:\paper`。使用 Change folder 可调用原生目录选择器；Reset 恢复默认目录，不会出现独立设置页。
-4. Check environment 只探测 Python 3.11+ 和精确锁定依赖。若依赖已满足则直接 Ready；否则先显示解释器、插件私有 venv、清华镜像、完整包版本/hash、动作与取消结果。
-5. 只有确认安装后才允许创建私有 venv，并固定执行清华镜像与 `--require-hashes` 安装；取消不得写环境，失败不得切换镜像、修改基础 Python 或写全局 `pip.ini`。
+4. 插件在后台自动探测已有 Python 3.11+ 兼容运行时，并以版本化 sidecar `probe` 校验 runtime identity、contract/result schema、upstream provenance、legal-only policy 和 route capability。
+5. runtime 缺失或不兼容时必须显示具体错误；插件不得创建私有 venv、安装依赖、选择其他 executable、切换镜像或调用 MCP/HTTP fallback。
 
 ## Reader 与文件下载
 
@@ -29,7 +29,7 @@
 
 ## 机构 acceptance-candidate
 
-机构路线目前仍为 disabled，不能把 open-access smoke 冒充为机构下载。开始实现首条 test-only route 前，验收人必须提供：
+WebVPN → IEEE Xplore 目前仍为 unavailable candidate，Reader 不显示机构配置或登录入口，也不能把 open-access smoke 冒充为机构下载。开始实现首条 test-only route 前，验收人必须提供：
 
 - 实际可登录的机构名称；
 - 目标 publisher 名称；
@@ -37,6 +37,6 @@
 - 用户通常进入机构登录的公开入口 URL，以及是否需要 WebVPN、统一身份认证或 MFA；
 - 允许进行测试的访问条款或机构说明链接。
 
-实现后还必须单独展示并确认浏览器 runtime 的 vendor、固定下载 URL、约 200 MiB 大小、binary license、插件私有目标目录和签名校验。只有用户主动点击后才能启动可见浏览器；插件不得读取、保存或记录登录凭据及会话内容。
+未来实现后，只有用户主动点击才能启动可见浏览器；插件不得读取、保存或记录登录凭据及会话内容。在真实审计完成前不得下载浏览器 runtime 或读取现有 profile。
 
 机构路线只有在 strict-TLS、完整 egress host allowlist、source evidence、Windows/Zotero 9 visible login 和合法单篇下载均通过后，才可在这一个测试 XPI 的 source-rules v3 中标记 enabled。

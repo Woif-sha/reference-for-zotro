@@ -1,19 +1,15 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
 import {
   DEFAULT_DOWNLOAD_DESTINATION,
-  type DownloadFirstUseState,
-} from "../application/download-first-use";
+  type DownloadSettingsState,
+} from "../application/download-settings";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
-const DISCONNECTED_DOWNLOAD_SETUP: DownloadFirstUseState = {
+const DISCONNECTED_DOWNLOAD_SETUP: DownloadSettingsState = {
   downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
   usingDefaultDestination: true,
   runtime: { status: "unchecked" },
-  institutionLogin: {
-    status: "unavailable",
-    error: "Institution browser policy is not connected",
-  },
 };
 const TRANSLATION_POPOVER_GAP = 8;
 const TRANSLATION_POPOVER_MARGIN = 10;
@@ -101,7 +97,7 @@ export interface ReaderSectionState {
   paperDownloads: readonly PaperDownloadProjection[];
   downloadInProgress: boolean;
   downloadAvailable: boolean;
-  downloadSetup?: DownloadFirstUseState;
+  downloadSetup?: DownloadSettingsState;
 }
 
 export interface ReaderSectionController {
@@ -123,10 +119,6 @@ export interface ReaderSectionController {
   openDownloadedFolder(paperID: string): void;
   changeDownloadDestination?(): Promise<void>;
   resetDownloadDestination?(): void;
-  checkDownloadRuntime?(): Promise<void>;
-  choosePythonExecutable?(): Promise<void>;
-  installDownloadRuntime?(): Promise<void>;
-  cancelDownloadRuntimeInstallation?(): void;
   translationCapability?(): TranslationCapability;
   translateSelection?(text: string): Promise<string>;
 }
@@ -222,7 +214,9 @@ export function mountReaderSection(options: {
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
-      !state.downloadAvailable;
+      !state.downloadAvailable ||
+      (state.downloadSetup !== undefined &&
+        state.downloadSetup.runtime.status !== "ready");
     root.innerHTML = `
       <style>${READER_STYLES}</style>
       <header class="rfz-header">
@@ -300,22 +294,6 @@ export function mountReaderSection(options: {
     }
     if (target.closest("[data-reset-destination]")) {
       controller.resetDownloadDestination?.();
-      return;
-    }
-    if (target.closest("[data-check-runtime]")) {
-      void controller.checkDownloadRuntime?.();
-      return;
-    }
-    if (target.closest("[data-choose-python]")) {
-      void controller.choosePythonExecutable?.();
-      return;
-    }
-    if (target.closest("[data-install-runtime]")) {
-      void controller.installDownloadRuntime?.();
-      return;
-    }
-    if (target.closest("[data-cancel-runtime]")) {
-      controller.cancelDownloadRuntimeInstallation?.();
       return;
     }
     const openFolder = target.closest<HTMLElement>("[data-open-folder]");
@@ -565,89 +543,21 @@ function escapeAttribute(value: string): string {
   return escapeHTML(value);
 }
 
-function renderDownloadSetup(state: DownloadFirstUseState): string {
-  const runtime = state.runtime;
-  const runtimeContent =
-    runtime.status === "unchecked"
-      ? `<span class="rfz-setup-status">Not checked</span><button type="button" data-check-runtime="" data-focus-key="check-runtime">Check environment</button>`
-      : runtime.status === "checking"
-        ? `<span class="rfz-setup-status">Checking Python…</span>`
-        : runtime.status === "ready"
-          ? `<span class="rfz-setup-status rfz-setup-status--ready">Ready · Python ${escapeHTML(runtime.capability.pythonVersion)}</span><small>${escapeHTML(runtime.capability.executable)}</small>${runtime.persistenceWarning ? `<span class="rfz-setup-error" role="alert">${escapeHTML(runtime.persistenceWarning)}</span>` : ""}`
-          : runtime.status === "needs-install"
-            ? renderInstallPlan(runtime.plan)
-            : runtime.status === "installing"
-              ? `<span class="rfz-setup-status">Installing private environment…</span><small>${escapeHTML(runtime.plan.privateEnvironment)}</small>`
-              : `<span class="rfz-setup-error" role="alert">${escapeHTML(runtime.error)}</span><div class="rfz-setup-actions">${runtime.retryPlan ? '<button type="button" data-install-runtime="" data-focus-key="retry-runtime">Retry installation</button>' : '<button type="button" data-check-runtime="" data-focus-key="check-runtime">Check again</button>'}${runtime.allowExecutableSelection ? '<button type="button" data-choose-python="" data-focus-key="choose-python">Choose python.exe once</button>' : ""}</div>`;
-  const institutionCandidate =
-    runtime.status === "ready" &&
-    runtime.capability.routes.some(
-      (route) =>
-        route.routeID === "institution-webvpn/ieee/one-click-single" &&
-        route.status === "candidate",
-    );
-  const institution =
-    state.institutionLogin.status === "loading-policy"
-      ? `<span class="rfz-setup-status">Loading packaged browser policy…</span>`
-      : state.institutionLogin.status === "unavailable"
-        ? `<span class="rfz-setup-error" role="alert">${escapeHTML(state.institutionLogin.error)}</span>`
-        : renderInstitutionPolicy(
-            state.institutionLogin.policy,
-            institutionCandidate,
-          );
+function renderDownloadSetup(state: DownloadSettingsState): string {
+  const capabilityStatus =
+    state.runtime.status === "unavailable"
+      ? `<span class="rfz-setup-error" role="alert">Download capability unavailable: ${escapeHTML(state.runtime.error)}</span>`
+      : state.runtime.status === "checking"
+        ? '<span class="rfz-setup-status">Detecting compatible ScanSci sidecar…</span>'
+        : "";
   return `<section class="rfz-download-setup" data-download-setup="" data-no-translation="">
     <div class="rfz-setup-row">
       <strong>Save to</strong><code data-download-destination="">${escapeHTML(state.downloadDestination)}</code>
       <div class="rfz-setup-actions"><button type="button" data-change-destination="" data-focus-key="change-destination">Change folder</button>${state.usingDefaultDestination ? "" : '<button type="button" data-reset-destination="" data-focus-key="reset-destination">Restore E:\\paper</button>'}</div>
       ${state.destinationError ? `<span class="rfz-setup-error" role="alert">${escapeHTML(state.destinationError)}</span>` : ""}
     </div>
-    <div class="rfz-setup-row"><strong>Python environment</strong>${runtimeContent}</div>
-    <div class="rfz-setup-row"><strong>Institution login</strong>${institution}</div>
+    ${capabilityStatus}
   </section>`;
-}
-
-function renderInstallPlan(
-  plan: Extract<
-    DownloadFirstUseState["runtime"],
-    { status: "needs-install" }
-  >["plan"],
-): string {
-  const packages = plan.packages
-    .map(
-      (pkg) =>
-        `<li><code>${escapeHTML(`${pkg.name}==${pkg.version}`)}</code>${pkg.sha256.map((hash) => `<small>sha256:${escapeHTML(hash)}</small>`).join("")}</li>`,
-    )
-    .join("");
-  return `<span class="rfz-setup-status">Installation confirmation required</span>
-    <details class="rfz-install-plan"><summary>Review exact installation plan</summary>
-      <dl><dt>Interpreter</dt><dd>${escapeHTML(plan.baseExecutable)}</dd><dt>Private venv</dt><dd>${escapeHTML(plan.privateEnvironment)}</dd><dt>Mirror</dt><dd>${escapeHTML(plan.packageIndex)}</dd><dt>Lock</dt><dd>${escapeHTML(plan.requirementsLock)}</dd></dl>
-      <ol>${packages}</ol>
-      <ul>${plan.actions.map((action) => `<li>${escapeHTML(action)}</li>`).join("")}</ul>
-      <p><strong>Cancel:</strong> ${escapeHTML(plan.cancelResult)}</p>
-    </details>
-    <div class="rfz-setup-actions"><button type="button" data-install-runtime="" data-focus-key="install-runtime">Confirm and install</button><button type="button" data-cancel-runtime="" data-focus-key="cancel-runtime">Cancel</button></div>`;
-}
-
-function renderInstitutionPolicy(
-  policy: Extract<
-    DownloadFirstUseState["institutionLogin"],
-    { status: "disabled" }
-  >["policy"],
-  candidate: boolean,
-): string {
-  const sizeMiB = Math.round(policy.approximateDownloadBytes / (1024 * 1024));
-  const status = candidate
-    ? "Candidate · WebVPN → IEEE requires real-world acceptance"
-    : "Unavailable pending an audited institution/publisher route";
-  const buttonLabel = candidate
-    ? "Institution login candidate requires acceptance"
-    : "Institution login unavailable";
-  return `<span class="rfz-setup-status">${status}</span>
-    <details class="rfz-install-plan"><summary>Browser runtime confirmation requirements</summary>
-      <dl><dt>Vendor</dt><dd>${escapeHTML(policy.vendor)}</dd><dt>Source</dt><dd>${escapeHTML(policy.source)}</dd><dt>Size</dt><dd>About ${sizeMiB} MiB</dd><dt>Binary license</dt><dd>${escapeHTML(policy.binaryLicense)}</dd><dt>Target</dt><dd>${escapeHTML(policy.target)}</dd><dt>Signature verification</dt><dd>${escapeHTML(policy.signatureVerification)}</dd></dl>
-      <p>No browser runtime will be downloaded and no login browser will start while these values remain unresolved.</p>
-    </details>
-    <button type="button" disabled="" aria-label="${buttonLabel}">${candidate ? "Institution login candidate" : "Institution login unavailable"}</button>`;
 }
 
 function renderContent(
@@ -1026,17 +936,8 @@ const READER_STYLES = `
   .rfz-setup-row > :not(strong) { grid-column: 2; }
   .rfz-setup-actions { display: flex; flex-wrap: wrap; gap: 5px; }
   .rfz-setup-actions button, .rfz-download-setup > .rfz-setup-row > button { padding: 3px 7px; border: 1px solid var(--material-border, #c5c5c8); border-radius: 5px; color: inherit; background: var(--material-background, #fff); font: inherit; cursor: pointer; }
-  .rfz-download-setup button:disabled { cursor: not-allowed; opacity: .65; }
   .rfz-setup-status { color: var(--fill-secondary, #6a6a70); line-height: 22px; }
-  .rfz-setup-status--ready { color: #23723c; font-weight: 600; }
   .rfz-setup-error { color: #a32b2b; overflow-wrap: anywhere; }
-  .rfz-install-plan { max-width: 100%; }
-  .rfz-install-plan summary { cursor: pointer; font-weight: 600; }
-  .rfz-install-plan dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 7px; margin: 5px 0; }
-  .rfz-install-plan dt { font-weight: 600; }
-  .rfz-install-plan dd { margin: 0; overflow-wrap: anywhere; }
-  .rfz-install-plan ol, .rfz-install-plan ul { margin: 5px 0; padding-left: 18px; }
-  .rfz-install-plan li small { display: block; overflow-wrap: anywhere; color: var(--fill-secondary, #6a6a70); }
   .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 10px; }
   .rfz-selection-toolbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
   .rfz-selection-toolbar input, .rfz-paper-checkbox { accent-color: var(--rfz-accent); }

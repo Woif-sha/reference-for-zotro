@@ -20,9 +20,9 @@ Resolved literature data is stored under Zotero's data directory in `reference-f
 
 ## Download setup
 
-The Reader download area stores only the selected Download destination and non-sensitive Python runtime identity (executable path, Python version, and compatibility-module version) in Zotero preferences. A confirmed dependency installation is isolated under Zotero's data directory and never modifies the selected base Python or global pip configuration.
+The Reader download area stores only the selected Download destination in Zotero preferences. Runtime identity and route capability come from the sidecar `probe` for the current process and are not persisted. The plugin does not create a private environment, install Python dependencies, modify a detected Python, or write global pip configuration.
 
-The plugin does not store institution usernames, passwords, verification codes, cookies, tokens, or browser-profile contents. Institution login and its external browser runtime remain disabled until a specific institution and publisher route has an audited vendor artifact, binary license, signature verification, strict network boundary, and Windows/Zotero acceptance evidence.
+The plugin does not store institution usernames, passwords, verification codes, cookies, tokens, or browser-profile contents. WebVPN → IEEE Xplore remains an unavailable candidate until its complete real-world audit; the Reader does not expose an institution configuration or login command.
 
 ## Optional translation
 

@@ -2,7 +2,7 @@ export const SCANSCI_SCHEMA_VERSION = 3 as const;
 export const SCANSCI_SOURCE_RULES_VERSION = 3 as const;
 export const SCANSCI_SIDECAR_PROTOCOL =
   "reference-for-zotero.scansci-sidecar" as const;
-export const SCANSCI_SIDECAR_CONTRACT_VERSION = "1.0.0" as const;
+export const SCANSCI_SIDECAR_CONTRACT_VERSION = "1.1.0" as const;
 export const SCANSCI_SIDECAR_RESULT_SCHEMA_VERSION = "1.0.0" as const;
 
 export type ScanSciArchitecture = "x64" | "arm64" | "x86";
@@ -29,8 +29,6 @@ export type ScanSciCapability = Readonly<{
     upstreamRevision: string;
     dirty: false;
   }>;
-  selectionReason:
-    "configured override" | "automatic detection" | "private environment";
   dependencies: readonly ScanSciDependency[];
   features: Readonly<{
     onePaperDownload: "available";
@@ -93,53 +91,10 @@ export type PaperDownloadRequest = Readonly<{
   onProgress?(result: PaperDownloadItemResult): void;
 }>;
 
-export type ScanSciInstallPlan = Readonly<{
-  baseExecutable: string;
-  privateEnvironment: string;
-  packageIndex: "https://pypi.tuna.tsinghua.edu.cn/simple";
-  requirementsLock: string;
-  dependencies: readonly ScanSciDependency[];
-  packages: readonly Readonly<{
-    name: string;
-    version: string;
-    sha256: readonly string[];
-  }>[];
-  actions: readonly string[];
-  cancelResult: string;
-}>;
-
-export type ScanSciRuntimeCandidate = Readonly<{
-  executable: string;
-  pythonVersion?: string;
-  architecture?: ScanSciArchitecture;
-  dependencies: readonly ScanSciDependency[];
-  error?: string;
-}>;
-
-export type ScanSciRuntimePreparation =
-  | Readonly<{
-      status: "ready";
-      capability: ScanSciCapability;
-    }>
-  | Readonly<{
-      status: "needs-install";
-      plan: ScanSciInstallPlan;
-      candidates: readonly ScanSciRuntimeCandidate[];
-    }>
-  | Readonly<{
-      status: "unavailable";
-      error: string;
-      candidates: readonly ScanSciRuntimeCandidate[];
-    }>;
-
 export interface ScanSciPort {
-  prepareRuntime(
-    request: Readonly<{
-      allowInstall: boolean;
-      executableOverride?: string;
-      signal?: AbortSignal;
-    }>,
-  ): Promise<ScanSciRuntimePreparation>;
+  probe(
+    request?: Readonly<{ signal?: AbortSignal }>,
+  ): Promise<ScanSciCapability>;
   startVisibleLogin(
     request: Readonly<{
       userInitiated: true;

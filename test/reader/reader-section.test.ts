@@ -1215,7 +1215,7 @@ test("a translation failure ends only that request and the next selection can re
   mounted.destroy();
 });
 
-test("Reader download area exposes destination, confirmed runtime installation, and a disabled institution policy", () => {
+test("Reader download area exposes only the destination and an explicit automatic-probe failure", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
@@ -1224,43 +1224,12 @@ test("Reader download area exposes destination, confirmed runtime installation, 
       downloadDestination: "E:\\paper",
       usingDefaultDestination: true,
       runtime: {
-        status: "needs-install",
-        candidates: [],
-        plan: {
-          baseExecutable: "C:\\Python312\\python.exe",
-          privateEnvironment: "C:\\profile\\rfz\\venv",
-          packageIndex: "https://pypi.tuna.tsinghua.edu.cn/simple",
-          requirementsLock: "C:\\addon\\requirements.lock",
-          dependencies: [],
-          packages: [
-            {
-              name: "requests",
-              version: "2.34.2",
-              sha256: ["a".repeat(64)],
-            },
-          ],
-          actions: ["Create private venv", "Install complete hash lock"],
-          cancelResult: "No environment is created or changed",
-        },
-      },
-      institutionLogin: {
-        status: "disabled",
-        policy: {
-          routeID: "institution-browser",
-          status: "disabled-pending-acceptance",
-          vendor: "CloakBrowser",
-          source: "Unresolved accepted vendor artifact URL",
-          approximateDownloadBytes: 209_715_200,
-          binaryLicense: "Unresolved binary license",
-          target: "<private-runtime>/cloakbrowser/chromium",
-          signatureVerification: "Unresolved signature verification",
-        },
+        status: "unavailable",
+        error: "requests==2.34.2 is missing",
       },
     },
   };
   let changeDestination = 0;
-  let install = 0;
-  let cancel = 0;
   const mounted = mountReaderSection({
     body,
     controller: {
@@ -1276,12 +1245,6 @@ test("Reader download area exposes destination, confirmed runtime installation, 
       async changeDownloadDestination() {
         changeDestination += 1;
       },
-      async installDownloadRuntime() {
-        install += 1;
-      },
-      cancelDownloadRuntimeInstallation() {
-        cancel += 1;
-      },
     },
   });
 
@@ -1289,27 +1252,21 @@ test("Reader download area exposes destination, confirmed runtime installation, 
     body.querySelector("[data-download-destination]")?.textContent,
     "E:\\paper",
   );
-  assert.match(body.textContent ?? "", /requests==2\.34\.2/u);
-  assert.match(
+  assert.match(body.textContent ?? "", /requests==2\.34\.2 is missing/u);
+  assert.doesNotMatch(
     body.textContent ?? "",
-    /https:\/\/pypi\.tuna\.tsinghua\.edu\.cn\/simple/u,
+    /python|venv|install|institution|cloakbrowser/iu,
   );
-  assert.match(body.textContent ?? "", /About 200 MiB/u);
-  const institutionButton = body.querySelector(
-    '[aria-label="Institution login unavailable"]',
-  ) as HTMLButtonElement | null;
-  assert.equal(institutionButton?.disabled, true);
+  assert.equal(body.querySelector("[data-check-runtime]"), null);
+  assert.equal(body.querySelector("[data-choose-python]"), null);
+  assert.equal(body.querySelector("[data-install-runtime]"), null);
 
   (body.querySelector("[data-change-destination]") as HTMLElement)?.click();
-  (body.querySelector("[data-install-runtime]") as HTMLElement)?.click();
-  (body.querySelector("[data-cancel-runtime]") as HTMLElement)?.click();
   assert.equal(changeDestination, 1);
-  assert.equal(install, 1);
-  assert.equal(cancel, 1);
   mounted.destroy();
 });
 
-test("Reader projects the WebVPN to IEEE route only as an acceptance candidate", () => {
+test("Reader does not project the unavailable institution candidate as support", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
@@ -1324,10 +1281,9 @@ test("Reader projects the WebVPN to IEEE route only as an acceptance candidate",
           executable: "C:\\Python312\\python.exe",
           pythonVersion: "3.12.10",
           architecture: "x64",
-          moduleVersion: "3.0.0",
+          moduleVersion: "3.1.0",
           schemaVersion: 3,
           sourceRulesVersion: 3,
-          selectionReason: "automatic detection",
           dependencies: [],
           features: {
             onePaperDownload: "available",
@@ -1350,24 +1306,11 @@ test("Reader projects the WebVPN to IEEE route only as an acceptance candidate",
           ],
           sidecar: {
             protocol: "reference-for-zotero.scansci-sidecar",
-            contractVersion: "1.0.0",
+            contractVersion: "1.1.0",
             resultSchemaVersion: "1.0.0",
             upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
             dirty: false,
           },
-        },
-      },
-      institutionLogin: {
-        status: "disabled",
-        policy: {
-          routeID: "institution-browser",
-          status: "disabled-pending-acceptance",
-          vendor: "CloakBrowser",
-          source: "Unresolved accepted vendor artifact URL",
-          approximateDownloadBytes: 209_715_200,
-          binaryLicense: "Unresolved binary license",
-          target: "<private-runtime>/cloakbrowser/chromium",
-          signatureVerification: "Unresolved signature verification",
         },
       },
     },
@@ -1387,15 +1330,10 @@ test("Reader projects the WebVPN to IEEE route only as an acceptance candidate",
     },
   });
 
-  assert.match(
+  assert.doesNotMatch(
     body.textContent ?? "",
-    /Candidate · WebVPN → IEEE requires real-world acceptance/u,
+    /WebVPN|IEEE|institution|candidate|supported|available ✓/iu,
   );
-  const button = body.querySelector(
-    '[aria-label="Institution login candidate requires acceptance"]',
-  ) as HTMLButtonElement | null;
-  assert.equal(button?.disabled, true);
-  assert.doesNotMatch(body.textContent ?? "", /supported|available ✓/iu);
   mounted.destroy();
 });
 

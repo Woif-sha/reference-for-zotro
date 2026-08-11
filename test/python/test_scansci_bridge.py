@@ -24,7 +24,7 @@ class ScanSciBridgeTest(unittest.TestCase):
         self.assertTrue(response["ok"])
         self.assertEqual(response["schemaVersion"], 3)
         self.assertEqual(response["sourceRulesVersion"], 3)
-        self.assertEqual(response["result"]["moduleVersion"], "3.0.0")
+        self.assertEqual(response["result"]["moduleVersion"], "3.1.0")
         self.assertEqual(response["result"]["features"]["visibleLogin"], "disabled")
         self.assertEqual(
             [item["name"] for item in response["result"]["dependencies"]],

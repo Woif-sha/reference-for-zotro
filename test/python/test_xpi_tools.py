@@ -11,8 +11,8 @@ import warnings
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from scripts.repack_xpi import repack
-from test.python import audit_scansci_xpi as xpi_audit
-from test.python.audit_scansci_xpi import (
+import audit_scansci_xpi as xpi_audit
+from audit_scansci_xpi import (
     EXPECTED_ADDON_NAME,
     EXPECTED_ADDON_VERSION,
     EXPECTED_UPDATE_URL,

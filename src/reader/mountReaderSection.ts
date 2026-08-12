@@ -1,17 +1,9 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
-import {
-  DEFAULT_DOWNLOAD_DESTINATION,
-  type DownloadSettingsState,
-} from "../application/download-settings";
+import type { DownloadSettingsState } from "../application/download-settings";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 import { relateScholarlyIdentities } from "../literature/identifiers";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
-const DISCONNECTED_DOWNLOAD_SETUP: DownloadSettingsState = {
-  downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-  usingDefaultDestination: true,
-  runtime: { status: "unchecked" },
-};
 const TRANSLATION_POPOVER_GAP = 8;
 const TRANSLATION_POPOVER_MARGIN = 10;
 const TRANSLATION_POPOVER_WIDTH = 340;
@@ -204,6 +196,10 @@ export function mountReaderSection(options: {
   };
 
   function render(state: ReaderSectionState): void {
+    const rootTranslation =
+      root.querySelector<HTMLElement>("[data-translation]");
+    const overlayTranslation =
+      overlay.querySelector<HTMLElement>("[data-translation]");
     const activeElement = body.ownerDocument.activeElement;
     const focusKey =
       activeElement instanceof body.ownerDocument.defaultView!.Element &&
@@ -254,7 +250,6 @@ export function mountReaderSection(options: {
             </div>`
           : ""
       }
-      ${renderDownloadSetup(state.downloadSetup ?? DISCONNECTED_DOWNLOAD_SETUP)}
       <div class="rfz-selection-toolbar" data-no-translation="">
         <label>
           <input type="checkbox" data-select-tab="${state.activeTab}" data-focus-key="select-all:${state.activeTab}" aria-label="Select all confirmed papers in ${state.activeTab === "references" ? "References" : "Citations"}" ${selectAllChecked ? 'checked=""' : ""} ${eligiblePapers.length === 0 ? 'disabled=""' : ""} />
@@ -285,6 +280,10 @@ export function mountReaderSection(options: {
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);
     positionDetailCard(root, overlay);
+    if (rootTranslation) root.append(rootTranslation);
+    if (overlayTranslation && detailCard.length > 0) {
+      overlay.append(overlayTranslation);
+    }
   }
 
   const onClick = (event: Event): void => {
@@ -300,14 +299,6 @@ export function mountReaderSection(options: {
     }
     if (target.closest("[data-download-selected]")) {
       void controller.downloadSelected();
-      return;
-    }
-    if (target.closest("[data-change-destination]")) {
-      void controller.changeDownloadDestination?.();
-      return;
-    }
-    if (target.closest("[data-reset-destination]")) {
-      controller.resetDownloadDestination?.();
       return;
     }
     const openFolder = target.closest<HTMLElement>("[data-open-folder]");
@@ -458,6 +449,17 @@ export function mountReaderSection(options: {
     if (!contextMenu.contains(event.target as Node)) closeContextMenu();
   };
   body.ownerDocument.addEventListener("click", onDocumentClick);
+  const onDocumentPointerDown = (event: Event): void => {
+    const target = event.target;
+    if (!(target instanceof body.ownerDocument.defaultView!.Node)) return;
+    const translation =
+      root.querySelector<HTMLElement>("[data-translation]") ??
+      overlay.querySelector<HTMLElement>("[data-translation]");
+    if (!translation || translation.contains(target)) return;
+    translationRequest += 1;
+    clearTranslation(root, overlay);
+  };
+  body.ownerDocument.addEventListener("pointerdown", onDocumentPointerDown);
   const onMouseUp = (event: MouseEvent): void => {
     const selection = body.ownerDocument.defaultView?.getSelection();
     if (!selection || selection.rangeCount === 0) return;
@@ -526,6 +528,10 @@ export function mountReaderSection(options: {
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);
       body.ownerDocument.removeEventListener("click", onDocumentClick);
+      body.ownerDocument.removeEventListener(
+        "pointerdown",
+        onDocumentPointerDown,
+      );
       root.removeEventListener("mouseup", onMouseUp);
       overlay.removeEventListener("mouseup", onMouseUp);
       body.ownerDocument.defaultView?.removeEventListener(
@@ -555,23 +561,6 @@ function escapeHTML(value: string): string {
 
 function escapeAttribute(value: string): string {
   return escapeHTML(value);
-}
-
-function renderDownloadSetup(state: DownloadSettingsState): string {
-  const capabilityStatus =
-    state.runtime.status === "unavailable"
-      ? `<span class="rfz-setup-error" role="alert">Download capability unavailable: ${escapeHTML(state.runtime.error)}</span>`
-      : state.runtime.status === "checking"
-        ? '<span class="rfz-setup-status">Detecting compatible ScanSci sidecar…</span>'
-        : "";
-  return `<section class="rfz-download-setup" data-download-setup="" data-no-translation="">
-    <div class="rfz-setup-row">
-      <strong>Save to</strong><code data-download-destination="">${escapeHTML(state.downloadDestination)}</code>
-      <div class="rfz-setup-actions"><button type="button" data-change-destination="" data-focus-key="change-destination">Change folder</button>${state.usingDefaultDestination ? "" : '<button type="button" data-reset-destination="" data-focus-key="reset-destination">Restore E:\\paper</button>'}</div>
-      ${state.destinationError ? `<span class="rfz-setup-error" role="alert">${escapeHTML(state.destinationError)}</span>` : ""}
-    </div>
-    ${capabilityStatus}
-  </section>`;
 }
 
 function renderContent(
@@ -966,28 +955,20 @@ const READER_STYLES = `
   .rfz-limit:first-child { border-radius: 5px 0 0 5px; }
   .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
   .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
-  .rfz-download-setup { flex: none; padding: 7px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #fafafa); font-size: 10px; }
-  .rfz-setup-row { display: grid; grid-template-columns: minmax(76px, auto) 1fr; align-items: start; gap: 4px 7px; padding: 3px 0; }
-  .rfz-setup-row > strong { line-height: 22px; }
-  .rfz-setup-row > code, .rfz-setup-row > small { overflow-wrap: anywhere; line-height: 22px; }
-  .rfz-setup-row > :not(strong) { grid-column: 2; }
-  .rfz-setup-actions { display: flex; flex-wrap: wrap; gap: 5px; }
-  .rfz-setup-actions button, .rfz-download-setup > .rfz-setup-row > button { padding: 3px 7px; border: 1px solid var(--material-border, #c5c5c8); border-radius: 5px; color: inherit; background: var(--material-background, #fff); font: inherit; cursor: pointer; }
-  .rfz-setup-status { color: var(--fill-secondary, #6a6a70); line-height: 22px; }
-  .rfz-setup-error { color: #a32b2b; overflow-wrap: anywhere; }
   .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 10px; }
   .rfz-selection-toolbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
-  .rfz-selection-toolbar input, .rfz-paper-checkbox { accent-color: var(--rfz-accent); }
+  .rfz-selection-toolbar input, .rfz-paper-checkbox { appearance: auto; accent-color: var(--rfz-accent); }
+  .rfz-selection-toolbar input { display: inline-block; flex: none; width: 15px; height: 15px; margin: 0; }
   .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); }
   .rfz-content { flex: 1; min-height: 0; overflow: auto; }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
-  .rfz-paper { display: grid; grid-template-columns: 18px 27px 1fr; gap: 5px; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
+  .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
-  .rfz-paper-checkbox { width: 15px; height: 15px; margin: 1px 0 0; }
-  .rfz-paper-main { min-width: 0; }
-  .rfz-ordinal { color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
-  .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: anywhere; }
+  .rfz-paper-checkbox { display: block; grid-column: 1; width: 15px; height: 15px; margin: 1px 0 0; }
+  .rfz-paper-main { grid-column: 3; min-width: 0; width: 100%; }
+  .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
+  .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }

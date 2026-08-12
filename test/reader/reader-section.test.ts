@@ -1216,6 +1216,105 @@ test("Reader section renders detail translations inside the detail overlay", asy
   mounted.destroy();
 });
 
+test("translation stays open after the selection gesture and closes on the next outside press", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let resolveTranslation: ((value: string) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      translateSelection: () =>
+        new Promise<string>((resolve) => {
+          resolveTranslation = resolve;
+        }),
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const translation = dom.window.document.querySelector("[data-translation]");
+  assert.ok(translation);
+  assert.equal(
+    translation.querySelector("[data-translation-result]")?.textContent,
+    "Translating…",
+  );
+  translation.dispatchEvent(
+    new dom.window.Event("pointerdown", { bubbles: true }),
+  );
+  assert.ok(dom.window.document.querySelector("[data-translation]"));
+
+  dom.window.document.body.dispatchEvent(
+    new dom.window.Event("pointerdown", { bubbles: true }),
+  );
+  assert.equal(dom.window.document.querySelector("[data-translation]"), null);
+  resolveTranslation?.("late translation");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(dom.window.document.querySelector("[data-translation]"), null);
+  mounted.destroy();
+});
+
+test("controller rerenders do not discard a visible translation", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  const state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {};
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      async translateSelection() {
+        return "stable translation";
+      },
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(title);
+  selectNodeContents(dom, title);
+  title.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "stable translation",
+  );
+
+  listener?.(state);
+
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "stable translation",
+  );
+  mounted.destroy();
+});
+
 test("a translation failure ends only that request and the next selection can retry", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,
@@ -1304,7 +1403,7 @@ test("a translation failure ends only that request and the next selection can re
   mounted.destroy();
 });
 
-test("Reader download area exposes only the destination and an explicit automatic-probe failure", () => {
+test("Reader keeps setup outside the paper-first layout and pins row content to explicit grid columns", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
@@ -1319,7 +1418,6 @@ test("Reader download area exposes only the destination and an explicit automati
       },
     },
   };
-  let changeDestination = 0;
   let downloadAttempts = 0;
   const mounted = mountReaderSection({
     body,
@@ -1333,36 +1431,46 @@ test("Reader download area exposes only the destination and an explicit automati
       refresh() {},
       openPaper() {},
       performPaperAction() {},
-      async changeDownloadDestination() {
-        changeDestination += 1;
-      },
       async downloadSelected() {
         downloadAttempts += 1;
       },
     },
   });
 
+  assert.equal(body.querySelector("[data-download-setup]"), null);
+  assert.doesNotMatch(body.textContent ?? "", /requests==2\.34\.2 is missing/u);
+  const row = body.querySelector(".rfz-paper") as HTMLElement | null;
+  const checkbox = body.querySelector(
+    ".rfz-paper-checkbox",
+  ) as HTMLElement | null;
+  const ordinal = body.querySelector(".rfz-ordinal") as HTMLElement | null;
+  const main = body.querySelector(".rfz-paper-main") as HTMLElement | null;
+  const title = body.querySelector(".rfz-paper-title") as HTMLElement | null;
+  assert.ok(row);
+  assert.ok(checkbox);
+  assert.ok(ordinal);
+  assert.ok(main);
+  assert.ok(title);
+  const hostStyle = dom.window.document.createElement("style");
+  hostStyle.textContent = ".rfz-paper-checkbox { display: none !important; }";
+  body.append(hostStyle);
+  assert.equal(dom.window.getComputedStyle(checkbox).display, "none");
+  assert.equal(dom.window.getComputedStyle(row).width, "100%");
   assert.equal(
-    body.querySelector("[data-download-destination]")?.textContent,
-    "E:\\paper",
+    dom.window.getComputedStyle(row).gridTemplateColumns,
+    "18px 22px minmax(0, 1fr)",
   );
-  assert.match(body.textContent ?? "", /requests==2\.34\.2 is missing/u);
-  assert.doesNotMatch(
-    body.textContent ?? "",
-    /python|venv|install|institution|cloakbrowser/iu,
-  );
-  assert.equal(body.querySelector("[data-check-runtime]"), null);
-  assert.equal(body.querySelector("[data-choose-python]"), null);
-  assert.equal(body.querySelector("[data-install-runtime]"), null);
+  assert.equal(dom.window.getComputedStyle(checkbox).gridColumn, "1");
+  assert.equal(dom.window.getComputedStyle(ordinal).gridColumn, "2");
+  assert.equal(dom.window.getComputedStyle(main).gridColumn, "3");
+  assert.equal(dom.window.getComputedStyle(title).overflowWrap, "break-word");
+  assert.equal(dom.window.getComputedStyle(title).wordBreak, "normal");
   const downloadButton = body.querySelector(
     "[data-download-selected]",
   ) as HTMLButtonElement;
   assert.equal(downloadButton.disabled, false);
   downloadButton.click();
   assert.equal(downloadAttempts, 1);
-
-  (body.querySelector("[data-change-destination]") as HTMLElement)?.click();
-  assert.equal(changeDestination, 1);
   mounted.destroy();
 });
 

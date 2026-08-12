@@ -47,3 +47,11 @@ _Avoid_: Import job, Background prefetch
 **Download result**:
 The per-paper outcome of a Download request: either the actual saved path or the unchanged error from the boundary that failed.
 _Avoid_: Import result, Batch partial result
+
+**Institution download route**:
+A user-entitled path from a confirmed paper through an institution login to an official publisher PDF. A route remains a candidate until its actual login, source, network, session ownership, and one-paper download have been audited together.
+_Avoid_: Institution support, Browser available
+
+**Route capability**:
+A runtime claim that one specific institution download route has passed its required audit and is currently usable. Installed browser support or an upstream publisher list alone is not a route capability.
+_Avoid_: Provider available, Browser installed

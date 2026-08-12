@@ -289,6 +289,13 @@ export function mountReaderSection(options: {
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    if (target instanceof body.ownerDocument.defaultView!.HTMLInputElement) {
+      const tab = target.dataset.selectTab;
+      if (tab === "references" || tab === "citations") {
+        controller.setTabDownloadSelected(tab, target.checked);
+        return;
+      }
+    }
     if (target === overlay) {
       dismissSelectedPaper();
       return;
@@ -359,10 +366,6 @@ export function mountReaderSection(options: {
       );
       return;
     }
-    const tab = target.dataset.selectTab;
-    if (tab === "references" || tab === "citations") {
-      controller.setTabDownloadSelected(tab, target.checked);
-    }
   };
   root.addEventListener("change", onChange);
   const onContextMenu = (event: MouseEvent): void => {
@@ -387,6 +390,7 @@ export function mountReaderSection(options: {
     openContextMenu(paper, event.clientX, event.clientY);
   };
   root.addEventListener("contextmenu", onContextMenu);
+  overlay.addEventListener("contextmenu", onContextMenu);
   const onContextMenuAction = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
@@ -524,6 +528,7 @@ export function mountReaderSection(options: {
       overlay.removeEventListener("click", onClick);
       root.removeEventListener("change", onChange);
       root.removeEventListener("contextmenu", onContextMenu);
+      overlay.removeEventListener("contextmenu", onContextMenu);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);
@@ -629,7 +634,7 @@ function renderContent(
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
-          <input class="rfz-paper-checkbox" type="checkbox" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectedForDownload ? 'checked=""' : ""} ${selectable ? "" : 'disabled=""'} />
+          <input class="rfz-paper-checkbox" type="checkbox" style="display: block !important;" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectedForDownload ? 'checked=""' : ""} ${selectable ? "" : 'disabled=""'} />
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
             <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
@@ -955,11 +960,11 @@ const READER_STYLES = `
   .rfz-limit:first-child { border-radius: 5px 0 0 5px; }
   .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
   .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
-  .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 10px; }
+  .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 13px; }
   .rfz-selection-toolbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
   .rfz-selection-toolbar input, .rfz-paper-checkbox { appearance: auto; accent-color: var(--rfz-accent); }
   .rfz-selection-toolbar input { display: inline-block; flex: none; width: 15px; height: 15px; margin: 0; }
-  .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); }
+  .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: inherit; }
   .rfz-content { flex: 1; min-height: 0; overflow: auto; }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }

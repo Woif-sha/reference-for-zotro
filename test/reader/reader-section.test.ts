@@ -221,6 +221,130 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   mounted.destroy();
 });
 
+test("Select all click toggles every confirmed paper in the current tab", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let state: ReaderSectionState = {
+    ...readyState(),
+    references: [
+      readyState().references[0],
+      {
+        id: "ref-2",
+        ordinal: 1,
+        title: "Second confirmed reference",
+        status: "resolved",
+        primaryResultURL: "https://example.test/second",
+      },
+    ],
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const calls: Array<readonly [string, boolean]> = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      setTabDownloadSelected(tab, selected) {
+        calls.push([tab, selected]);
+        state = {
+          ...state,
+          downloadSelection: selected
+            ? state.references.map((paper) => ({
+                originTab: "references" as const,
+                paperID: paper.id,
+              }))
+            : [],
+        };
+        listener?.(state);
+      },
+    },
+  });
+
+  const selectAll = dom.window.document.querySelector(
+    "[data-select-tab]",
+  ) as HTMLInputElement | null;
+  assert.ok(selectAll);
+  selectAll.checked = true;
+  selectAll.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  assert.deepEqual(calls, [["references", true]]);
+  const paperCheckboxes = [
+    ...dom.window.document.querySelectorAll("[data-select-paper]"),
+  ] as HTMLInputElement[];
+  assert.deepEqual(
+    paperCheckboxes.map((checkbox) => checkbox.checked),
+    [true, true],
+  );
+  assert.match(
+    dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
+      "",
+    /2\/2 in tab/u,
+  );
+
+  const selectedSelectAll = dom.window.document.querySelector(
+    "[data-select-tab]",
+  ) as HTMLInputElement | null;
+  assert.ok(selectedSelectAll?.checked);
+  selectedSelectAll.checked = false;
+  selectedSelectAll.dispatchEvent(
+    new dom.window.Event("click", { bubbles: true }),
+  );
+  assert.deepEqual(calls, [
+    ["references", true],
+    ["references", false],
+  ]);
+  assert.ok(
+    (
+      [
+        ...dom.window.document.querySelectorAll("[data-select-paper]"),
+      ] as HTMLInputElement[]
+    ).every((checkbox) => !checkbox.checked),
+  );
+  mounted.destroy();
+});
+
+test("selection toolbar guidance uses the Reader base font size", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  const toolbar = dom.window.document.querySelector(
+    ".rfz-selection-toolbar",
+  ) as HTMLElement | null;
+  const summary = dom.window.document.querySelector(
+    ".rfz-selection-summary",
+  ) as HTMLElement | null;
+  assert.ok(toolbar);
+  assert.ok(summary);
+  assert.equal(dom.window.getComputedStyle(toolbar).fontSize, "13px");
+  assert.equal(dom.window.getComputedStyle(summary).fontSize, "inherit");
+  mounted.destroy();
+});
+
 test("download selection projects across tabs by complete stable identity", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const selected: boolean[] = [];
@@ -852,6 +976,72 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
   );
 });
 
+test("Reader detail title keeps paper context actions after opening from the blue list title", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const selections: string[] = [];
+  const actions: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        selections.push(paperID);
+        state = { ...state, selectedPaperID: paperID };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper() {},
+      performPaperAction(paperID, action) {
+        actions.push(`${paperID}:${action}`);
+      },
+    },
+  });
+
+  const listTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  ) as HTMLElement | null;
+  assert.ok(listTitle);
+  listTitle.click();
+  assert.deepEqual(selections, ["ref-1"]);
+
+  const detailTitle = dom.window.document.querySelector(
+    "[data-detail-card] .rfz-card-title",
+  ) as HTMLElement | null;
+  assert.ok(detailTitle);
+  const contextEvent = new dom.window.MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: 120,
+    clientY: 80,
+  });
+  detailTitle.dispatchEvent(contextEvent);
+
+  assert.equal(contextEvent.defaultPrevented, true);
+  assert.ok(
+    dom.window.document
+      .querySelector("[data-paper-context-menu]")
+      ?.classList.contains("is-open"),
+  );
+  (
+    dom.window.document.querySelector(
+      '[data-paper-action="copy-title"]',
+    ) as HTMLElement
+  ).click();
+  assert.deepEqual(actions, ["ref-1:copy-title"]);
+  mounted.destroy();
+});
+
 test("Reader section closes an open detail card when clicking elsewhere", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
@@ -1403,7 +1593,7 @@ test("a translation failure ends only that request and the next selection can re
   mounted.destroy();
 });
 
-test("Reader keeps setup outside the paper-first layout and pins row content to explicit grid columns", () => {
+test("Reader keeps every paper checkbox visible despite Zotero host styles", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
@@ -1439,13 +1629,17 @@ test("Reader keeps setup outside the paper-first layout and pins row content to 
 
   assert.equal(body.querySelector("[data-download-setup]"), null);
   assert.doesNotMatch(body.textContent ?? "", /requests==2\.34\.2 is missing/u);
-  const row = body.querySelector(".rfz-paper") as HTMLElement | null;
-  const checkbox = body.querySelector(
-    ".rfz-paper-checkbox",
-  ) as HTMLElement | null;
+  const rows = [...body.querySelectorAll(".rfz-paper")] as HTMLElement[];
+  const checkboxes = [
+    ...body.querySelectorAll(".rfz-paper-checkbox"),
+  ] as HTMLInputElement[];
+  const row = rows[0];
+  const checkbox = checkboxes[0];
   const ordinal = body.querySelector(".rfz-ordinal") as HTMLElement | null;
   const main = body.querySelector(".rfz-paper-main") as HTMLElement | null;
   const title = body.querySelector(".rfz-paper-title") as HTMLElement | null;
+  assert.equal(rows.length, state.references.length);
+  assert.equal(checkboxes.length, rows.length);
   assert.ok(row);
   assert.ok(checkbox);
   assert.ok(ordinal);
@@ -1454,7 +1648,12 @@ test("Reader keeps setup outside the paper-first layout and pins row content to 
   const hostStyle = dom.window.document.createElement("style");
   hostStyle.textContent = ".rfz-paper-checkbox { display: none !important; }";
   body.append(hostStyle);
-  assert.equal(dom.window.getComputedStyle(checkbox).display, "none");
+  assert.ok(
+    checkboxes.every(
+      (paperCheckbox) =>
+        dom.window.getComputedStyle(paperCheckbox).display === "block",
+    ),
+  );
   assert.equal(dom.window.getComputedStyle(row).width, "100%");
   assert.equal(
     dom.window.getComputedStyle(row).gridTemplateColumns,

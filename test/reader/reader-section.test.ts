@@ -165,10 +165,10 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
 
   const resolvedCheckbox = dom.window.document.querySelector(
     '[data-paper-id="ref-1"] [data-select-paper]',
-  ) as HTMLInputElement | null;
+  ) as HTMLButtonElement | null;
   const unresolvedCheckbox = dom.window.document.querySelector(
     '[data-paper-id="ref-2"] [data-select-paper]',
-  ) as HTMLInputElement | null;
+  ) as HTMLButtonElement | null;
   assert.ok(resolvedCheckbox);
   assert.ok(unresolvedCheckbox);
   assert.match(
@@ -189,13 +189,14 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   resolvedCheckbox.click();
   const replacement = dom.window.document.querySelector(
     '[data-paper-id="ref-1"] [data-select-paper]',
-  ) as HTMLInputElement | null;
-  assert.ok(replacement?.checked);
+  ) as HTMLButtonElement | null;
+  assert.equal(replacement?.getAttribute("aria-checked"), "true");
   assert.equal(dom.window.document.activeElement, replacement);
   assert.equal(
-    (dom.window.document.querySelector("[data-select-tab]") as HTMLInputElement)
-      .indeterminate,
-    true,
+    dom.window.document
+      .querySelector("[data-select-tab]")
+      ?.getAttribute("aria-checked"),
+    "mixed",
   );
   assert.deepEqual(actions, ["select:references:ref-1:true"]);
 
@@ -275,17 +276,16 @@ test("Select all click toggles every confirmed paper in the current tab", () => 
 
   const selectAll = dom.window.document.querySelector(
     "[data-select-tab]",
-  ) as HTMLInputElement | null;
+  ) as HTMLButtonElement | null;
   assert.ok(selectAll);
-  selectAll.checked = true;
-  selectAll.dispatchEvent(new dom.window.Event("click", { bubbles: true }));
+  selectAll.click();
   assert.deepEqual(calls, [["references", true]]);
   const paperCheckboxes = [
     ...dom.window.document.querySelectorAll("[data-select-paper]"),
-  ] as HTMLInputElement[];
+  ] as HTMLButtonElement[];
   assert.deepEqual(
-    paperCheckboxes.map((checkbox) => checkbox.checked),
-    [true, true],
+    paperCheckboxes.map((checkbox) => checkbox.getAttribute("aria-checked")),
+    ["true", "true"],
   );
   assert.match(
     dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
@@ -295,12 +295,9 @@ test("Select all click toggles every confirmed paper in the current tab", () => 
 
   const selectedSelectAll = dom.window.document.querySelector(
     "[data-select-tab]",
-  ) as HTMLInputElement | null;
-  assert.ok(selectedSelectAll?.checked);
-  selectedSelectAll.checked = false;
-  selectedSelectAll.dispatchEvent(
-    new dom.window.Event("click", { bubbles: true }),
-  );
+  ) as HTMLButtonElement | null;
+  assert.equal(selectedSelectAll?.getAttribute("aria-checked"), "true");
+  selectedSelectAll.click();
   assert.deepEqual(calls, [
     ["references", true],
     ["references", false],
@@ -309,8 +306,8 @@ test("Select all click toggles every confirmed paper in the current tab", () => 
     (
       [
         ...dom.window.document.querySelectorAll("[data-select-paper]"),
-      ] as HTMLInputElement[]
-    ).every((checkbox) => !checkbox.checked),
+      ] as HTMLButtonElement[]
+    ).every((checkbox) => checkbox.getAttribute("aria-checked") === "false"),
   );
   mounted.destroy();
 });
@@ -342,6 +339,40 @@ test("selection toolbar guidance uses the Reader base font size", () => {
   assert.ok(summary);
   assert.equal(dom.window.getComputedStyle(toolbar).fontSize, "13px");
   assert.equal(dom.window.getComputedStyle(summary).fontSize, "inherit");
+  mounted.destroy();
+});
+
+test("Reader paints selection controls without native checkbox inputs", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.equal(
+    dom.window.document.querySelectorAll('input[type="checkbox"]').length,
+    0,
+  );
+  const controls = [
+    ...dom.window.document.querySelectorAll('[role="checkbox"]'),
+  ] as HTMLElement[];
+  assert.equal(controls.length, 1 + readyState().references.length);
+  assert.ok(controls.every((control) => control.tagName === "BUTTON"));
+  assert.ok(
+    controls.every(
+      (control) => dom.window.getComputedStyle(control).display !== "none",
+    ),
+  );
   mounted.destroy();
 });
 
@@ -387,8 +418,8 @@ test("download selection projects across tabs by complete stable identity", () =
 
   const checkbox = dom.window.document.querySelector(
     '[data-paper-id="citation:shared"] [data-select-paper]',
-  ) as HTMLInputElement | null;
-  assert.equal(checkbox?.checked, true);
+  ) as HTMLButtonElement | null;
+  assert.equal(checkbox?.getAttribute("aria-checked"), "true");
   assert.match(
     dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
       "",
@@ -909,9 +940,10 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
 
   const openMenu = (): HTMLElement => {
     firstRow.dispatchEvent(
-      new dom.window.MouseEvent("contextmenu", {
+      new dom.window.MouseEvent("mousedown", {
         bubbles: true,
         cancelable: true,
+        button: 2,
         clientX: 120,
         clientY: 80,
       }),
@@ -1593,7 +1625,7 @@ test("a translation failure ends only that request and the next selection can re
   mounted.destroy();
 });
 
-test("Reader keeps every paper checkbox visible despite Zotero host styles", () => {
+test("Reader keeps every self-painted checkbox visible when Zotero hides native inputs", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
@@ -1632,7 +1664,7 @@ test("Reader keeps every paper checkbox visible despite Zotero host styles", () 
   const rows = [...body.querySelectorAll(".rfz-paper")] as HTMLElement[];
   const checkboxes = [
     ...body.querySelectorAll(".rfz-paper-checkbox"),
-  ] as HTMLInputElement[];
+  ] as HTMLButtonElement[];
   const row = rows[0];
   const checkbox = checkboxes[0];
   const ordinal = body.querySelector(".rfz-ordinal") as HTMLElement | null;
@@ -1646,12 +1678,13 @@ test("Reader keeps every paper checkbox visible despite Zotero host styles", () 
   assert.ok(main);
   assert.ok(title);
   const hostStyle = dom.window.document.createElement("style");
-  hostStyle.textContent = ".rfz-paper-checkbox { display: none !important; }";
+  hostStyle.textContent =
+    'input[type="checkbox"] { display: none !important; }';
   body.append(hostStyle);
   assert.ok(
     checkboxes.every(
       (paperCheckbox) =>
-        dom.window.getComputedStyle(paperCheckbox).display === "block",
+        dom.window.getComputedStyle(paperCheckbox).display === "inline-flex",
     ),
   );
   assert.equal(dom.window.getComputedStyle(row).width, "100%");

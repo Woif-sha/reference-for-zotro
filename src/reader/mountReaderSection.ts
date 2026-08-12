@@ -223,6 +223,11 @@ export function mountReaderSection(options: {
     ).length;
     const selectAllChecked =
       eligiblePapers.length > 0 && selectedInTab === eligiblePapers.length;
+    const selectAllState = selectAllChecked
+      ? "true"
+      : selectedInTab > 0
+        ? "mixed"
+        : "false";
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
@@ -251,10 +256,10 @@ export function mountReaderSection(options: {
           : ""
       }
       <div class="rfz-selection-toolbar" data-no-translation="">
-        <label>
-          <input type="checkbox" data-select-tab="${state.activeTab}" data-focus-key="select-all:${state.activeTab}" aria-label="Select all confirmed papers in ${state.activeTab === "references" ? "References" : "Citations"}" ${selectAllChecked ? 'checked=""' : ""} ${eligiblePapers.length === 0 ? 'disabled=""' : ""} />
+        <button type="button" class="rfz-select-all" role="checkbox" aria-checked="${selectAllState}" data-select-tab="${state.activeTab}" data-focus-key="select-all:${state.activeTab}" aria-label="Select all confirmed papers in ${state.activeTab === "references" ? "References" : "Citations"}" ${eligiblePapers.length === 0 ? 'disabled=""' : ""}>
+          <span class="rfz-checkbox-box" aria-hidden="true"><span class="rfz-checkbox-mark">${selectAllState === "mixed" ? "−" : "✓"}</span></span>
           <span>Select all</span>
-        </label>
+        </button>
         <span class="rfz-selection-summary">${selectedInTab}/${eligiblePapers.length} in tab · ${state.downloadSelection.length} selected</span>
       </div>
       <main class="rfz-content">
@@ -265,11 +270,6 @@ export function mountReaderSection(options: {
         <button type="button" class="rfz-download-button" data-download-selected="" data-focus-key="download-selected" aria-label="Download ${state.downloadSelection.length} selected papers" ${downloadDisabled ? 'disabled=""' : ""}>Download selected (${state.downloadSelection.length})</button>
         <span class="rfz-sr-only" role="status" aria-live="polite">${escapeHTML(downloadAnnouncement(state))}</span>
       </footer>`;
-    const selectAll = root.querySelector<HTMLInputElement>("[data-select-tab]");
-    if (selectAll) {
-      selectAll.indeterminate =
-        selectedInTab > 0 && selectedInTab < eligiblePapers.length;
-    }
     if (focusKey) {
       const replacement = [
         ...root.querySelectorAll<HTMLElement>("[data-focus-key]"),
@@ -289,12 +289,24 @@ export function mountReaderSection(options: {
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
-    if (target instanceof body.ownerDocument.defaultView!.HTMLInputElement) {
-      const tab = target.dataset.selectTab;
-      if (tab === "references" || tab === "citations") {
-        controller.setTabDownloadSelected(tab, target.checked);
-        return;
-      }
+    const selectTab = target.closest<HTMLElement>("[data-select-tab]");
+    const selectedTab = selectTab?.dataset.selectTab;
+    if (selectedTab === "references" || selectedTab === "citations") {
+      controller.setTabDownloadSelected(
+        selectedTab,
+        selectTab?.getAttribute("aria-checked") !== "true",
+      );
+      return;
+    }
+    const selectPaper = target.closest<HTMLElement>("[data-select-paper]");
+    const selectedPaperID = selectPaper?.dataset.selectPaper;
+    if (selectedPaperID) {
+      controller.setPaperDownloadSelected(
+        controller.getState().activeTab,
+        selectedPaperID,
+        selectPaper?.getAttribute("aria-checked") !== "true",
+      );
+      return;
     }
     if (target === overlay) {
       dismissSelectedPaper();
@@ -352,23 +364,7 @@ export function mountReaderSection(options: {
 
   root.addEventListener("click", onClick);
   overlay.addEventListener("click", onClick);
-  const onChange = (event: Event): void => {
-    const target = event.target;
-    if (!(target instanceof body.ownerDocument.defaultView!.HTMLInputElement)) {
-      return;
-    }
-    const paperID = target.dataset.selectPaper;
-    if (paperID) {
-      controller.setPaperDownloadSelected(
-        controller.getState().activeTab,
-        paperID,
-        target.checked,
-      );
-      return;
-    }
-  };
-  root.addEventListener("change", onChange);
-  const onContextMenu = (event: MouseEvent): void => {
+  const openPaperContextMenu = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
     if (target.closest("input, button, [data-paper-control]")) {
@@ -389,8 +385,13 @@ export function mountReaderSection(options: {
     event.preventDefault();
     openContextMenu(paper, event.clientX, event.clientY);
   };
-  root.addEventListener("contextmenu", onContextMenu);
-  overlay.addEventListener("contextmenu", onContextMenu);
+  const onRightMouseDown = (event: MouseEvent): void => {
+    if (event.button === 2) openPaperContextMenu(event);
+  };
+  root.addEventListener("mousedown", onRightMouseDown);
+  overlay.addEventListener("mousedown", onRightMouseDown);
+  root.addEventListener("contextmenu", openPaperContextMenu);
+  overlay.addEventListener("contextmenu", openPaperContextMenu);
   const onContextMenuAction = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
@@ -526,9 +527,10 @@ export function mountReaderSection(options: {
       unsubscribe();
       root.removeEventListener("click", onClick);
       overlay.removeEventListener("click", onClick);
-      root.removeEventListener("change", onChange);
-      root.removeEventListener("contextmenu", onContextMenu);
-      overlay.removeEventListener("contextmenu", onContextMenu);
+      root.removeEventListener("mousedown", onRightMouseDown);
+      overlay.removeEventListener("mousedown", onRightMouseDown);
+      root.removeEventListener("contextmenu", openPaperContextMenu);
+      overlay.removeEventListener("contextmenu", openPaperContextMenu);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);
@@ -634,7 +636,7 @@ function renderContent(
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
-          <input class="rfz-paper-checkbox" type="checkbox" style="display: block !important;" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectedForDownload ? 'checked=""' : ""} ${selectable ? "" : 'disabled=""'} />
+          <button class="rfz-paper-checkbox" type="button" role="checkbox" aria-checked="${selectedForDownload}" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectable ? "" : 'disabled=""'}><span class="rfz-checkbox-mark" aria-hidden="true">✓</span></button>
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
             <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
@@ -961,16 +963,19 @@ const READER_STYLES = `
   .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
   .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
   .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 13px; }
-  .rfz-selection-toolbar label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
-  .rfz-selection-toolbar input, .rfz-paper-checkbox { appearance: auto; accent-color: var(--rfz-accent); }
-  .rfz-selection-toolbar input { display: inline-block; flex: none; width: 15px; height: 15px; margin: 0; }
+  .rfz-select-all { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+  .rfz-checkbox-box, .rfz-paper-checkbox { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--material-border, #8d8d94); border-radius: 3px; padding: 0; color: #fff; background: var(--material-background, #fff); font: 700 12px/1 sans-serif; }
+  .rfz-select-all[aria-checked="true"] .rfz-checkbox-box, .rfz-select-all[aria-checked="mixed"] .rfz-checkbox-box, .rfz-paper-checkbox[aria-checked="true"] { border-color: var(--rfz-accent); background: var(--rfz-accent); }
+  .rfz-checkbox-mark { opacity: 0; }
+  .rfz-select-all[aria-checked="true"] .rfz-checkbox-mark, .rfz-select-all[aria-checked="mixed"] .rfz-checkbox-mark, .rfz-paper-checkbox[aria-checked="true"] .rfz-checkbox-mark { opacity: 1; }
+  .rfz-select-all:disabled, .rfz-paper-checkbox:disabled { opacity: 0.5; cursor: default; }
   .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: inherit; }
   .rfz-content { flex: 1; min-height: 0; overflow: auto; }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
-  .rfz-paper-checkbox { display: block; grid-column: 1; width: 15px; height: 15px; margin: 1px 0 0; }
+  .rfz-paper-checkbox { grid-column: 1; margin: 1px 0 0; cursor: pointer; }
   .rfz-paper-main { grid-column: 3; min-width: 0; width: 100%; }
   .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
   .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }

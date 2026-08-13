@@ -1,6 +1,6 @@
 {
   "name": "reference-for-zotero",
-  "version": "1.2.0",
+  "version": "1.1.0",
   "description": "References and citing papers in the Zotero 9 Reader.",
   "config": {
     "addonName": "Reference for Zotero",

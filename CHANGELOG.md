@@ -24,7 +24,7 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
-## [1.2.0] - 2026-08-13
+## [1.1.0] - 2026-08-13
 
 ### 新增
 
@@ -35,7 +35,7 @@ All notable changes to Reference for Zotero are documented in this file.
 ### 调整
 
 - 使用 DOI、题名、作者、年份、期刊或会议等证据排序候选结果，并区分已解析、匹配中、无精确结果和不可下载状态。
-- 恢复正式插件名称、ID 和稳定更新地址，由 `1.1.0-beta.1` 测试包升级为 `1.2.0` 正式版本。
+- 恢复正式插件名称、ID 和稳定更新地址，由 `1.1.0-beta.1` 测试包升级为 `1.1.0` 正式版本。
 
 ### 修复
 
@@ -99,4 +99,4 @@ All notable changes to Reference for Zotero are documented in this file.
 
 [1.0.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.0
-[1.2.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.2.0
+[1.1.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.0

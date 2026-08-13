@@ -3,10 +3,77 @@ import { MinerUContractError, type ReferenceEntry } from "../domain/reference";
 type EntryMarker = Readonly<{
   style: "bracket" | "numeric";
   sourceLabel: string;
+  punctuation?: "." | ")";
+}>;
+
+export type ReferenceNormalization = Readonly<{
+  fullMarkdown: string;
+  contentListJson: string;
+  inferredMarker?: Readonly<{ position: number; length: number }>;
 }>;
 
 const BRACKET_MARKER = /^(\s*)\[(\d+)\]\s*/u;
-const NUMERIC_MARKER = /^(\s*)(\d+)[.)]\s+/u;
+const NUMERIC_MARKER = /^(\s*)(\d+)([.)])\s+/u;
+
+export function normalizeReferenceEntries(
+  fullMarkdown: string,
+  contentListJson: string,
+): ReferenceNormalization {
+  const parsed = parseContentList(contentListJson);
+  const markers = parsed.references.map(({ text }) => tryParseMarker(text));
+  const missing = markers.flatMap((marker, index) => (marker ? [] : [index]));
+  if (missing.length === 0) {
+    return { fullMarkdown, contentListJson };
+  }
+  if (missing.length !== 1) unsupportedMarker();
+
+  const missingIndex = missing[0]!;
+  const previous = markers[missingIndex - 1];
+  const next = markers[missingIndex + 1];
+  if (
+    !previous ||
+    !next ||
+    previous.style !== next.style ||
+    Number(next.sourceLabel) - Number(previous.sourceLabel) !== 2
+  ) {
+    unsupportedMarker();
+  }
+  const raw = parsed.references[missingIndex]!.text;
+  const normalized = prependMarker(
+    raw,
+    Number(previous.sourceLabel) + 1,
+    previous,
+  );
+  let searchStart = 0;
+  for (let index = 0; index < missingIndex; index += 1) {
+    const text = parsed.references[index]!.text;
+    const position = fullMarkdown.indexOf(text, searchStart);
+    if (position < 0) entryDoesNotMatch();
+    searchStart = position + text.length;
+  }
+  const rawStart = fullMarkdown.indexOf(raw, searchStart);
+  const normalizedStart = fullMarkdown.indexOf(normalized, searchStart);
+  const alreadyNormalized =
+    normalizedStart >= 0 && (rawStart < 0 || normalizedStart <= rawStart);
+  const entryStart = alreadyNormalized ? normalizedStart : rawStart;
+  if (entryStart < 0) entryDoesNotMatch();
+  const fullMarkdownWithMarker = alreadyNormalized
+    ? fullMarkdown
+    : `${fullMarkdown.slice(0, entryStart)}${normalized}${fullMarkdown.slice(entryStart + raw.length)}`;
+  const markerLength = normalized.length - raw.length;
+  const normalizedBlocks = [...parsed.blocks];
+  const blockIndex = parsed.references[missingIndex]!.blockIndex;
+  normalizedBlocks[blockIndex] = {
+    ...(normalizedBlocks[blockIndex] as Record<string, unknown>),
+    text: normalized,
+  };
+
+  return {
+    fullMarkdown: fullMarkdownWithMarker,
+    contentListJson: JSON.stringify(normalizedBlocks),
+    inferredMarker: { position: entryStart, length: markerLength },
+  };
+}
 
 export function parseReferenceEntries(
   fullMarkdown: string,
@@ -56,6 +123,13 @@ export function parseReferenceEntries(
 }
 
 function parseReferenceTexts(contentListJson: string): readonly string[] {
+  return parseContentList(contentListJson).references.map(({ text }) => text);
+}
+
+function parseContentList(contentListJson: string): Readonly<{
+  blocks: readonly unknown[];
+  references: readonly Readonly<{ blockIndex: number; text: string }>[];
+}> {
   let contentList: unknown;
   try {
     contentList = JSON.parse(contentListJson);
@@ -66,8 +140,8 @@ function parseReferenceTexts(contentListJson: string): readonly string[] {
     throw invalidCache("The MinerU content list is not a JSON array");
   }
 
-  const referenceTexts: string[] = [];
-  for (const block of contentList) {
+  const references: Array<{ blockIndex: number; text: string }> = [];
+  for (const [blockIndex, block] of contentList.entries()) {
     if (!block || typeof block !== "object" || Array.isArray(block)) {
       throw invalidCache("The MinerU content list contains an invalid block");
     }
@@ -76,23 +150,57 @@ function parseReferenceTexts(contentListJson: string): readonly string[] {
     if (typeof record.text !== "string" || !record.text.trim()) {
       throw invalidCache("A MinerU Reference block has invalid text");
     }
-    referenceTexts.push(record.text);
+    references.push({ blockIndex, text: record.text });
   }
-  return referenceTexts;
+  return { blocks: contentList, references };
 }
 
 function parseMarker(referenceText: string): EntryMarker {
+  const marker = tryParseMarker(referenceText);
+  if (marker) return marker;
+  return unsupportedMarker();
+}
+
+function tryParseMarker(referenceText: string): EntryMarker | undefined {
   const bracket = BRACKET_MARKER.exec(referenceText);
   if (bracket) {
     return { style: "bracket", sourceLabel: bracket[2]! };
   }
   const numeric = NUMERIC_MARKER.exec(referenceText);
   if (numeric) {
-    return { style: "numeric", sourceLabel: numeric[2]! };
+    return {
+      style: "numeric",
+      sourceLabel: numeric[2]!,
+      punctuation: numeric[3] as "." | ")",
+    };
   }
+  return undefined;
+}
+
+function prependMarker(
+  referenceText: string,
+  sourceLabel: number,
+  previous: EntryMarker,
+): string {
+  const indentation = /^[\t ]*/u.exec(referenceText)?.[0] ?? "";
+  const marker =
+    previous.style === "bracket"
+      ? `[${sourceLabel}] `
+      : `${sourceLabel}${previous.punctuation ?? "."} `;
+  return `${indentation}${marker}${referenceText.slice(indentation.length)}`;
+}
+
+function unsupportedMarker(): never {
   throw new MinerUContractError(
     "references-entry-structure-unsupported",
     "A MinerU Reference entry has no supported marker",
+  );
+}
+
+function entryDoesNotMatch(): never {
+  throw new MinerUContractError(
+    "references-entry-structure-unsupported",
+    "A MinerU Reference entry does not match full.md",
   );
 }
 

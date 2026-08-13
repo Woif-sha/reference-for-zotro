@@ -1,26 +1,32 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version without the v prefix
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-v${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   release:
-    name: Validate and publish ${{ github.ref_name }}
+    name: Validate and publish v${{ inputs.version }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -41,7 +47,8 @@ jobs:
         run: >-
           node -e "const version = require('./package.json').version;
           const expected = 'v' + version;
-          if (process.env.GITHUB_REF_NAME !== expected) {
+          const requested = 'v' + process.env.INPUT_VERSION;
+          if (requested !== expected) {
             console.error('Release tag must equal ' + expected);
             process.exit(1);
           }
@@ -50,15 +57,18 @@ jobs:
             console.error('The second-stage test build cannot be published as a release.');
             process.exit(1);
           }"
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
 
       - name: Run complete source and artifact gate
         run: npm run verify
 
-      - name: Create or update GitHub Release
+      - name: Create immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
-          tag="$GITHUB_REF_NAME"
+          tag="v$VERSION"
           mapfile -t xpis < <(find build -maxdepth 1 -type f -name '*.xpi' -print)
           mapfile -t updates < <(find build -maxdepth 1 -type f -name 'update.json' -print)
           if [ "${#xpis[@]}" -ne 1 ] || [ "${#updates[@]}" -ne 1 ]; then
@@ -68,11 +78,47 @@ jobs:
           assets=("${xpis[0]}" "${updates[0]}")
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "${assets[@]}" --clobber
-            gh release edit "$tag" --title "$tag" --draft=false
-          else
-            gh release create "$tag" "${assets[@]}" \
-              --verify-tag \
-              --title "$tag" \
-              --generate-notes
+            echo "Release $tag already exists and is immutable." >&2
+            exit 1
           fi
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            if [ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]; then
+              echo "Existing tag $tag does not point to the release commit." >&2
+              exit 1
+            fi
+          else
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "$tag"
+          fi
+
+          release_url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+          changelog_url="https://github.com/$GITHUB_REPOSITORY/blob/$tag/CHANGELOG.md"
+          awk -v version="$VERSION" '
+            index($0, "## [" version "] - ") == 1 { copying=1; next }
+            copying && /^## / { exit }
+            copying { print }
+          ' CHANGELOG.md > "$RUNNER_TEMP/changes.md"
+          {
+            echo "# [**$tag**]($release_url)"
+            echo
+            echo "## 更新内容"
+            cat "$RUNNER_TEMP/changes.md"
+            echo
+            echo "## 安装与更新"
+            echo
+            echo "- 下载本 Release 中的 XPI，在 Zotero 的“工具 → 插件”中选择“从文件安装插件”，然后完全重启 Zotero。"
+            echo "- 已安装稳定版的用户也可通过 Zotero 插件更新通道获取本版本。"
+            echo
+            echo "## 发布校验"
+            echo
+            echo "- GitHub Actions 已执行 \`npm run verify\`，覆盖自动化测试、TypeScript、ESLint、格式检查、生产构建和 XPI 审计。"
+            echo
+            echo "## 完整记录"
+            echo
+            echo "- [CHANGELOG.md]($changelog_url)"
+          } > "$RUNNER_TEMP/release-notes.md"
+
+          gh release create "$tag" "${assets[@]}" \
+            --verify-tag \
+            --title "$tag" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"

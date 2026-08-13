@@ -324,10 +324,7 @@ test("competing exact records automatically select the strongest IEEE or ACM res
   });
 
   assert.equal(result.status, "resolved");
-  assert.equal(
-    result.primaryResult.identifiers.doi,
-    "10.1145/3670474.3685965",
-  );
+  assert.equal(result.primaryResult.identifiers.doi, "10.1145/3670474.3685965");
   assert.equal(result.candidates.length, 2);
 });
 

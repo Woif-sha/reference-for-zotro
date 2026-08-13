@@ -1,6 +1,6 @@
 # Reference for Zotero
 
-> 当前 `dev` 分支使用正式插件身份生成 `1.1.0-beta.1` 修改测试包；不对应 Git tag、GitHub Release 或自动更新渠道。
+> 当前稳定版本为 `1.2.0`。机构认证与端到端论文下载尚未配置完成，相关入口和 sidecar 仅作为后续迭代基础，不应视为可用的下载能力。
 
 Reference for Zotero 是面向 Zotero 9 Reader 的相关文献插件。它从当前论文已有的 MinerU Markdown 中读取参考文献，并在 Reader 侧栏中提供文献解析、反向引用、详情卡片与可信落地页跳转。
 
@@ -19,6 +19,8 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 - 在 Reader 下载区域显示当前保存目录；默认使用 `E:\paper`，也可通过 Windows 原生目录选择器修改或恢复默认值。
 - 启动及每次下载前自动探测已有 Python 3.11+ 兼容运行时，并只通过插件自有 sidecar 的版本化 `probe` 建立下载能力；插件不会创建、安装或切换 Python 环境。
 
+> **当前限制：**机构认证尚未接入，论文下载也未完成可用配置和真实环境验收。当前版本的下载界面、目录配置与 sidecar 协议不代表端到端下载已经可用，后续版本将继续迭代。
+
 ## 运行要求
 
 - Zotero `9.0.6` 至 `9.0.x`。
@@ -36,7 +38,7 @@ Reference for Zotero is a Zotero 9 Reader extension for exploring resolved refer
 
 后续稳定版可通过插件更新地址获取 `update.json`。也可以下载新 XPI 后按相同步骤覆盖安装。
 
-修改测试包使用正式插件名称和 ID 覆盖安装，并保留 Zotero bootstrap 清单要求的 `update_url`；未发布对应更新元数据、tag 或 Release 时，不会自动进入稳定版或 beta 更新渠道。完整验收步骤见 [正式插件 XPI 测试说明](docs/testing/plugin-xpi.md)。
+正式版本使用固定插件名称和 ID 覆盖安装，并通过 Zotero bootstrap 清单中的 `update_url` 接收稳定更新。完整验收步骤见 [正式插件 XPI 测试说明](docs/testing/plugin-xpi.md)。
 
 ## 使用
 

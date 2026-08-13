@@ -69,6 +69,16 @@ test("real MinerU 195 IEEE references contain titles only", () => {
   );
 });
 
+test("a truncated IEEE author initial does not become the paper title", () => {
+  const result = parseReferenceQuery(
+    "J. Wang, S. Yaldiz, X., and L. T. Pileggi. SRAM parametric failure analysis. In Proceedings of the IEEE/ACM Design Automation Conference (DAC), pages 496–501, 2009.",
+  );
+
+  assert.equal(result.title, "SRAM parametric failure analysis");
+  assert.deepEqual(result.authors, ["Wang", "Yaldiz", "Pileggi"]);
+  assert.equal(result.year, 2009);
+});
+
 test("common unquoted author-title-venue entries use all three matching signals", () => {
   const result = parseReferenceQuery(
     "Vaswani, A., et al. Attention Is All You Need. Advances in Neural Information Processing Systems, 2017.",

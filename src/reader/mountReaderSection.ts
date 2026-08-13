@@ -173,6 +173,9 @@ export function mountReaderSection(options: {
     contextMenu.classList.remove("is-open");
     contextMenu.replaceChildren();
     delete contextMenu.dataset.paperId;
+    root
+      .querySelector<HTMLElement>(".is-context-target")
+      ?.classList.remove("is-context-target");
   };
 
   const openContextMenu = (
@@ -180,6 +183,7 @@ export function mountReaderSection(options: {
     clientX: number,
     clientY: number,
   ): void => {
+    closeContextMenu();
     contextMenu.dataset.paperId = paper.id;
     contextMenu.innerHTML = `
       <div class="rfz-context-item" role="menuitem" tabindex="0" data-paper-action="copy-title">复制论文标题</div>
@@ -362,12 +366,9 @@ export function mountReaderSection(options: {
   const openPaperContextMenu = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
-    if (target.closest("input, button, [data-paper-control]")) {
-      closeContextMenu();
-      return;
-    }
-    const paperID =
-      target.closest<HTMLElement>("[data-paper-id]")?.dataset.paperId;
+    const title = target.closest<HTMLElement>("[data-paper-title]");
+    const paperRow = title?.closest<HTMLElement>("[data-paper-id]");
+    const paperID = paperRow?.dataset.paperId;
     if (!paperID) {
       closeContextMenu();
       return;
@@ -379,14 +380,13 @@ export function mountReaderSection(options: {
     if (!paper) return;
     event.preventDefault();
     openContextMenu(paper, event.clientX, event.clientY);
+    paperRow.classList.add("is-context-target");
   };
   const onRightMouseDown = (event: MouseEvent): void => {
     if (event.button === 2) openPaperContextMenu(event);
   };
   root.addEventListener("mousedown", onRightMouseDown, true);
-  overlay.addEventListener("mousedown", onRightMouseDown, true);
   root.addEventListener("contextmenu", openPaperContextMenu, true);
-  overlay.addEventListener("contextmenu", openPaperContextMenu, true);
   const onContextMenuAction = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
@@ -462,6 +462,16 @@ export function mountReaderSection(options: {
   contextMenu.addEventListener("keydown", onContextMenuKeyDown);
   const onDocumentClick = (event: Event): void => {
     if (!contextMenu.contains(event.target as Node)) closeContextMenu();
+    const target = event.target;
+    if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    const detailCard = overlay.querySelector<HTMLElement>("[data-detail-card]");
+    if (
+      detailCard &&
+      !detailCard.contains(target) &&
+      !target.closest("[data-paper-title]")
+    ) {
+      dismissSelectedPaper();
+    }
   };
   body.ownerDocument.addEventListener("click", onDocumentClick);
   const onDocumentPointerDown = (event: Event): void => {
@@ -538,9 +548,7 @@ export function mountReaderSection(options: {
       root.removeEventListener("click", onClick);
       overlay.removeEventListener("click", onClick);
       root.removeEventListener("mousedown", onRightMouseDown, true);
-      overlay.removeEventListener("mousedown", onRightMouseDown, true);
       root.removeEventListener("contextmenu", openPaperContextMenu, true);
-      overlay.removeEventListener("contextmenu", openPaperContextMenu, true);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);
@@ -1015,6 +1023,7 @@ const READER_STYLES = `
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
   .rfz-paper-checkbox { grid-column: 1; margin: 1px 0 0; cursor: pointer; }
   .rfz-paper-main { grid-column: 3; min-width: 0; width: 100%; }
@@ -1046,7 +1055,7 @@ const READER_STYLES = `
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
   .rfz-overlay { position: fixed; z-index: 2147483000; inset: 0; pointer-events: none; }
-  .rfz-overlay.is-open { pointer-events: auto; }
+  .rfz-overlay.is-open { pointer-events: none; }
   .rfz-detail-card { position: fixed; padding: 16px 18px 18px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 8px 0 0 8px; color: var(--fill-primary, #242428); background: var(--material-background, #fff); box-shadow: -8px 12px 28px #0003; overflow: auto; pointer-events: auto; user-select: text; }
   .rfz-card-title { display: block; max-width: calc(100% - 30px); color: var(--rfz-accent); font-size: 18px; font-weight: 750; line-height: 1.25; }
   .rfz-card-close { position: absolute; top: 12px; right: 12px; width: 24px; height: 24px; border-radius: 50%; color: var(--fill-secondary, #65656b); background: var(--fill-quinary, #f0f0f2); user-select: none; }

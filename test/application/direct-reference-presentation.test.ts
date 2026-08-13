@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("Reader reference projection changes invalidate previous cached results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 12);
+  assert.equal(PROVIDER_QUERY_VERSION, 13);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {

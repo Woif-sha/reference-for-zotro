@@ -868,11 +868,13 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
       },
     },
   });
-  const firstRow = dom.window.document.querySelector('[data-paper-id="ref-1"]');
-  assert.ok(firstRow);
+  const firstTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  assert.ok(firstTitle);
 
   const openMenu = (): HTMLElement => {
-    firstRow.dispatchEvent(
+    firstTitle.dispatchEvent(
       new dom.window.MouseEvent("mousedown", {
         bubbles: true,
         cancelable: true,
@@ -918,11 +920,11 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
     "ref-1:google-search",
   ]);
 
-  const secondRow = dom.window.document.querySelector(
-    '[data-paper-id="ref-2"]',
+  const secondTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-paper-title]',
   );
-  assert.ok(secondRow);
-  secondRow.dispatchEvent(
+  assert.ok(secondTitle);
+  secondTitle.dispatchEvent(
     new dom.window.MouseEvent("contextmenu", {
       bubbles: true,
       cancelable: true,
@@ -987,7 +989,7 @@ test("a non-bubbling XUL context event opens actions from the blue paper title",
   mounted.destroy();
 });
 
-test("Reader detail title keeps paper context actions after opening from the blue list title", () => {
+test("Reader context actions stay on the original list title after details open", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
@@ -1026,23 +1028,28 @@ test("Reader detail title keeps paper context actions after opening from the blu
   listTitle.click();
   assert.deepEqual(selections, ["ref-1"]);
 
-  const detailTitle = dom.window.document.querySelector(
-    "[data-detail-card] .rfz-card-title",
+  const renderedListTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
   ) as HTMLElement | null;
-  assert.ok(detailTitle);
-  const contextEvent = new dom.window.MouseEvent("contextmenu", {
+  assert.ok(renderedListTitle);
+  const listContextEvent = new dom.window.MouseEvent("contextmenu", {
     bubbles: true,
     cancelable: true,
     clientX: 120,
     clientY: 80,
   });
-  detailTitle.dispatchEvent(contextEvent);
+  renderedListTitle.dispatchEvent(listContextEvent);
 
-  assert.equal(contextEvent.defaultPrevented, true);
+  assert.equal(listContextEvent.defaultPrevented, true);
   assert.ok(
     dom.window.document
       .querySelector("[data-paper-context-menu]")
       ?.classList.contains("is-open"),
+  );
+  assert.ok(
+    renderedListTitle
+      .closest("[data-paper-id]")
+      ?.classList.contains("is-context-target"),
   );
   (
     dom.window.document.querySelector(
@@ -1050,6 +1057,46 @@ test("Reader detail title keeps paper context actions after opening from the blu
     ) as HTMLElement
   ).click();
   assert.deepEqual(actions, ["ref-1:copy-title"]);
+  assert.ok(
+    !renderedListTitle
+      .closest("[data-paper-id]")
+      ?.classList.contains("is-context-target"),
+  );
+
+  const detailTitle = dom.window.document.querySelector(
+    "[data-detail-card] .rfz-card-title",
+  ) as HTMLElement | null;
+  assert.ok(detailTitle);
+  const detailContextEvent = new dom.window.MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+  });
+  detailTitle.dispatchEvent(detailContextEvent);
+  assert.equal(detailContextEvent.defaultPrevented, false);
+  assert.ok(
+    !dom.window.document
+      .querySelector("[data-paper-context-menu]")
+      ?.classList.contains("is-open"),
+  );
+
+  const rowGap = renderedListTitle.closest("[data-paper-id]") as HTMLElement;
+  rowGap.dispatchEvent(
+    new dom.window.MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  assert.ok(
+    !dom.window.document
+      .querySelector("[data-paper-context-menu]")
+      ?.classList.contains("is-open"),
+  );
+  assert.equal(
+    dom.window.getComputedStyle(
+      dom.window.document.querySelector("[data-reader-overlay]")!,
+    ).pointerEvents,
+    "none",
+  );
   mounted.destroy();
 });
 
@@ -1110,7 +1157,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   const styles = dom.window.document.querySelector("style")?.textContent ?? "";
   assert.match(
     styles,
-    /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*auto/u,
+    /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*none/u,
   );
 
   detailCard.click();

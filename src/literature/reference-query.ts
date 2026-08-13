@@ -162,6 +162,18 @@ function leadingInitialFirstAuthorsEnd(value: string): number | undefined {
       end += separator[0].length;
       continue;
     }
+    const truncatedAuthor = /^(?:,\s*)?\p{Lu}\.\s*,?\s*(?:and\s+)/u.exec(
+      remainder,
+    );
+    if (
+      truncatedAuthor &&
+      LEADING_INITIAL_FIRST_AUTHOR.test(
+        remainder.slice(truncatedAuthor[0].length),
+      )
+    ) {
+      end += truncatedAuthor[0].length;
+      continue;
+    }
     return authorCount > 0 && /^(?:\.\s+|,\s+)/u.test(remainder)
       ? end
       : undefined;

@@ -225,9 +225,11 @@ export function mountReaderSection(options: {
         <span class="rfz-mineru-source">
           <strong>MinerU MD</strong>
           <small data-mineru-path="" title="${escapeAttribute(state.mineruDirectory ?? "")}">${escapeHTML(mineruPathLabel(state))}</small>
+          <span class="rfz-mineru-actions">
+            <span class="rfz-mineru-action${state.mineruDirectory ? "" : " is-disabled"}" role="button" tabindex="${state.mineruDirectory ? "0" : "-1"}" aria-disabled="${state.mineruDirectory ? "false" : "true"}" data-open-mineru-folder="">📂 Open folder</span>
+            <span class="rfz-mineru-action" role="button" tabindex="0" data-refresh="">↻ Refresh</span>
+          </span>
         </span>
-        <button type="button" class="rfz-open-mineru-folder" data-open-mineru-folder="" aria-label="Open MinerU Markdown folder" ${state.mineruDirectory ? "" : 'disabled=""'}>Open folder</button>
-        <button type="button" class="rfz-icon-button" data-refresh="" aria-label="Refresh current paper">↻</button>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
         <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" data-focus-key="tab:references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
@@ -386,6 +388,21 @@ export function mountReaderSection(options: {
     if (event.key !== "Enter" && event.key !== " ") return;
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
+    const openMineruFolder = target.closest<HTMLElement>(
+      "[data-open-mineru-folder]",
+    );
+    if (openMineruFolder) {
+      if (openMineruFolder.getAttribute("aria-disabled") !== "true") {
+        event.preventDefault();
+        controller.openMineruDirectory?.();
+      }
+      return;
+    }
+    if (target.closest("[data-refresh]")) {
+      event.preventDefault();
+      controller.refresh();
+      return;
+    }
     const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
     if (tab === "references" || tab === "citations") {
       event.preventDefault();
@@ -914,7 +931,7 @@ const READER_STYLES = `
   .reference-for-zotero {
     --rfz-accent: #2d6cdf;
     --rfz-accent-soft: color-mix(in srgb, var(--rfz-accent) 12%, transparent);
-    --rfz-header-height: 58px;
+    --rfz-header-height: 76px;
     --rfz-tabs-height: 39px;
     position: relative;
     display: flex;
@@ -926,17 +943,18 @@ const READER_STYLES = `
   }
   .reference-for-zotero * { box-sizing: border-box; }
   .rfz-header, .rfz-tabs, .rfz-limits, .rfz-download-dock { display: flex; flex: none; align-items: center; }
-  .rfz-header { position: sticky; z-index: 3; top: 0; gap: 6px; min-height: var(--rfz-header-height); padding: 7px 10px 7px 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
+  .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 7px 10px 6px 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
   .rfz-mineru-source { display: flex; flex: 1; min-width: 0; flex-direction: column; }
   .rfz-mineru-source strong { font-size: 13px; }
   .rfz-mineru-source small { overflow: hidden; color: var(--fill-secondary, #6a6a70); font-size: 10px; text-overflow: ellipsis; user-select: text; white-space: nowrap; }
-  .rfz-icon-button, .rfz-open-mineru-folder, .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
+  .rfz-mineru-actions { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
+  .rfz-mineru-action { display: inline-flex; align-items: center; color: var(--rfz-accent); font-size: 11px; line-height: 18px; cursor: pointer; user-select: none; }
+  .rfz-mineru-action:hover, .rfz-mineru-action:focus { text-decoration: underline; outline: none; }
+  .rfz-mineru-action.is-disabled { color: var(--fill-tertiary, #9a9aa0); cursor: default; text-decoration: none; }
+  .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
     border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer;
   }
-  .rfz-open-mineru-folder { flex: none; padding: 4px 6px; border-radius: 5px; color: var(--rfz-accent); font-size: 11px; }
-  .rfz-open-mineru-folder:disabled { color: var(--fill-tertiary, #9a9aa0); cursor: default; }
-  .rfz-icon-button { margin-left: 4px; padding: 3px 6px; border-radius: 5px; font-size: 15px; }
-  .rfz-icon-button:hover, .rfz-open-mineru-folder:not(:disabled):hover, .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
+  .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
   .rfz-tabs { position: sticky; z-index: 3; top: var(--rfz-header-height); min-height: var(--rfz-tabs-height); border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-background, #fff); }
   .rfz-tab { position: relative; flex: 1; padding: 11px 8px 9px; color: var(--fill-secondary, #69696f); text-align: center; font-weight: 600; }
   .rfz-tab[aria-selected="true"] { color: var(--fill-primary, #242428); }

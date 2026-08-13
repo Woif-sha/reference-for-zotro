@@ -17,7 +17,10 @@ import {
 } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
-import { parseReferenceQuery } from "../literature/reference-query";
+import {
+  parseReferenceQuery,
+  UNPARSED_REFERENCE_TITLE,
+} from "../literature/reference-query";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
@@ -392,7 +395,7 @@ export class RelatedPapersController implements ReaderSectionController {
         ordinal: entry.ordinal,
         title:
           parseReferenceQuery(entry.lookupText).title ??
-          entry.lookupText.trim(),
+          UNPARSED_REFERENCE_TITLE,
         status: "matching",
         statusText: "Matching",
       })),

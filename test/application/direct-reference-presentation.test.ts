@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("title parsing changes invalidate previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 10);
+  assert.equal(PROVIDER_QUERY_VERSION, 11);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -206,4 +206,54 @@ test("a landing-page timeout is unreachable instead of a red fatal failure", asy
   assert.equal(paper.status, "unreachable");
   assert.equal(paper.title, "GPT-4 Technical Report");
   assert.equal(paper.statusText, "Landing page is unreachable");
+});
+
+test("an unparsed bibliography never falls back to the complete reference", async () => {
+  const abortController = new AbortController();
+  const context: ResolutionContext = {
+    paper: {
+      identity: {
+        libraryID: 1,
+        attachmentID: 2,
+        attachmentKey: "ATTACHMENT",
+        parentItemKey: "PARENT",
+      },
+      sourceFingerprint: "fingerprint",
+      entries: [],
+    },
+    token: {
+      libraryID: 1,
+      attachmentID: 2,
+      attachmentKey: "ATTACHMENT",
+      parentItemKey: "PARENT",
+      sourceFingerprint: "fingerprint",
+      generation: 1,
+    },
+    signal: abortController.signal,
+  };
+  const rawReference =
+    "Unknown, A. Author data https://example.test/paper, 2024.";
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: () => {
+      throw new Error("unparsed references must not be queried");
+    },
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    0,
+    rawReference,
+    gateway,
+    () => {
+      throw new Error("not used");
+    },
+    context,
+  );
+
+  assert.equal(paper.title, "Title unavailable");
+  assert.equal(paper.statusText, "Reference title could not be parsed");
+  assert.doesNotMatch(paper.title, /Unknown|example\.test|2024/u);
 });

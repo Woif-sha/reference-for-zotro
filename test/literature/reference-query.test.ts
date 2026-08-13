@@ -18,18 +18,55 @@ test("quoted bibliography metadata becomes a conservative gateway query", () => 
   );
 });
 
-test("unknown unquoted formats retain bibliographic text without inventing authors", () => {
+test("unknown bibliography formats never use the complete citation as a title", () => {
   const result = parseReferenceQuery(
-    "An unfamiliar bibliography layout without stable identifiers",
+    "Unknown, A. Author data https://example.test/paper, 2024.",
   );
 
-  assert.equal(
-    result.title,
-    "An unfamiliar bibliography layout without stable identifiers",
-  );
+  assert.equal(result.title, null);
   assert.deepEqual(result.identifiers, {});
   assert.deepEqual(result.authors, []);
   assert.equal(result.channel, "unknown");
+  assert.equal(parseReferenceQuery("“http://example.test/paper.”").title, null);
+});
+
+test("real MinerU 195 IEEE references contain titles only", () => {
+  const references = [
+    "R. Kanj, R. V. Joshi, and S. R. Nassif. Mixture importance sampling and its application to the analysis of SRAM designs in the presence of rare failure events. In Proc. IEEE/ACM DAC, pages 69–72, 2006.",
+    'A. Bansal, R. N. Singh, R. Kanj, S. Mukhopadhyay, J. Lee, E. Acar, A. Singhee, K. Kim, C. Chuang, S. R. Nassif, F. Heng, and K. K. Das. Yield estimation of SRAM circuits using "Virtual SRAM Fab". In Proc. IEEE/ACM ICCAD, pages 631–636, 2009.',
+    "J. Wang, S. Yaldiz, X. Li, and L. T. Pileggi. SRAM parametric failure analysis. In Proc. IEEE/ACM DAC, pages 496–501, 2009.",
+    "J. Wang, A. Singhee, R. A. Rutenbar, and B. H. Calhoun. Two Fast Methods for Estimating the Minimum Standby Supply Voltage for Large SRAMs. IEEE Trans. on Computer-Aided Design, 29(12):1908–1920, 2010.",
+    "C. Amin, C. Kashyap, N. Menezes, K. Killpack, and E. Chiprout. A multi-port current source model for multiple-input switching effects in CMOS library cells. In Proc. IEEE/ACM DAC, pages 247–252, 2006.",
+    "P. Li, Z. Feng, and E. Acar. Characterizing Multistage Nonlinear Drivers and Variability for Accurate Timing and Noise Analysis. IEEE Trans. on Very Large Scale Integration (VLSI) Systems, 15(11):1205–1214, 2007.",
+    'N. Menezes and C. V. Kashyap and C. S. Amin. A "true" electrical cell model for timing, noise, and power grid verification. In Proc. IEEE/ACM DAC, pages 462-467, 2008.',
+    "AMD Corporation. AMD FusionZ Family of APUs: Enabling a Superior, Immersive PC Experience. AMD whitepaper, [Online]. Available: http://sites.amd.com/us/fusion/apu/Pages/fusion.aspx, 2011.",
+    "Nvidia Corporation. Bringing High-End Graphics to Handheld Devices. Nvidia whitepaper, 2011.",
+    "K. Gulati, J. F. Croix, S. P. Khatri, and R. Shastry. Fast circuit simulation on graphics processing units. In Proc. IEEE/ACM ASPDAC, pages 403-408, 2009.",
+    "L. Ren, X. Chen, Y. Wang, C. Zhang, and H. Yang. Sparse LU factorization for parallel circuit simulation on GPU. In Proc. IEEE/ACM DAC, pages 1125-1130, 2012.",
+    "L. Pillage, R. Rohrer, and C. Visweswariah. Electronic circuit & system simulation methods. McGraw-Hill, 1995.",
+    "Nvidia CUDA programming guide. [Online]. Available: http://www.nvidia.com/object/cuda.html, 2007.",
+    "Nvidia Corporation. Fermi compute architecture white paper. [Online]. Available: http://www.nvidia.com/object/fermi\\_architecture.html, 2010.",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => parseReferenceQuery(reference).title),
+    [
+      "Mixture importance sampling and its application to the analysis of SRAM designs in the presence of rare failure events",
+      'Yield estimation of SRAM circuits using "Virtual SRAM Fab"',
+      "SRAM parametric failure analysis",
+      "Two Fast Methods for Estimating the Minimum Standby Supply Voltage for Large SRAMs",
+      "A multi-port current source model for multiple-input switching effects in CMOS library cells",
+      "Characterizing Multistage Nonlinear Drivers and Variability for Accurate Timing and Noise Analysis",
+      'A "true" electrical cell model for timing, noise, and power grid verification',
+      "AMD FusionZ Family of APUs: Enabling a Superior, Immersive PC Experience",
+      "Bringing High-End Graphics to Handheld Devices",
+      "Fast circuit simulation on graphics processing units",
+      "Sparse LU factorization for parallel circuit simulation on GPU",
+      "Electronic circuit & system simulation methods",
+      "Nvidia CUDA programming guide",
+      "Fermi compute architecture white paper",
+    ],
+  );
 });
 
 test("common unquoted author-title-venue entries use all three matching signals", () => {

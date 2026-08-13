@@ -69,10 +69,13 @@ export function candidateToReaderPaper(
   if (!candidate.landingURL) {
     throw new Error("Resolved paper has no verified Paper landing page");
   }
+  if (!candidate.title) {
+    throw new Error("Resolved paper has no title");
+  }
   return {
     id: `${candidate.source}:${candidate.sourceRecordID}:${ordinal}`,
     ordinal,
-    title: candidate.title ?? candidate.sourceRecordID,
+    title: candidate.title,
     authors:
       candidate.authors.length > 0
         ? candidate.authors

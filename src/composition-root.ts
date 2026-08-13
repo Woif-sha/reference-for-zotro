@@ -24,7 +24,10 @@ import {
   findMalformedStableIdentifier,
   resolveDeterministicLandingPage,
 } from "./literature/identifiers";
-import { parseReferenceQuery } from "./literature/reference-query";
+import {
+  parseReferenceQuery,
+  UNPARSED_REFERENCE_TITLE,
+} from "./literature/reference-query";
 import { lookupAvailableAbstract } from "./literature/providers/abstract";
 import {
   parseTrustedLandingMetadata,
@@ -43,7 +46,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 10;
+export const PROVIDER_QUERY_VERSION = 11;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -209,7 +212,7 @@ export async function resolveReferenceEntry(
 ): Promise<ReaderPaper> {
   const stable = extractStableIdentifiers(lookupText);
   const query = parseReferenceQuery(lookupText);
-  const displayTitle = query.title?.trim() || lookupText.trim();
+  const displayTitle = query.title?.trim() ?? UNPARSED_REFERENCE_TITLE;
   const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
   if (malformedIdentifier) {
     return unresolvedPaper(
@@ -217,6 +220,14 @@ export async function resolveReferenceEntry(
       displayTitle,
       `Invalid ${malformedIdentifier} format`,
       "invalid-identifier",
+    );
+  }
+  if (!query.title && Object.keys(query.identifiers).length === 0) {
+    return unresolvedPaper(
+      ordinal,
+      UNPARSED_REFERENCE_TITLE,
+      "Reference title could not be parsed",
+      "unresolved",
     );
   }
   const deterministic = resolveDeterministicLandingPage(stable);

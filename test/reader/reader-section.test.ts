@@ -117,7 +117,16 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
     root.querySelector("style")?.textContent ?? "",
     /\.rfz-paper-title\s*\{[^}]*font-size:\s*13px/u,
   );
-  (root.querySelector("[data-open-mineru-folder]") as HTMLElement).click();
+  const openMineru = root.querySelector(
+    "[data-open-mineru-folder]",
+  ) as HTMLElement;
+  assert.equal(openMineru.tagName, "span");
+  assert.equal(openMineru.textContent, "📂 Open folder");
+  assert.match(
+    root.querySelector("style")?.textContent ?? "",
+    /\.rfz-mineru-action\s*\{[^}]*display:\s*inline-flex/u,
+  );
+  openMineru.click();
   assert.deepEqual(actions, ["open-mineru"]);
   mounted.destroy();
 });

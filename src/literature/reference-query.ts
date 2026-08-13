@@ -2,6 +2,8 @@ import { extractStableIdentifiers } from "./identifiers";
 import type { PublicationChannel, ReferenceQuery } from "./gateway";
 import type { ScholarlyIdentifiers } from "./providers/types";
 
+export const UNPARSED_REFERENCE_TITLE = "Title unavailable";
+
 export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   const stable = extractStableIdentifiers(lookupText);
   const identifiers: ScholarlyIdentifiers = {
@@ -9,10 +11,17 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
     ...(stable.arxiv ? { arxiv: stable.arxiv } : {}),
     ...extractBiomedicalIdentifiers(lookupText),
   };
-  const quoted = findQuotedTitle(lookupText);
-  const unquoted = quoted ? undefined : findUnquotedMetadata(lookupText);
-  const title =
-    quoted?.title.trim() || unquoted?.title.trim() || lookupText.trim();
+  const yearSeparated = findYearSeparatedMetadata(lookupText);
+  const authorBoundary = yearSeparated
+    ? undefined
+    : leadingAuthorsEnd(lookupText);
+  const quoted = findQuotedTitle(lookupText, authorBoundary);
+  const unquoted =
+    yearSeparated ??
+    (quoted ? undefined : findUnquotedMetadata(lookupText, authorBoundary));
+  const standalone =
+    quoted || unquoted ? undefined : findStandaloneTitle(lookupText);
+  const title = quoted?.title ?? unquoted?.title ?? standalone;
   const authorRegion = quoted
     ? lookupText.slice(0, quoted.start)
     : (unquoted?.authorRegion ?? "");
@@ -20,9 +29,13 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   const year = extractYear(lookupText);
   const citationTail = quoted ? lookupText.slice(quoted.end) : lookupText;
   const venue = quoted ? extractVenue(citationTail) : unquoted?.venue;
+  const normalizedTitle = title ? trimTitlePunctuation(title) : undefined;
   return {
     identifiers,
-    title: trimTitlePunctuation(title),
+    title:
+      normalizedTitle && !containsBibliographicMetadata(normalizedTitle)
+        ? normalizedTitle
+        : null,
     authors,
     year,
     venue,
@@ -30,28 +43,34 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   };
 }
 
-function findUnquotedMetadata(
+function findYearSeparatedMetadata(
   value: string,
 ): { authorRegion: string; title: string; venue?: string } | undefined {
-  const corporate = /^([^.,]{2,80})\.\s+(.+?)\.\s+(?=Preprint\s+at\b)/iu.exec(
-    value,
-  );
-  if (corporate) {
-    const afterTitle = value.slice(corporate[0].length);
-    return {
-      authorRegion: corporate[1]!,
-      title: corporate[2]!,
-      venue: extractVenue(afterTitle),
-    };
+  const match =
+    /^(.+?)\.\s+(?:19|20|21)\d{2}\.\s+(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)/u.exec(
+      value,
+    );
+  if (!match?.[1] || !match[2] || !/[,;]|\band\b/iu.test(match[1])) {
+    return undefined;
   }
+  const afterTitle = value.slice(match[0].length);
+  return {
+    authorRegion: match[1],
+    title: match[2],
+    venue: extractVenue(afterTitle),
+  };
+}
 
-  const boundary = leadingFamilyNameAuthorsEnd(value);
-  if (boundary === undefined) return undefined;
-  const remainder = value.slice(boundary).replace(/^[\s,;]+/u, "");
+function findUnquotedMetadata(
+  value: string,
+  authorBoundary: number | undefined,
+): { authorRegion: string; title: string; venue?: string } | undefined {
+  if (authorBoundary === undefined) return undefined;
+  const remainder = value.slice(authorBoundary).replace(/^[\s,.;:]+/u, "");
   const chapter = /^in\s+(.+?)\s+\(eds?\b/iu.exec(remainder);
   if (chapter?.[1]) {
     return {
-      authorRegion: value.slice(0, boundary),
+      authorRegion: value.slice(0, authorBoundary),
       title: chapter[1],
       venue: chapter[1],
     };
@@ -62,7 +81,7 @@ function findUnquotedMetadata(
     );
   if (book?.[1] && !/[.!?]\s/u.test(book[1])) {
     return {
-      authorRegion: value.slice(0, boundary),
+      authorRegion: value.slice(0, authorBoundary),
       title: book[1],
     };
   }
@@ -76,12 +95,21 @@ function findUnquotedMetadata(
     )
     .sort((left, right) => left[1]!.length - right[1]!.length)[0];
   if (!match?.[1]) return undefined;
+  if (!isCleanTitle(match[1])) return undefined;
   const afterTitle = remainder.slice(match[0].length);
   return {
-    authorRegion: value.slice(0, boundary),
+    authorRegion: value.slice(0, authorBoundary),
     title: match[1],
     venue: extractVenue(afterTitle),
   };
+}
+
+function leadingAuthorsEnd(value: string): number | undefined {
+  return (
+    leadingFamilyNameAuthorsEnd(value) ??
+    leadingInitialFirstAuthorsEnd(value) ??
+    leadingCorporateAuthorEnd(value)
+  );
 }
 
 const LEADING_FAMILY_NAME_AUTHOR =
@@ -100,7 +128,7 @@ function leadingFamilyNameAuthorsEnd(value: string): number | undefined {
     const etAl = /^(?:,\s*)?et\s+al\.\s*/iu.exec(remainder);
     if (etAl) return end + etAl[0].length;
 
-    const separator = /^(?:,\s*|&\s*)/u.exec(remainder);
+    const separator = /^(?:,\s*|&\s*|and\s+)/iu.exec(remainder);
     if (
       !separator ||
       !LEADING_FAMILY_NAME_AUTHOR.test(remainder.slice(separator[0].length))
@@ -111,16 +139,81 @@ function leadingFamilyNameAuthorsEnd(value: string): number | undefined {
   }
 }
 
+const LEADING_INITIAL_FIRST_AUTHOR =
+  /^(?:(?:\p{Lu}\.(?:-\p{Lu}\.)?)\s*)+[\p{Lu}][\p{L}'’-]*(?:\s+[\p{Lu}][\p{L}'’-]*)*/u;
+
+function leadingInitialFirstAuthorsEnd(value: string): number | undefined {
+  let end = 0;
+  let authorCount = 0;
+  while (true) {
+    const author = LEADING_INITIAL_FIRST_AUTHOR.exec(value.slice(end));
+    if (!author) return undefined;
+    authorCount += 1;
+    end += author[0].length;
+
+    const remainder = value.slice(end);
+    const etAl = /^\s+et\.?\s+al\.?,?\s*/iu.exec(remainder);
+    if (etAl) return end + etAl[0].length;
+    const separator = /^(?:,\s*(?:and\s+)?|\s+and\s+)/iu.exec(remainder);
+    if (
+      separator &&
+      LEADING_INITIAL_FIRST_AUTHOR.test(remainder.slice(separator[0].length))
+    ) {
+      end += separator[0].length;
+      continue;
+    }
+    return authorCount > 0 && /^(?:\.\s+|,\s+)/u.test(remainder)
+      ? end
+      : undefined;
+  }
+}
+
+function leadingCorporateAuthorEnd(value: string): number | undefined {
+  return /^(?:OpenAI|[\p{L}&'’-]+(?:\s+[\p{L}&'’-]+){0,3}\s+(?:Corporation|Consortium|Group|Committee|Institute|Laboratories|Inc|Ltd))\.\s+/u.exec(
+    value,
+  )?.[0].length;
+}
+
 function findQuotedTitle(
   value: string,
+  authorBoundary: number | undefined,
 ): { title: string; start: number; end: number } | undefined {
-  const match = /["“”]([^"“”]+)["“”]/u.exec(value);
-  if (!match || match.index === undefined) return undefined;
+  const corporatePrefix = /^([\p{L}][\p{L} .&'’-]{0,79},)\s*(?=["“”])/u.exec(
+    value,
+  )?.[0].length;
+  const boundary = authorBoundary ?? corporatePrefix ?? 0;
+  const remainder = value.slice(boundary);
+  const match = /^[\s,.;:]*["“”]([^"“”]+)["“”]/u.exec(remainder);
+  if (!match) return undefined;
+  const leadingLength = match[0].indexOf(match[1]!);
+  const start = boundary + leadingLength - 1;
   return {
     title: match[1],
-    start: match.index,
-    end: match.index + match[0].length,
+    start,
+    end: boundary + match[0].length,
   };
+}
+
+function findStandaloneTitle(value: string): string | undefined {
+  const beforeOnlineMetadata = /^(.+?)\.\s+(?=\[Online\])/iu.exec(value)?.[1];
+  if (beforeOnlineMetadata && isCleanTitle(beforeOnlineMetadata)) {
+    return beforeOnlineMetadata;
+  }
+  return isCleanTitle(value) ? value.trim() : undefined;
+}
+
+function isCleanTitle(value: string): boolean {
+  return (
+    Boolean(value.trim()) &&
+    !/[“”]|\b(?:19|20|21)\d{2}\b/u.test(value) &&
+    !containsBibliographicMetadata(value)
+  );
+}
+
+function containsBibliographicMetadata(value: string): boolean {
+  return /https?\s*:\s*\/\s*\/|\bdoi\s*:|\barxiv\s*:|\[Online\]|\bAvailable\s*:|\bIn\s+Proc\.|\bpp?\.\s*\d|\bpages?\s+\d/iu.test(
+    value,
+  );
 }
 
 function extractFamilyNames(value: string): string[] {

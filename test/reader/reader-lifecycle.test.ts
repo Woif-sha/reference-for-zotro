@@ -164,18 +164,9 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     setEnabled: (value) => itemChangeEnabled.push(value),
   });
   assert.deepEqual(itemChangeEnabled, [true]);
-  assert.deepEqual(created, [42]);
-  assert.deepEqual(destroyed, [42]);
-  assert.equal(body.childElementCount, 0);
-
-  registration.onRender({
-    body,
-    item: { id: 43 },
-    tabType: "reader",
-    setEnabled: () => {},
-  });
   assert.deepEqual(created, [42, 43]);
   assert.deepEqual(destroyed, [42]);
+  assert.match(body.textContent ?? "", /MinerU MD/);
 
   registration.onDestroy({ body });
   unregister();

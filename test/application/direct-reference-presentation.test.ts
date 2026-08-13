@@ -13,8 +13,8 @@ test("unique Reader row identities invalidate the old cached provider projection
   assert.equal(PROVIDER_SCHEMA_VERSION, 4);
 });
 
-test("trusted-title presentation invalidates previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 8);
+test("title parsing changes invalidate previously cached provider results", () => {
+  assert.equal(PROVIDER_QUERY_VERSION, 9);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {

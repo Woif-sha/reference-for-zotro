@@ -1008,6 +1008,51 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
   );
 });
 
+test("a non-bubbling XUL context event opens actions from the blue paper title", () => {
+  const dom = new JSDOM(
+    '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
+    { contentType: "application/xml" },
+  );
+  const body = dom.window.document.getElementsByTagNameNS(
+    "http://www.w3.org/1999/xhtml",
+    "section",
+  )[0] as HTMLElement;
+  const mounted = mountReaderSection({
+    body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+  const title = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  ) as HTMLElement | null;
+  assert.ok(title);
+
+  const event = new dom.window.MouseEvent("contextmenu", {
+    bubbles: false,
+    cancelable: true,
+    clientX: 120,
+    clientY: 80,
+  });
+  title.dispatchEvent(event);
+
+  assert.equal(event.defaultPrevented, true);
+  assert.ok(
+    dom.window.document
+      .querySelector("[data-paper-context-menu]")
+      ?.classList.contains("is-open"),
+  );
+  mounted.destroy();
+});
+
 test("Reader detail title keeps paper context actions after opening from the blue list title", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state = readyState();

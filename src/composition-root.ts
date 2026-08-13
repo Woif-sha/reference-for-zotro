@@ -43,7 +43,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 8;
+export const PROVIDER_QUERY_VERSION = 9;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 

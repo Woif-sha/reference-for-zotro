@@ -46,6 +46,27 @@ test("common unquoted author-title-venue entries use all three matching signals"
   );
 });
 
+test("Nature-style references remove the complete author and editor regions from titles", () => {
+  const references = [
+    "Friedman, J. H. Greedy function approximation: a gradient boosting machine. Ann. Stat 1189–1232 (2001).",
+    "Chen, T. & Guestrin, C. Xgboost: A scalable tree boosting system. In Proc. 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (eds Krishnapuram, B. et al.) 785–794 (ACM Press, 2016)",
+    "Ke, G. et al. Lightgbm: A highly efficient gradient boosting decision tree. In Proc. 30th International Conference on Advances in Neural Information Processing Systems (eds Guyon, I. et al.) 3149–3157 (Curran Associates, 2017)",
+    "Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A. & Gulin, A. CatBoost: unbiased boosting with categorical features. In Proc. 30th International Conference on Advances in Neural Information Processing Systems (eds Bengio, S. et al.) 6639–6649 (Curran Associates, 2018).",
+    "Lowe, D. G. Distinctive image features from scale-invariant keypoints. Int. J. Comput. Vis. 60, 91–110 (2004)",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => parseReferenceQuery(reference).title),
+    [
+      "Greedy function approximation: a gradient boosting machine",
+      "Xgboost: A scalable tree boosting system",
+      "Lightgbm: A highly efficient gradient boosting decision tree",
+      "CatBoost: unbiased boosting with categorical features",
+      "Distinctive image features from scale-invariant keypoints",
+    ],
+  );
+});
+
 test("IEEE-style references keep real authors, conference venue, and publication year", () => {
   const conference = parseReferenceQuery(
     "Y. Yasuda-Masuoka, J. Jeong, K. Son, S. Lee, S. Park, Y. Lee, J. Youn Kim, J. Lee, M. Cho, S. Lee, S. Hong, H. Hong, Y. Jung, C. Yoon, Y. Ko, K. Jung, T. Myung, J. M. Youn, and G. Jeong, “High performance 4nm finfet platform (4lpe) with novel advanced transistor level dtco for dual-cpp/hp-hd standard cells,” in 2021 IEEE International Electron Devices Meeting (IEDM), 2021, pp. 13.3.1–13.3.4.",

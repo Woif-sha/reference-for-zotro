@@ -33,17 +33,7 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
 function findUnquotedMetadata(
   value: string,
 ): { authorRegion: string; title: string; venue?: string } | undefined {
-  const etAl = /\bet\s+al\.\s*/iu.exec(value);
-  let boundary = etAl ? etAl.index + etAl[0].length : undefined;
-  if (boundary === undefined) {
-    const authorMatches = [
-      ...value.matchAll(/(?:^|[\s;&])([\p{L}][\p{L}'’-]+),\s*(?:[\p{L}]\.?)/gu),
-    ];
-    const last = authorMatches.at(-1);
-    if (last && (authorMatches.length > 1 || last.index <= 1)) {
-      boundary = last.index + last[0].length;
-    }
-  }
+  const boundary = leadingFamilyNameAuthorsEnd(value);
   if (boundary === undefined) return undefined;
   const remainder = value.slice(boundary).replace(/^[\s,;]+/u, "");
   const titleMatch = /^(.+?)\.(?:\s+|$)/u.exec(remainder);
@@ -54,6 +44,33 @@ function findUnquotedMetadata(
     title: titleMatch[1],
     venue: extractVenue(afterTitle),
   };
+}
+
+const LEADING_FAMILY_NAME_AUTHOR =
+  /^([\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*)*),\s*((?:\p{L}\.(?:-\p{L}\.)?\s*)+)/u;
+
+function leadingFamilyNameAuthorsEnd(value: string): number | undefined {
+  let end = 0;
+  let authorCount = 0;
+  while (true) {
+    const author = LEADING_FAMILY_NAME_AUTHOR.exec(value.slice(end));
+    if (!author) return authorCount > 0 ? end : undefined;
+    authorCount += 1;
+    end += author[0].length;
+
+    const remainder = value.slice(end);
+    const etAl = /^(?:,\s*)?et\s+al\.\s*/iu.exec(remainder);
+    if (etAl) return end + etAl[0].length;
+
+    const separator = /^(?:,\s*|&\s*)/u.exec(remainder);
+    if (
+      !separator ||
+      !LEADING_FAMILY_NAME_AUTHOR.test(remainder.slice(separator[0].length))
+    ) {
+      return end;
+    }
+    end += separator[0].length;
+  }
 }
 
 function findQuotedTitle(

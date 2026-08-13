@@ -388,10 +388,10 @@ export function mountReaderSection(options: {
   const onRightMouseDown = (event: MouseEvent): void => {
     if (event.button === 2) openPaperContextMenu(event);
   };
-  root.addEventListener("mousedown", onRightMouseDown);
-  overlay.addEventListener("mousedown", onRightMouseDown);
-  root.addEventListener("contextmenu", openPaperContextMenu);
-  overlay.addEventListener("contextmenu", openPaperContextMenu);
+  root.addEventListener("mousedown", onRightMouseDown, true);
+  overlay.addEventListener("mousedown", onRightMouseDown, true);
+  root.addEventListener("contextmenu", openPaperContextMenu, true);
+  overlay.addEventListener("contextmenu", openPaperContextMenu, true);
   const onContextMenuAction = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
@@ -527,10 +527,10 @@ export function mountReaderSection(options: {
       unsubscribe();
       root.removeEventListener("click", onClick);
       overlay.removeEventListener("click", onClick);
-      root.removeEventListener("mousedown", onRightMouseDown);
-      overlay.removeEventListener("mousedown", onRightMouseDown);
-      root.removeEventListener("contextmenu", openPaperContextMenu);
-      overlay.removeEventListener("contextmenu", openPaperContextMenu);
+      root.removeEventListener("mousedown", onRightMouseDown, true);
+      overlay.removeEventListener("mousedown", onRightMouseDown, true);
+      root.removeEventListener("contextmenu", openPaperContextMenu, true);
+      overlay.removeEventListener("contextmenu", openPaperContextMenu, true);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);

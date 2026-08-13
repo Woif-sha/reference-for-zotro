@@ -1072,7 +1072,7 @@ test("Reader context actions stay on the original list title after details open"
     cancelable: true,
   });
   detailTitle.dispatchEvent(detailContextEvent);
-  assert.equal(detailContextEvent.defaultPrevented, false);
+  assert.equal(detailContextEvent.defaultPrevented, true);
   assert.ok(
     !dom.window.document
       .querySelector("[data-paper-context-menu]")

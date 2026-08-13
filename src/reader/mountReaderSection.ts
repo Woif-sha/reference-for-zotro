@@ -387,6 +387,11 @@ export function mountReaderSection(options: {
   };
   root.addEventListener("mousedown", onRightMouseDown, true);
   root.addEventListener("contextmenu", openPaperContextMenu, true);
+  const suppressDetailContextMenu = (event: MouseEvent): void => {
+    event.preventDefault();
+    closeContextMenu();
+  };
+  overlay.addEventListener("contextmenu", suppressDetailContextMenu);
   const onContextMenuAction = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
@@ -549,6 +554,7 @@ export function mountReaderSection(options: {
       overlay.removeEventListener("click", onClick);
       root.removeEventListener("mousedown", onRightMouseDown, true);
       root.removeEventListener("contextmenu", openPaperContextMenu, true);
+      overlay.removeEventListener("contextmenu", suppressDetailContextMenu);
       contextMenu.removeEventListener("click", onContextMenuAction);
       root.removeEventListener("keydown", onKeyDown);
       contextMenu.removeEventListener("keydown", onContextMenuKeyDown);

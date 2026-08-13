@@ -46,7 +46,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 11;
+export const PROVIDER_QUERY_VERSION = 12;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -95,6 +95,7 @@ export function createReaderControllerFactory(
             const paper = await resolveReferenceEntry(
               entry.ordinal,
               entry.lookupText,
+              entry.rawMarkdown,
               gatewayFor(context),
               providerPorts.fetch,
               context,
@@ -206,28 +207,37 @@ export function createReaderControllerFactory(
 export async function resolveReferenceEntry(
   ordinal: number,
   lookupText: string,
+  rawReference: string,
   gateway: RelatedLiteratureGateway,
   fetchPort: FetchPort,
   context: ResolutionContext,
 ): Promise<ReaderPaper> {
+  const present = (paper: ReaderPaper): ReaderPaper => ({
+    ...paper,
+    rawReference,
+  });
   const stable = extractStableIdentifiers(lookupText);
   const query = parseReferenceQuery(lookupText);
   const displayTitle = query.title?.trim() ?? UNPARSED_REFERENCE_TITLE;
   const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
   if (malformedIdentifier) {
-    return unresolvedPaper(
-      ordinal,
-      displayTitle,
-      `Invalid ${malformedIdentifier} format`,
-      "invalid-identifier",
+    return present(
+      unresolvedPaper(
+        ordinal,
+        displayTitle,
+        `Invalid ${malformedIdentifier} format`,
+        "invalid-identifier",
+      ),
     );
   }
   if (!query.title && Object.keys(query.identifiers).length === 0) {
-    return unresolvedPaper(
-      ordinal,
-      UNPARSED_REFERENCE_TITLE,
-      "Reference title could not be parsed",
-      "unresolved",
+    return present(
+      unresolvedPaper(
+        ordinal,
+        UNPARSED_REFERENCE_TITLE,
+        "Reference title could not be parsed",
+        "unresolved",
+      ),
     );
   }
   const deterministic = resolveDeterministicLandingPage(stable);
@@ -251,23 +261,29 @@ export async function resolveReferenceEntry(
           context: gatewayContext(context),
         });
         if (resolution.status === "resolved") {
-          return resolutionToReaderPaper(ordinal, displayTitle, resolution);
+          return present(
+            resolutionToReaderPaper(ordinal, displayTitle, resolution),
+          );
         }
       }
-      return directLandingToReaderPaper(
-        ordinal,
-        displayTitle,
-        landing.url,
-        deterministic.matchedBy,
-        landing.metadata,
-        query.identifiers,
+      return present(
+        directLandingToReaderPaper(
+          ordinal,
+          displayTitle,
+          landing.url,
+          deterministic.matchedBy,
+          landing.metadata,
+          query.identifiers,
+        ),
       );
     }
-    return unresolvedPaper(
-      ordinal,
-      displayTitle,
-      "Landing page is unreachable",
-      "unreachable",
+    return present(
+      unresolvedPaper(
+        ordinal,
+        displayTitle,
+        "Landing page is unreachable",
+        "unreachable",
+      ),
     );
   }
 
@@ -276,7 +292,7 @@ export async function resolveReferenceEntry(
     signal: context.signal,
     context: gatewayContext(context),
   });
-  return resolutionToReaderPaper(ordinal, displayTitle, resolution);
+  return present(resolutionToReaderPaper(ordinal, displayTitle, resolution));
 }
 
 function currentPaperIdentifiers(context: ResolutionContext): {

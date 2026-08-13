@@ -274,10 +274,12 @@ test("paper actions copy available metadata and open an explicit Google search",
   controller.performPaperAction("reference:0", "copy-title");
   controller.performPaperAction("reference:0", "copy-doi");
   controller.performPaperAction("reference:0", "google-search");
+  controller.openReferenceURL("https://example.test/reference");
 
   assert.deepEqual(copied, ["Resolved paper", "10.1000/one"]);
   assert.deepEqual(opened, [
     "https://www.google.com/search?q=%22Resolved%20paper%22%202024",
+    "https://example.test/reference",
   ]);
 });
 

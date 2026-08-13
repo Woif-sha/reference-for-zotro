@@ -30,6 +30,8 @@ function readyState(): ReaderSectionState {
         id: "ref-2",
         ordinal: 1,
         title: "Second reference",
+        rawReference:
+          "B. Author. Second reference. Available: https://example.test/second",
         authors: "Beta",
         year: "2023",
         status: "unresolved",
@@ -51,12 +53,14 @@ function downloadControllerStubs(): Pick<
   | "setTabDownloadSelected"
   | "downloadSelected"
   | "openDownloadedFolder"
+  | "openReferenceURL"
 > {
   return {
     setPaperDownloadSelected() {},
     setTabDownloadSelected() {},
     async downloadSelected() {},
     openDownloadedFolder() {},
+    openReferenceURL() {},
   };
 }
 
@@ -114,17 +118,22 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
     ),
   );
   assert.match(
-    root.querySelector("style")?.textContent ?? "",
+    dom.window.document.querySelector("style")?.textContent ?? "",
     /\.rfz-paper-title\s*\{[^}]*font-size:\s*13px/u,
   );
   const openMineru = root.querySelector(
     "[data-open-mineru-folder]",
   ) as HTMLElement;
   assert.equal(openMineru.tagName, "span");
-  assert.equal(openMineru.textContent, "📂 Open folder");
+  assert.equal(openMineru.textContent, "📂 打开文件夹");
+  assert.equal(root.querySelector("[data-refresh]")?.textContent, "↻ 刷新");
   assert.match(
-    root.querySelector("style")?.textContent ?? "",
-    /\.rfz-mineru-action\s*\{[^}]*display:\s*inline-flex/u,
+    dom.window.document.querySelector("style")?.textContent ?? "",
+    /\.rfz-mineru-actions\s*\{[^}]*margin-left:\s*auto/u,
+  );
+  assert.equal(
+    root.querySelector(".rfz-header > .rfz-mineru-actions")?.parentElement,
+    root.querySelector(".rfz-header"),
   );
   openMineru.click();
   assert.deepEqual(actions, ["open-mineru"]);
@@ -163,6 +172,7 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
     selectPaper: (paperID) => actions.push(`detail:${paperID}`),
     refresh() {},
     openPaper: (paperID) => actions.push(`open:${paperID}`),
+    openReferenceURL() {},
     performPaperAction() {},
     setPaperDownloadSelected(tab, paperID, selected) {
       actions.push(`select:${tab}:${paperID}:${selected}`);
@@ -245,7 +255,7 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   mounted.destroy();
 });
 
-test("Reader omits the redundant selection summary row", () => {
+test("Reader removes the empty bottom selection dock", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const mounted = mountReaderSection({
     body: dom.window.document.body,
@@ -262,13 +272,10 @@ test("Reader omits the redundant selection summary row", () => {
     },
   });
 
-  assert.equal(
-    dom.window.document.querySelector(".rfz-selection-toolbar"),
-    null,
-  );
-  assert.equal(
-    dom.window.document.querySelector(".rfz-selection-summary"),
-    null,
+  assert.equal(dom.window.document.querySelector(".rfz-download-dock"), null);
+  assert.doesNotMatch(
+    dom.window.document.body.textContent ?? "",
+    /0 selected/u,
   );
   mounted.destroy();
 });
@@ -879,6 +886,7 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
     ) as HTMLElement | null;
     assert.ok(menu);
     assert.ok(menu.classList.contains("is-open"));
+    assert.ok(menu.parentElement?.querySelector("style"));
     return menu;
   };
 
@@ -887,9 +895,9 @@ test("Reader paper rows expose XUL-compatible context actions", () => {
       ({ tagName, textContent }) => [tagName, textContent],
     ),
     [
-      ["div", "Copy paper title"],
-      ["div", "Copy DOI"],
-      ["div", "Search with Google"],
+      ["div", "复制论文标题"],
+      ["div", "复制 DOI"],
+      ["div", "使用 Google 搜索"],
     ],
   );
   (
@@ -1099,7 +1107,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   assert.ok(detailCard);
   assert.ok(overlay);
   assert.ok(overlay.classList.contains("is-open"));
-  const styles = body.querySelector("style")?.textContent ?? "";
+  const styles = dom.window.document.querySelector("style")?.textContent ?? "";
   assert.match(
     styles,
     /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*auto/u,
@@ -1116,10 +1124,11 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   mounted.destroy();
 });
 
-test("only Resolved references and Citing papers open a detail card", () => {
+test("unresolved references open their raw entry with clickable web links", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
+  const opened: string[] = [];
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
@@ -1139,6 +1148,9 @@ test("only Resolved references and Citing papers open a detail card", () => {
       },
       refresh() {},
       openPaper() {},
+      openReferenceURL(url) {
+        opened.push(url);
+      },
       performPaperAction() {},
     },
   });
@@ -1149,7 +1161,20 @@ test("only Resolved references and Citing papers open a detail card", () => {
     ) as HTMLButtonElement
   ).click();
 
-  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  const detailCard = dom.window.document.querySelector("[data-detail-card]");
+  assert.ok(detailCard);
+  assert.match(detailCard.textContent ?? "", /Reference 原始内容/u);
+  assert.match(
+    detailCard.querySelector("[data-raw-reference]")?.textContent ?? "",
+    /B\. Author\. Second reference/u,
+  );
+  const link = detailCard.querySelector(
+    '[data-reference-link="https://example.test/second"]',
+  ) as HTMLAnchorElement | null;
+  assert.ok(link);
+  assert.equal(link.href, "https://example.test/second");
+  link.click();
+  assert.deepEqual(opened, ["https://example.test/second"]);
   mounted.destroy();
 });
 

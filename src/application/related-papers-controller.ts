@@ -396,6 +396,7 @@ export class RelatedPapersController implements ReaderSectionController {
         title:
           parseReferenceQuery(entry.lookupText).title ??
           UNPARSED_REFERENCE_TITLE,
+        rawReference: entry.rawMarkdown,
         status: "matching",
         statusText: "Matching",
       })),
@@ -462,6 +463,14 @@ export class RelatedPapersController implements ReaderSectionController {
         ? paper.primaryResultURL
         : searchURL("google-scholar", paper),
     );
+  }
+
+  openReferenceURL(url: string): void {
+    const target = new URL(url);
+    if (target.protocol !== "http:" && target.protocol !== "https:") {
+      throw new Error("Reference URL must use HTTP or HTTPS");
+    }
+    this.ports.openURL(target.href);
   }
 
   performPaperAction(paperID: string, action: ReaderPaperAction): void {

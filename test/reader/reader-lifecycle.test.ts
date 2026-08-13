@@ -101,6 +101,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
         setTabDownloadSelected() {},
         async downloadSelected() {},
         openDownloadedFolder() {},
+        openReferenceURL() {},
         getState: () => state,
         subscribe: () => () => {},
         selectTab() {},

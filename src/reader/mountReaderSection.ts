@@ -34,6 +34,7 @@ type ReaderPaperBase = {
   id: string;
   ordinal: number;
   title: string;
+  rawReference?: string;
   authors?: string;
   venue?: string;
   year?: string;
@@ -115,6 +116,7 @@ export interface ReaderSectionController {
   selectPaper(paperID: string): void;
   refresh(): void;
   openPaper(paperID: string): void;
+  openReferenceURL(url: string): void;
   performPaperAction(paperID: string, action: ReaderPaperAction): void;
   setPaperDownloadSelected(
     tab: ReaderTab,
@@ -143,10 +145,13 @@ export function mountReaderSection(options: {
   const root = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   root.className = "reference-for-zotero";
   body.replaceChildren(root);
+  const portal = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
+  portal.className = "rfz-portal";
+  const style = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "style");
+  style.textContent = READER_STYLES;
   const overlay = body.ownerDocument.createElementNS(XHTML_NAMESPACE, "div");
   overlay.className = "rfz-overlay";
   overlay.dataset.readerOverlay = "";
-  body.ownerDocument.documentElement.append(overlay);
   const contextMenu = body.ownerDocument.createElementNS(
     XHTML_NAMESPACE,
     "div",
@@ -154,7 +159,8 @@ export function mountReaderSection(options: {
   contextMenu.className = "rfz-context-menu";
   contextMenu.dataset.paperContextMenu = "";
   contextMenu.setAttribute("role", "menu");
-  body.ownerDocument.documentElement.append(contextMenu);
+  portal.append(style, overlay, contextMenu);
+  body.ownerDocument.documentElement.append(portal);
   let destroyed = false;
   let translationRequest = 0;
 
@@ -176,9 +182,9 @@ export function mountReaderSection(options: {
   ): void => {
     contextMenu.dataset.paperId = paper.id;
     contextMenu.innerHTML = `
-      <div class="rfz-context-item" role="menuitem" tabindex="0" data-paper-action="copy-title">Copy paper title</div>
-      <div class="rfz-context-item" role="menuitem" tabindex="${paper.doi ? "0" : "-1"}" data-paper-action="copy-doi" aria-disabled="${paper.doi ? "false" : "true"}">Copy DOI</div>
-      <div class="rfz-context-item" role="menuitem" tabindex="0" data-paper-action="google-search">Search with Google</div>`;
+      <div class="rfz-context-item" role="menuitem" tabindex="0" data-paper-action="copy-title">复制论文标题</div>
+      <div class="rfz-context-item" role="menuitem" tabindex="${paper.doi ? "0" : "-1"}" data-paper-action="copy-doi" aria-disabled="${paper.doi ? "false" : "true"}">复制 DOI</div>
+      <div class="rfz-context-item" role="menuitem" tabindex="0" data-paper-action="google-search">使用 Google 搜索</div>`;
     contextMenu.classList.add("is-open");
     const view = body.ownerDocument.defaultView;
     const bounds = contextMenu.getBoundingClientRect();
@@ -220,15 +226,14 @@ export function mountReaderSection(options: {
       state.downloadInProgress ||
       !state.downloadAvailable;
     root.innerHTML = `
-      <style>${READER_STYLES}</style>
       <header class="rfz-header" data-no-translation="">
         <span class="rfz-mineru-source">
           <strong>MinerU MD</strong>
           <small data-mineru-path="" title="${escapeAttribute(state.mineruDirectory ?? "")}">${escapeHTML(mineruPathLabel(state))}</small>
-          <span class="rfz-mineru-actions">
-            <span class="rfz-mineru-action${state.mineruDirectory ? "" : " is-disabled"}" role="button" tabindex="${state.mineruDirectory ? "0" : "-1"}" aria-disabled="${state.mineruDirectory ? "false" : "true"}" data-open-mineru-folder="">📂 Open folder</span>
-            <span class="rfz-mineru-action" role="button" tabindex="0" data-refresh="">↻ Refresh</span>
-          </span>
+        </span>
+        <span class="rfz-mineru-actions">
+          <span class="rfz-mineru-action${state.mineruDirectory ? "" : " is-disabled"}" role="button" tabindex="${state.mineruDirectory ? "0" : "-1"}" aria-disabled="${state.mineruDirectory ? "false" : "true"}" data-open-mineru-folder=""><span class="rfz-mineru-icon" aria-hidden="true">📂</span> 打开文件夹</span>
+          <span class="rfz-mineru-action" role="button" tabindex="0" data-refresh=""><span class="rfz-mineru-icon" aria-hidden="true">↻</span> 刷新</span>
         </span>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
@@ -250,11 +255,14 @@ export function mountReaderSection(options: {
       <main class="rfz-content">
         ${renderContent(state, papers)}
       </main>
-      <footer class="rfz-download-dock" data-no-translation="">
-        <span><strong>${state.downloadSelection.length} selected</strong><small>References + Citations</small></span>
-        <button type="button" class="rfz-download-button" data-download-selected="" data-focus-key="download-selected" aria-label="Download ${state.downloadSelection.length} selected papers" ${downloadDisabled ? 'disabled=""' : ""}>Download selected (${state.downloadSelection.length})</button>
-        <span class="rfz-sr-only" role="status" aria-live="polite">${escapeHTML(downloadAnnouncement(state))}</span>
-      </footer>`;
+      ${
+        state.downloadSelection.length > 0
+          ? `<footer class="rfz-download-dock" data-no-translation="">
+              <button type="button" class="rfz-download-button" data-download-selected="" data-focus-key="download-selected" aria-label="Download ${state.downloadSelection.length} selected papers" ${downloadDisabled ? 'disabled=""' : ""}>Download selected (${state.downloadSelection.length})</button>
+              <span class="rfz-sr-only" role="status" aria-live="polite">${escapeHTML(downloadAnnouncement(state))}</span>
+            </footer>`
+          : ""
+      }`;
     if (focusKey) {
       const replacement = [
         ...root.querySelectorAll<HTMLElement>("[data-focus-key]"),
@@ -298,6 +306,13 @@ export function mountReaderSection(options: {
     }
     if (target.closest("[data-download-selected]")) {
       void controller.downloadSelected();
+      return;
+    }
+    const referenceLink = target.closest<HTMLElement>("[data-reference-link]");
+    if (referenceLink) {
+      event.preventDefault();
+      const url = referenceLink.dataset.referenceLink;
+      if (url) controller.openReferenceURL(url);
       return;
     }
     const openFolder = target.closest<HTMLElement>("[data-open-folder]");
@@ -545,8 +560,7 @@ export function mountReaderSection(options: {
         repositionDetailCard,
         true,
       );
-      overlay.remove();
-      contextMenu.remove();
+      portal.remove();
       root.remove();
     },
   };
@@ -714,7 +728,15 @@ function renderDetailCard(
   const paper = papers.find(
     (candidate) => candidate.id === state.selectedPaperID,
   );
-  if (!paper || paper.status !== "resolved") return "";
+  if (!paper) return "";
+  if (paper.status !== "resolved") {
+    if (!paper.rawReference) return "";
+    return `<aside class="rfz-detail-card rfz-reference-detail" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}">
+      <button type="button" class="rfz-card-close" data-detail-close="" aria-label="关闭 Reference 原始内容">×</button>
+      <strong class="rfz-card-title" data-translation-text="">${escapeHTML(paper.title)}</strong>
+      <section class="rfz-raw-reference"><strong>Reference 原始内容</strong><p data-raw-reference="" data-translation-text="">${renderReferenceWithLinks(paper.rawReference)}</p></section>
+    </aside>`;
+  }
   const badges = [
     paper.citationCount === undefined
       ? undefined
@@ -748,6 +770,24 @@ function renderDetailCard(
             : "Current metadata source did not provide an abstract."),
     )}</p></section>
   </aside>`;
+}
+
+function renderReferenceWithLinks(reference: string): string {
+  const urlPattern = /https?:\/\/[^\s<>"']+/giu;
+  let rendered = "";
+  let cursor = 0;
+  for (const match of reference.matchAll(urlPattern)) {
+    const start = match.index;
+    const matchedURL = match[0];
+    if (start === undefined || !matchedURL) continue;
+    const url = matchedURL.replace(/[),.;:!?\]}]+$/gu, "");
+    if (!url) continue;
+    rendered += escapeHTML(reference.slice(cursor, start));
+    rendered += `<a class="rfz-reference-link" href="${escapeAttribute(url)}" data-reference-link="${escapeAttribute(url)}">${escapeHTML(url)}</a>`;
+    cursor = start + url.length;
+  }
+  rendered += escapeHTML(reference.slice(cursor));
+  return rendered;
 }
 
 function positionDetailCard(root: HTMLElement, overlay: HTMLElement): void {
@@ -931,7 +971,7 @@ const READER_STYLES = `
   .reference-for-zotero {
     --rfz-accent: #2d6cdf;
     --rfz-accent-soft: color-mix(in srgb, var(--rfz-accent) 12%, transparent);
-    --rfz-header-height: 76px;
+    --rfz-header-height: 56px;
     --rfz-tabs-height: 39px;
     position: relative;
     display: flex;
@@ -947,8 +987,9 @@ const READER_STYLES = `
   .rfz-mineru-source { display: flex; flex: 1; min-width: 0; flex-direction: column; }
   .rfz-mineru-source strong { font-size: 13px; }
   .rfz-mineru-source small { overflow: hidden; color: var(--fill-secondary, #6a6a70); font-size: 10px; text-overflow: ellipsis; user-select: text; white-space: nowrap; }
-  .rfz-mineru-actions { display: flex; gap: 12px; align-items: center; margin-top: 4px; }
-  .rfz-mineru-action { display: inline-flex; align-items: center; color: var(--rfz-accent); font-size: 11px; line-height: 18px; cursor: pointer; user-select: none; }
+  .rfz-mineru-actions { display: flex; flex: none; gap: 10px; align-items: center; margin-left: auto; padding-left: 10px; }
+  .rfz-mineru-action { display: inline-flex; align-items: center; color: var(--rfz-accent); font-size: 11px; line-height: 16px; cursor: pointer; user-select: none; white-space: nowrap; }
+  .rfz-mineru-icon { font-size: 13px; line-height: 1; }
   .rfz-mineru-action:hover, .rfz-mineru-action:focus { text-decoration: underline; outline: none; }
   .rfz-mineru-action.is-disabled { color: var(--fill-tertiary, #9a9aa0); cursor: default; text-decoration: none; }
   .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
@@ -1017,6 +1058,10 @@ const READER_STYLES = `
   .rfz-abstract { margin: 12px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
   .rfz-abstract strong { display: block; margin-bottom: 3px; font-size: 12px; }
   .rfz-abstract p { margin: 0; }
+  .rfz-raw-reference { margin-top: 14px; font-size: 13px; line-height: 1.55; }
+  .rfz-raw-reference > strong { display: block; margin-bottom: 5px; font-size: 12px; }
+  .rfz-raw-reference p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rfz-reference-link { color: var(--rfz-accent); text-decoration: underline; cursor: pointer; }
   .rfz-translation { position: fixed; z-index: 20; width: min(340px, calc(100vw - 20px)); max-height: calc(100vh - 20px); overflow: auto; padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
   .rfz-translation-source { margin-bottom: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
 `;

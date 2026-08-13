@@ -1,6 +1,9 @@
 import type { MinerUPorts, MinerUReadResult } from "../mineru/mineru-adapter";
 import type { ProviderPorts } from "../literature/providers/types";
-import type { CacheStorage } from "../cache/cache-repository";
+import type {
+  CacheStorage,
+  LiteratureCacheFileName,
+} from "../cache/cache-repository";
 import {
   PaperTranslateBridge,
   type PaperTranslateGlobal,
@@ -78,7 +81,12 @@ export function createProviderPorts(): ProviderPorts {
 
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
-  const root = joinPath(getDataDirectory(), "reference-for-zotero-cache", "v1");
+  const root = joinPath(
+    getDataDirectory(),
+    "reference-for-zotero-cache",
+    "v2",
+    "papers",
+  );
   const writes = new Map<string, Promise<void>>();
   const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
     const previous = writes.get(key) ?? Promise.resolve();
@@ -91,47 +99,53 @@ export function createZoteroCacheStorage(): CacheStorage {
     });
   };
   return {
-    async read(key) {
-      const path = joinPath(root, `${await sha256(key)}.json`);
+    async read(directory, file) {
+      await writes.get(directory);
+      const path = joinPath(root, directory, file);
       if (!(await io.exists(path))) return undefined;
       const raw = await io.read(path);
       const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
-    write(key, value, signal) {
-      return enqueue(key, async () => {
+    write(directory, files, signal) {
+      return enqueue(directory, async () => {
         if (signal?.aborted) throw abortError();
-        await io.makeDirectory(root, {
+        const paperDirectory = joinPath(root, directory);
+        await io.makeDirectory(paperDirectory, {
           createAncestors: true,
           ignoreExisting: true,
         });
-        const path = joinPath(root, `${await sha256(key)}.json`);
-        const stagedPath = `${path}.pending-${nextCacheWriteID++}`;
-        let committed = false;
+        const writeID = nextCacheWriteID++;
+        const commitOrder: readonly LiteratureCacheFileName[] = [
+          "references.json",
+          "citations.json",
+          "manifest.json",
+        ];
+        const stagedPaths = new Map<LiteratureCacheFileName, string>();
         try {
-          await io.write(stagedPath, new TextEncoder().encode(value), {
-            tmpPath: `${stagedPath}.tmp`,
-          });
+          for (const file of commitOrder) {
+            const path = joinPath(paperDirectory, file);
+            const stagedPath = `${path}.pending-${writeID}`;
+            stagedPaths.set(file, stagedPath);
+            await io.write(stagedPath, new TextEncoder().encode(files[file]), {
+              tmpPath: `${stagedPath}.tmp`,
+            });
+          }
           if (signal?.aborted) throw abortError();
-          await io.move(stagedPath, path, { noOverwrite: false });
-          if (signal?.aborted) {
-            await io.remove(path, { ignoreAbsent: true });
-            throw abortError();
+          for (const file of commitOrder) {
+            await io.move(
+              stagedPaths.get(file)!,
+              joinPath(paperDirectory, file),
+              { noOverwrite: false },
+            );
           }
-          committed = true;
         } finally {
-          if (!committed) {
-            await io.remove(stagedPath, { ignoreAbsent: true });
-          }
+          await Promise.all(
+            [...stagedPaths.values()].map((path) =>
+              io.remove(path, { ignoreAbsent: true }),
+            ),
+          );
         }
-      });
-    },
-    remove(key, signal) {
-      return enqueue(key, async () => {
-        if (signal?.aborted) throw abortError();
-        const path = joinPath(root, `${await sha256(key)}.json`);
-        await io.remove(path, { ignoreAbsent: true });
-        if (signal?.aborted) throw abortError();
       });
     },
   };

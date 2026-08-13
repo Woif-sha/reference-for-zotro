@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createLiteratureCacheKey } from "../../src/cache/cache-key";
+import {
+  createLiteratureCacheDirectory,
+  createLiteratureCacheKey,
+} from "../../src/cache/cache-key";
 
 test("cache identity includes paper, provider, query and schema dimensions", () => {
   assert.equal(
@@ -15,5 +18,23 @@ test("cache identity includes paper, provider, query and schema dimensions", () 
       normalizedRequestKey: "doi:10.1000/example",
     }),
     "v2:3:44:ABCDEFGH:sha256:crossref:qv3:doi:10.1000/example",
+  );
+});
+
+test("paper directory is stable, readable and Windows-safe", () => {
+  assert.equal(
+    createLiteratureCacheDirectory({
+      libraryID: 3,
+      attachmentKey: "ABCDEFGH",
+    }),
+    "3-ABCDEFGH",
+  );
+  assert.throws(
+    () =>
+      createLiteratureCacheDirectory({
+        libraryID: 3,
+        attachmentKey: "../escape",
+      }),
+    /letters and numbers/u,
   );
 });

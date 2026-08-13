@@ -4,7 +4,6 @@ import {
   candidateToReaderPaper,
   resolutionToReaderPaper,
 } from "../../src/application/reader-paper-presentation";
-import { preparePaperForCache } from "../../src/cache/related-papers-cache-policy";
 
 test("resolved paper presentation retains provider record, retrieval time and match evidence", () => {
   const paper = candidateToReaderPaper(
@@ -75,34 +74,6 @@ test("presentation rows stay unique when one stable identifier agrees and anothe
   );
 
   assert.notEqual(first.id, second.id);
-});
-
-test("cache preserves permitted Abstracts and omits Crossref Abstracts", () => {
-  const base = {
-    id: "paper",
-    ordinal: 0,
-    title: "Paper",
-    status: "resolved" as const,
-    primaryResultURL: "https://example.test/paper",
-    abstract: "Available abstract",
-  };
-
-  assert.equal(
-    preparePaperForCache({ ...base, source: "datacite" }).abstract,
-    "Available abstract",
-  );
-  assert.equal(
-    preparePaperForCache({ ...base, source: "crossref" }).abstract,
-    undefined,
-  );
-  assert.equal(
-    preparePaperForCache({
-      ...base,
-      source: "crossref",
-      abstractSource: "semantic-scholar",
-    }).abstract,
-    "Available abstract",
-  );
 });
 
 test("resolved papers expose incomplete descriptive metadata without losing identity", () => {

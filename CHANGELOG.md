@@ -24,6 +24,28 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [1.1.1] - 2026-08-13
+
+### 新增
+
+- 为每篇论文建立独立的永久本地检索缓存，保存 References、Citations 及可访问的论文落地页 URL。
+
+### 调整
+
+- 缓存改为 `v2/papers/{libraryID}-{attachmentKey}` 下的 `manifest.json`、`references.json` 与 `citations.json`；相同论文再次打开时直接读取本地结果，仅在来源指纹或检索版本变化、缓存缺失或用户手动刷新时重新检索。
+
+### 修复
+
+- 修复缓存按一小时或二十四小时过期而导致重复检索的问题，并保存 Citations 的 10、30、50 条已加载上限以便继续增量查询。
+
+### 安全
+
+- 永久缓存不写入 Abstract、网页 HTML、Cookie 或访问令牌，仅保留书目信息、稳定标识、检索来源与落地页 URL。
+
+### 工程
+
+- 三个缓存文件使用同一修订标识和暂存写入；同一论文的并发读取等待当前写入完成，并以自动化测试覆盖身份失效、摘要剔除和中断写入。
+
 ## [1.1.0] - 2026-08-13
 
 ### 新增
@@ -100,3 +122,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.0.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.0
 [1.1.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.0
+[1.1.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.1

@@ -10,10 +10,7 @@ import {
   unresolvedPaper,
 } from "./application/reader-paper-presentation";
 import { LiteratureCacheRepository } from "./cache/cache-repository";
-import {
-  decideRelatedPapersCacheWrite,
-  type CachedPaperEnvelope,
-} from "./cache/related-papers-cache-policy";
+import { decideRelatedPapersCacheWrite } from "./cache/related-papers-cache-policy";
 import { loadMineruReferences } from "./mineru/mineru-adapter";
 import {
   createRelatedLiteratureGateway,
@@ -61,9 +58,7 @@ export function createReaderControllerFactory(
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
-  const cache = new LiteratureCacheRepository<CachedPaperEnvelope>(
-    createZoteroCacheStorage(),
-  );
+  const cache = new LiteratureCacheRepository(createZoteroCacheStorage());
 
   return {
     create({ attachmentItemID }) {
@@ -141,21 +136,11 @@ export function createReaderControllerFactory(
           );
         },
         async readCachedResults(paper) {
-          const envelope = await cache.read(cacheIdentity(paper));
-          if (!envelope) return undefined;
-          if (!Number.isFinite(Date.parse(envelope.expiresAt))) {
-            throw new Error("Cached related-literature expiry is invalid");
-          }
-          return Date.parse(envelope.expiresAt) > Date.now()
-            ? envelope.results
-            : undefined;
+          return cache.read(cacheIdentity(paper));
         },
         async writeCachedResults(paper, results, context) {
-          const decision = decideRelatedPapersCacheWrite(results, Date.now());
-          if (decision.kind === "remove") {
-            await cache.remove(cacheIdentity(paper), context.signal);
-            return;
-          }
+          const decision = decideRelatedPapersCacheWrite(results);
+          if (decision.kind === "skip") return;
           await cache.write(
             cacheIdentity(paper),
             decision.value,

@@ -43,7 +43,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 9;
+export const PROVIDER_QUERY_VERSION = 10;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -81,6 +81,7 @@ export function createReaderControllerFactory(
           return {
             identity: loaded.identity,
             sourceFingerprint: loaded.sourceFingerprint,
+            mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
         },
@@ -177,6 +178,9 @@ export function createReaderControllerFactory(
               error instanceof Error ? error : new Error(String(error)),
             );
           });
+        },
+        revealMineruDirectory(directory) {
+          Zotero.launchFile(directory);
         },
         copyText(text) {
           Zotero.Utilities.Internal.copyTextToClipboard(text);
@@ -355,7 +359,8 @@ async function loadDirectLandingPage(
     const html = await response.text();
     return { url: landingURL, metadata: parseTrustedLandingMetadata(html) };
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (signal.aborted) throw error;
+    if (isAbortError(error)) return undefined;
     throw new Error(
       `Landing page reachability check failed: ${
         error instanceof Error ? error.message : String(error)

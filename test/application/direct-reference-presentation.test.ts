@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("title parsing changes invalidate previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 9);
+  assert.equal(PROVIDER_QUERY_VERSION, 10);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -157,4 +157,53 @@ test("unresolved references display titles wrapped in MinerU right double quotes
     "A Statistical Cell Delay Model for Estimating the 3σ Delay by Matching Kurtosis",
   );
   assert.doesNotMatch(paper.title, /L\. Jin|IEEE Trans|2022/u);
+});
+
+test("a landing-page timeout is unreachable instead of a red fatal failure", async () => {
+  const abortController = new AbortController();
+  const context: ResolutionContext = {
+    paper: {
+      identity: {
+        libraryID: 1,
+        attachmentID: 2,
+        attachmentKey: "ATTACHMENT",
+        parentItemKey: "PARENT",
+      },
+      sourceFingerprint: "fingerprint",
+      entries: [],
+    },
+    token: {
+      libraryID: 1,
+      attachmentID: 2,
+      attachmentKey: "ATTACHMENT",
+      parentItemKey: "PARENT",
+      sourceFingerprint: "fingerprint",
+      generation: 1,
+    },
+    signal: abortController.signal,
+  };
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: () => {
+      throw new Error("not used");
+    },
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    4,
+    "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
+    gateway,
+    async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    },
+    context,
+  );
+
+  assert.equal(abortController.signal.aborted, false);
+  assert.equal(paper.status, "unreachable");
+  assert.equal(paper.title, "GPT-4 Technical Report");
+  assert.equal(paper.statusText, "Landing page is unreachable");
 });

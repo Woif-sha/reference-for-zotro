@@ -14,6 +14,7 @@ const loadedPaper: LoadedPaper = {
     parentItemKey: "PARENT01",
   },
   sourceFingerprint: "fingerprint",
+  mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   entries: [
     {
       ordinal: 0,
@@ -25,6 +26,44 @@ const loadedPaper: LoadedPaper = {
     },
   ],
 };
+
+test("Reference entries show parsed titles before matching and after a failure", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ...loadedPaper.entries[0],
+        lookupText:
+          "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaper[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  assert.equal(
+    controller.getState().references[0]?.title,
+    "GPT-4 Technical Report",
+  );
+  assert.equal(
+    controller.getState().mineruDirectory,
+    "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
+  );
+
+  finish.reject(new Error("provider failed"));
+  await refresh;
+  assert.equal(
+    controller.getState().references[0]?.title,
+    "GPT-4 Technical Report",
+  );
+});
 
 test("Reference entries render before online resolution completes", async () => {
   const resolution =
@@ -870,10 +909,12 @@ function resolvedPaper(title: string, doi: string): ReaderPaperResult {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

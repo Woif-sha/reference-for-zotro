@@ -52,6 +52,7 @@ export type MinerUPorts = Readonly<{
 
 export type LoadedMinerUReferences = Readonly<{
   identity: MinerUIdentity;
+  cacheDirectory: string;
   fullMarkdown: string;
   fullMdSha256: string;
   sourceFingerprint: string;
@@ -149,6 +150,7 @@ export async function loadMineruReferences(
 
   return {
     identity,
+    cacheDirectory,
     fullMarkdown,
     fullMdSha256,
     sourceFingerprint,

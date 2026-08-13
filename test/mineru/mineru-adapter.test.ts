@@ -165,6 +165,7 @@ test("loads references only from the validated current attachment MinerU cache",
     attachmentKey: "ATTACH01",
   });
   assert.equal(result.fullMarkdown, fullMarkdown);
+  assert.equal(result.cacheDirectory, CACHE_DIRECTORY);
   assert.equal(result.fullMdSha256, "known-full-md-sha256");
   assert.equal(result.sourceFingerprint, "known-full-md-sha256");
   assert.deepEqual(

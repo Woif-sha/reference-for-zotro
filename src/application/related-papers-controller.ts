@@ -17,10 +17,12 @@ import {
 } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
+import { parseReferenceQuery } from "../literature/reference-query";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
   sourceFingerprint: string;
+  mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
 
@@ -81,6 +83,7 @@ export interface RelatedPapersPorts {
     }>,
   ): Promise<readonly PaperDownloadProgress[]>;
   revealDownloadedFile?(savedPath: string): void;
+  revealMineruDirectory?(directory: string): void;
   downloadSetup?: DownloadSettingsController;
   copyText?(text: string): void;
   openURL(url: string): void;
@@ -309,6 +312,11 @@ export class RelatedPapersController implements ReaderSectionController {
     this.ports.revealDownloadedFile?.(result.savedPath);
   }
 
+  openMineruDirectory(): void {
+    const directory = this.state.mineruDirectory;
+    if (directory) this.ports.revealMineruDirectory?.(directory);
+  }
+
   changeDownloadDestination(): Promise<void> {
     return (
       this.ports.downloadSetup?.changeDownloadDestination() ?? Promise.resolve()
@@ -343,6 +351,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.update({
       status: "loading",
       message: undefined,
+      mineruDirectory: undefined,
       references: [],
       citingPapers: [],
       citingPapersLoaded: 0,
@@ -377,10 +386,13 @@ export class RelatedPapersController implements ReaderSectionController {
     this.context = context;
     this.update({
       status: "ready",
+      mineruDirectory: paper.mineruDirectory,
       references: paper.entries.map((entry) => ({
         id: `reference:${entry.ordinal}`,
         ordinal: entry.ordinal,
-        title: entry.lookupText,
+        title:
+          parseReferenceQuery(entry.lookupText).title ??
+          entry.lookupText.trim(),
         status: "matching",
         statusText: "Matching",
       })),

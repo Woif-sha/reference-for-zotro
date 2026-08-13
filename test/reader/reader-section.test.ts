@@ -13,6 +13,7 @@ function readyState(): ReaderSectionState {
   return {
     activeTab: "references",
     status: "ready",
+    mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\214",
     references: [
       {
         id: "ref-1",
@@ -68,6 +69,7 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
     "http://www.w3.org/1999/xhtml",
     "div",
   )[0] as HTMLElement;
+  const actions: string[] = [];
   const mounted = mountReaderSection({
     body,
     controller: {
@@ -80,13 +82,20 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
       refresh() {},
       openPaper() {},
       performPaperAction() {},
+      openMineruDirectory: () => actions.push("open-mineru"),
     },
   });
 
   const root = body.firstElementChild;
   assert.ok(root);
   assert.equal(root.namespaceURI, "http://www.w3.org/1999/xhtml");
-  assert.match(root.textContent ?? "", /Related Papers/);
+  assert.doesNotMatch(root.textContent ?? "", /Related Papers/);
+  assert.match(root.textContent ?? "", /MinerU MD/);
+  assert.match(
+    root.querySelector("[data-mineru-path]")?.textContent ?? "",
+    /E:\\ZoteroData\\llm-for-zotero-mineru\\214/u,
+  );
+  assert.equal(root.querySelector(".rfz-selection-toolbar"), null);
   const titles = [...root.querySelectorAll("[data-paper-title]")];
   assert.deepEqual(
     titles.map(({ tagName, textContent }) => [tagName, textContent]),
@@ -95,11 +104,21 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
       ["div", "Second reference"],
     ],
   );
+  assert.doesNotMatch(
+    root.querySelector('[data-paper-id="ref-1"]')?.textContent ?? "",
+    /Alpha|2024/u,
+  );
   assert.ok(
     [...root.querySelectorAll("input")].every(
       (input) => input.namespaceURI === "http://www.w3.org/1999/xhtml",
     ),
   );
+  assert.match(
+    root.querySelector("style")?.textContent ?? "",
+    /\.rfz-paper-title\s*\{[^}]*font-size:\s*13px/u,
+  );
+  (root.querySelector("[data-open-mineru-folder]") as HTMLElement).click();
+  assert.deepEqual(actions, ["open-mineru"]);
   mounted.destroy();
 });
 
@@ -192,12 +211,7 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   ) as HTMLButtonElement | null;
   assert.equal(replacement?.getAttribute("aria-checked"), "true");
   assert.equal(dom.window.document.activeElement, replacement);
-  assert.equal(
-    dom.window.document
-      .querySelector("[data-select-tab]")
-      ?.getAttribute("aria-checked"),
-    "mixed",
-  );
+  assert.equal(dom.window.document.querySelector("[data-select-tab]"), null);
   assert.deepEqual(actions, ["select:references:ref-1:true"]);
 
   replacement.dispatchEvent(
@@ -222,97 +236,7 @@ test("download checkboxes preserve focus and stay isolated from paper actions", 
   mounted.destroy();
 });
 
-test("Select all click toggles every confirmed paper in the current tab", () => {
-  const dom = new JSDOM("<!doctype html><body></body>", {
-    pretendToBeVisual: true,
-  });
-  let state: ReaderSectionState = {
-    ...readyState(),
-    references: [
-      readyState().references[0],
-      {
-        id: "ref-2",
-        ordinal: 1,
-        title: "Second confirmed reference",
-        status: "resolved",
-        primaryResultURL: "https://example.test/second",
-      },
-    ],
-  };
-  let listener: ((next: ReaderSectionState) => void) | undefined;
-  const calls: Array<readonly [string, boolean]> = [];
-  const mounted = mountReaderSection({
-    body: dom.window.document.body,
-    controller: {
-      ...downloadControllerStubs(),
-      getState: () => state,
-      subscribe(next) {
-        listener = next;
-        return () => {
-          listener = undefined;
-        };
-      },
-      selectTab() {},
-      setCitationLimit() {},
-      selectPaper() {},
-      refresh() {},
-      openPaper() {},
-      performPaperAction() {},
-      setTabDownloadSelected(tab, selected) {
-        calls.push([tab, selected]);
-        state = {
-          ...state,
-          downloadSelection: selected
-            ? state.references.map((paper) => ({
-                originTab: "references" as const,
-                paperID: paper.id,
-              }))
-            : [],
-        };
-        listener?.(state);
-      },
-    },
-  });
-
-  const selectAll = dom.window.document.querySelector(
-    "[data-select-tab]",
-  ) as HTMLButtonElement | null;
-  assert.ok(selectAll);
-  selectAll.click();
-  assert.deepEqual(calls, [["references", true]]);
-  const paperCheckboxes = [
-    ...dom.window.document.querySelectorAll("[data-select-paper]"),
-  ] as HTMLButtonElement[];
-  assert.deepEqual(
-    paperCheckboxes.map((checkbox) => checkbox.getAttribute("aria-checked")),
-    ["true", "true"],
-  );
-  assert.match(
-    dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
-      "",
-    /2\/2 in tab/u,
-  );
-
-  const selectedSelectAll = dom.window.document.querySelector(
-    "[data-select-tab]",
-  ) as HTMLButtonElement | null;
-  assert.equal(selectedSelectAll?.getAttribute("aria-checked"), "true");
-  selectedSelectAll.click();
-  assert.deepEqual(calls, [
-    ["references", true],
-    ["references", false],
-  ]);
-  assert.ok(
-    (
-      [
-        ...dom.window.document.querySelectorAll("[data-select-paper]"),
-      ] as HTMLButtonElement[]
-    ).every((checkbox) => checkbox.getAttribute("aria-checked") === "false"),
-  );
-  mounted.destroy();
-});
-
-test("selection toolbar guidance uses the Reader base font size", () => {
+test("Reader omits the redundant selection summary row", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const mounted = mountReaderSection({
     body: dom.window.document.body,
@@ -329,16 +253,14 @@ test("selection toolbar guidance uses the Reader base font size", () => {
     },
   });
 
-  const toolbar = dom.window.document.querySelector(
-    ".rfz-selection-toolbar",
-  ) as HTMLElement | null;
-  const summary = dom.window.document.querySelector(
-    ".rfz-selection-summary",
-  ) as HTMLElement | null;
-  assert.ok(toolbar);
-  assert.ok(summary);
-  assert.equal(dom.window.getComputedStyle(toolbar).fontSize, "13px");
-  assert.equal(dom.window.getComputedStyle(summary).fontSize, "inherit");
+  assert.equal(
+    dom.window.document.querySelector(".rfz-selection-toolbar"),
+    null,
+  );
+  assert.equal(
+    dom.window.document.querySelector(".rfz-selection-summary"),
+    null,
+  );
   mounted.destroy();
 });
 
@@ -366,7 +288,7 @@ test("Reader paints selection controls without native checkbox inputs", () => {
   const controls = [
     ...dom.window.document.querySelectorAll('[role="checkbox"]'),
   ] as HTMLElement[];
-  assert.equal(controls.length, 1 + readyState().references.length);
+  assert.equal(controls.length, readyState().references.length);
   assert.ok(controls.every((control) => control.tagName === "BUTTON"));
   assert.ok(
     controls.every(
@@ -420,11 +342,6 @@ test("download selection projects across tabs by complete stable identity", () =
     '[data-paper-id="citation:shared"] [data-select-paper]',
   ) as HTMLButtonElement | null;
   assert.equal(checkbox?.getAttribute("aria-checked"), "true");
-  assert.match(
-    dom.window.document.querySelector(".rfz-selection-summary")?.textContent ??
-      "",
-    /^1\/1/u,
-  );
   checkbox?.click();
   assert.deepEqual(selected, [false]);
   mounted.destroy();

@@ -153,7 +153,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     setEnabled: () => {},
   });
   assert.deepEqual(created, [42]);
-  assert.match(body.textContent ?? "", /Related Papers/);
+  assert.match(body.textContent ?? "", /MinerU MD/);
 
   const itemChangeEnabled: boolean[] = [];
   registration.onItemChange({

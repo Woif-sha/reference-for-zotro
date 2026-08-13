@@ -94,6 +94,7 @@ export interface ReaderSectionState {
   activeTab: ReaderTab;
   status: ReaderStatus;
   message?: string;
+  mineruDirectory?: string;
   references: readonly ReaderPaper[];
   citingPapers: readonly ReaderPaper[];
   citingPaperLimit: 10 | 30 | 50;
@@ -123,6 +124,7 @@ export interface ReaderSectionController {
   setTabDownloadSelected(tab: ReaderTab, selected: boolean): void;
   downloadSelected(): Promise<void>;
   openDownloadedFolder(paperID: string): void;
+  openMineruDirectory?(): void;
   changeDownloadDestination?(): Promise<void>;
   resetDownloadDestination?(): void;
   translationCapability?(): TranslationCapability;
@@ -213,30 +215,18 @@ export function mountReaderSection(options: {
             0,
             Math.min(state.citingPaperLimit, state.citingPapers.length),
           );
-    const eligiblePapers = papers.filter(
-      (paper) => paper.status === "resolved",
-    );
-    const selectedInTab = eligiblePapers.filter((paper) =>
-      state.downloadSelection.some((entry) =>
-        selectionMatchesPaper(state, entry, paper),
-      ),
-    ).length;
-    const selectAllChecked =
-      eligiblePapers.length > 0 && selectedInTab === eligiblePapers.length;
-    const selectAllState = selectAllChecked
-      ? "true"
-      : selectedInTab > 0
-        ? "mixed"
-        : "false";
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
       !state.downloadAvailable;
     root.innerHTML = `
       <style>${READER_STYLES}</style>
-      <header class="rfz-header">
-        <strong>Related Papers</strong>
-        <small>${state.activeTab === "references" ? "MinerU Markdown" : "Scholarly sources"}</small>
+      <header class="rfz-header" data-no-translation="">
+        <span class="rfz-mineru-source">
+          <strong>MinerU MD</strong>
+          <small data-mineru-path="" title="${escapeAttribute(state.mineruDirectory ?? "")}">${escapeHTML(mineruPathLabel(state))}</small>
+        </span>
+        <button type="button" class="rfz-open-mineru-folder" data-open-mineru-folder="" aria-label="Open MinerU Markdown folder" ${state.mineruDirectory ? "" : 'disabled=""'}>Open folder</button>
         <button type="button" class="rfz-icon-button" data-refresh="" aria-label="Refresh current paper">↻</button>
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
@@ -255,13 +245,6 @@ export function mountReaderSection(options: {
             </div>`
           : ""
       }
-      <div class="rfz-selection-toolbar" data-no-translation="">
-        <button type="button" class="rfz-select-all" role="checkbox" aria-checked="${selectAllState}" data-select-tab="${state.activeTab}" data-focus-key="select-all:${state.activeTab}" aria-label="Select all confirmed papers in ${state.activeTab === "references" ? "References" : "Citations"}" ${eligiblePapers.length === 0 ? 'disabled=""' : ""}>
-          <span class="rfz-checkbox-box" aria-hidden="true"><span class="rfz-checkbox-mark">${selectAllState === "mixed" ? "−" : "✓"}</span></span>
-          <span>Select all</span>
-        </button>
-        <span class="rfz-selection-summary">${selectedInTab}/${eligiblePapers.length} in tab · ${state.downloadSelection.length} selected</span>
-      </div>
       <main class="rfz-content">
         ${renderContent(state, papers)}
       </main>
@@ -289,15 +272,6 @@ export function mountReaderSection(options: {
   const onClick = (event: Event): void => {
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
-    const selectTab = target.closest<HTMLElement>("[data-select-tab]");
-    const selectedTab = selectTab?.dataset.selectTab;
-    if (selectedTab === "references" || selectedTab === "citations") {
-      controller.setTabDownloadSelected(
-        selectedTab,
-        selectTab?.getAttribute("aria-checked") !== "true",
-      );
-      return;
-    }
     const selectPaper = target.closest<HTMLElement>("[data-select-paper]");
     const selectedPaperID = selectPaper?.dataset.selectPaper;
     if (selectedPaperID) {
@@ -314,6 +288,10 @@ export function mountReaderSection(options: {
     }
     if (target.closest("[data-refresh]")) {
       controller.refresh();
+      return;
+    }
+    if (target.closest("[data-open-mineru-folder]")) {
+      controller.openMineruDirectory?.();
       return;
     }
     if (target.closest("[data-download-selected]")) {
@@ -570,6 +548,13 @@ function escapeAttribute(value: string): string {
   return escapeHTML(value);
 }
 
+function mineruPathLabel(state: ReaderSectionState): string {
+  if (state.mineruDirectory) return state.mineruDirectory;
+  if (state.status === "loading") return "Locating MinerU Markdown…";
+  if (state.status === "no-md") return "MinerU Markdown not found";
+  return "MinerU Markdown unavailable";
+}
+
 function renderContent(
   state: ReaderSectionState,
   papers: readonly ReaderPaper[],
@@ -607,9 +592,6 @@ function renderContent(
   return `<ol class="rfz-paper-list">
     ${papers
       .map((paper) => {
-        const metadata = [paper.authors, paper.venue, paper.year]
-          .filter(Boolean)
-          .join(" · ");
         const status =
           paper.status === "resolved" ||
           paper.status === "unresolved" ||
@@ -640,7 +622,7 @@ function renderContent(
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
             <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
-            )}</div>${metadata ? `<small data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}
+            )}</div>${status}
             ${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
           </div>
         </li>`;
@@ -932,7 +914,7 @@ const READER_STYLES = `
   .reference-for-zotero {
     --rfz-accent: #2d6cdf;
     --rfz-accent-soft: color-mix(in srgb, var(--rfz-accent) 12%, transparent);
-    --rfz-header-height: 42px;
+    --rfz-header-height: 58px;
     --rfz-tabs-height: 39px;
     position: relative;
     display: flex;
@@ -943,15 +925,18 @@ const READER_STYLES = `
     font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
   .reference-for-zotero * { box-sizing: border-box; }
-  .rfz-header, .rfz-tabs, .rfz-limits, .rfz-selection-toolbar, .rfz-download-dock { display: flex; flex: none; align-items: center; }
-  .rfz-header { position: sticky; z-index: 3; top: 0; min-height: var(--rfz-header-height); padding: 0 10px 0 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
-  .rfz-header strong { font-size: 13px; }
-  .rfz-header small { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
-  .rfz-icon-button, .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
+  .rfz-header, .rfz-tabs, .rfz-limits, .rfz-download-dock { display: flex; flex: none; align-items: center; }
+  .rfz-header { position: sticky; z-index: 3; top: 0; gap: 6px; min-height: var(--rfz-header-height); padding: 7px 10px 7px 12px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-sidepane, #f6f6f7); }
+  .rfz-mineru-source { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+  .rfz-mineru-source strong { font-size: 13px; }
+  .rfz-mineru-source small { overflow: hidden; color: var(--fill-secondary, #6a6a70); font-size: 10px; text-overflow: ellipsis; user-select: text; white-space: nowrap; }
+  .rfz-icon-button, .rfz-open-mineru-folder, .rfz-tab, .rfz-limit, .rfz-paper-title, .rfz-card-close {
     border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer;
   }
+  .rfz-open-mineru-folder { flex: none; padding: 4px 6px; border-radius: 5px; color: var(--rfz-accent); font-size: 11px; }
+  .rfz-open-mineru-folder:disabled { color: var(--fill-tertiary, #9a9aa0); cursor: default; }
   .rfz-icon-button { margin-left: 4px; padding: 3px 6px; border-radius: 5px; font-size: 15px; }
-  .rfz-icon-button:hover, .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
+  .rfz-icon-button:hover, .rfz-open-mineru-folder:not(:disabled):hover, .rfz-card-close:hover { background: var(--fill-quinary, #ececef); }
   .rfz-tabs { position: sticky; z-index: 3; top: var(--rfz-header-height); min-height: var(--rfz-tabs-height); border-bottom: 1px solid var(--material-border, #d6d6d9); background: var(--material-background, #fff); }
   .rfz-tab { position: relative; flex: 1; padding: 11px 8px 9px; color: var(--fill-secondary, #69696f); text-align: center; font-weight: 600; }
   .rfz-tab[aria-selected="true"] { color: var(--fill-primary, #242428); }
@@ -962,14 +947,11 @@ const READER_STYLES = `
   .rfz-limit:first-child { border-radius: 5px 0 0 5px; }
   .rfz-limit:last-child { border-right: 1px solid var(--material-border, #c5c5c8); border-radius: 0 5px 5px 0; }
   .rfz-limit[aria-pressed="true"] { color: #154e9f; background: #dce8fb; }
-  .rfz-selection-toolbar { gap: 7px; min-height: 39px; padding: 6px 9px; border-bottom: 1px solid var(--material-border, #d6d6d9); background: #f5f7fb; font-size: 13px; }
-  .rfz-select-all { display: inline-flex; align-items: center; gap: 5px; border: 0; padding: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
-  .rfz-checkbox-box, .rfz-paper-checkbox { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--material-border, #8d8d94); border-radius: 3px; padding: 0; color: #fff; background: var(--material-background, #fff); font: 700 12px/1 sans-serif; }
-  .rfz-select-all[aria-checked="true"] .rfz-checkbox-box, .rfz-select-all[aria-checked="mixed"] .rfz-checkbox-box, .rfz-paper-checkbox[aria-checked="true"] { border-color: var(--rfz-accent); background: var(--rfz-accent); }
+  .rfz-paper-checkbox { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; border: 1px solid var(--material-border, #8d8d94); border-radius: 3px; padding: 0; color: #fff; background: var(--material-background, #fff); font: 700 12px/1 sans-serif; }
+  .rfz-paper-checkbox[aria-checked="true"] { border-color: var(--rfz-accent); background: var(--rfz-accent); }
   .rfz-checkbox-mark { opacity: 0; }
-  .rfz-select-all[aria-checked="true"] .rfz-checkbox-mark, .rfz-select-all[aria-checked="mixed"] .rfz-checkbox-mark, .rfz-paper-checkbox[aria-checked="true"] .rfz-checkbox-mark { opacity: 1; }
-  .rfz-select-all:disabled, .rfz-paper-checkbox:disabled { opacity: 0.5; cursor: default; }
-  .rfz-selection-summary { margin-left: auto; color: var(--fill-secondary, #6a6a70); font-size: inherit; }
+  .rfz-paper-checkbox[aria-checked="true"] .rfz-checkbox-mark { opacity: 1; }
+  .rfz-paper-checkbox:disabled { opacity: 0.5; cursor: default; }
   .rfz-content { flex: 1; min-height: 0; overflow: auto; }
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
@@ -977,8 +959,8 @@ const READER_STYLES = `
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
   .rfz-paper-checkbox { grid-column: 1; margin: 1px 0 0; cursor: pointer; }
   .rfz-paper-main { grid-column: 3; min-width: 0; width: 100%; }
-  .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 11px; }
-  .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 12px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
+  .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 13px; }
+  .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 13px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }

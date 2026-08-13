@@ -33,15 +33,53 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
 function findUnquotedMetadata(
   value: string,
 ): { authorRegion: string; title: string; venue?: string } | undefined {
+  const corporate = /^([^.,]{2,80})\.\s+(.+?)\.\s+(?=Preprint\s+at\b)/iu.exec(
+    value,
+  );
+  if (corporate) {
+    const afterTitle = value.slice(corporate[0].length);
+    return {
+      authorRegion: corporate[1]!,
+      title: corporate[2]!,
+      venue: extractVenue(afterTitle),
+    };
+  }
+
   const boundary = leadingFamilyNameAuthorsEnd(value);
   if (boundary === undefined) return undefined;
   const remainder = value.slice(boundary).replace(/^[\s,;]+/u, "");
-  const titleMatch = /^(.+?)\.(?:\s+|$)/u.exec(remainder);
-  if (!titleMatch?.[1]) return undefined;
-  const afterTitle = remainder.slice(titleMatch[0].length);
+  const chapter = /^in\s+(.+?)\s+\(eds?\b/iu.exec(remainder);
+  if (chapter?.[1]) {
+    return {
+      authorRegion: value.slice(0, boundary),
+      title: chapter[1],
+      venue: chapter[1],
+    };
+  }
+  const book =
+    /^(.+?)\s+\([^()]*(?:Press|Springer)[^()]*,\s*\d{4}\)\.?$/iu.exec(
+      remainder,
+    );
+  if (book?.[1] && !/[.!?]\s/u.test(book[1])) {
+    return {
+      authorRegion: value.slice(0, boundary),
+      title: book[1],
+    };
+  }
+  const titleMatch = /^(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)/u.exec(remainder);
+  const journalBoundary =
+    /^(.+?)\s+(?=(?:Nature|Science|Cell)\s+\d+\s*,\s*\d+)/u.exec(remainder);
+  const proceedingsBoundary = /^(.+?)\s+(?=In\s+Proc\.)/u.exec(remainder);
+  const match = [titleMatch, journalBoundary, proceedingsBoundary]
+    .filter((candidate): candidate is RegExpExecArray =>
+      Boolean(candidate?.[1]),
+    )
+    .sort((left, right) => left[1]!.length - right[1]!.length)[0];
+  if (!match?.[1]) return undefined;
+  const afterTitle = remainder.slice(match[0].length);
   return {
     authorRegion: value.slice(0, boundary),
-    title: titleMatch[1],
+    title: match[1],
     venue: extractVenue(afterTitle),
   };
 }

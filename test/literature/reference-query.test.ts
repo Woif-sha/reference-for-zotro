@@ -48,6 +48,9 @@ test("common unquoted author-title-venue entries use all three matching signals"
 
 test("Nature-style references remove the complete author and editor regions from titles", () => {
   const references = [
+    "Silver, D. et al. Mastering the game of go with deep neural networks and tree search Nature 529, 484–489 (2016).",
+    "Jumper, J. M. et al. Highly accurate protein structure prediction with AlphaFold. Nature 596, 583–589 (2021).",
+    "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
     "Friedman, J. H. Greedy function approximation: a gradient boosting machine. Ann. Stat 1189–1232 (2001).",
     "Chen, T. & Guestrin, C. Xgboost: A scalable tree boosting system. In Proc. 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (eds Krishnapuram, B. et al.) 785–794 (ACM Press, 2016)",
     "Ke, G. et al. Lightgbm: A highly efficient gradient boosting decision tree. In Proc. 30th International Conference on Advances in Neural Information Processing Systems (eds Guyon, I. et al.) 3149–3157 (Curran Associates, 2017)",
@@ -58,11 +61,37 @@ test("Nature-style references remove the complete author and editor regions from
   assert.deepEqual(
     references.map((reference) => parseReferenceQuery(reference).title),
     [
+      "Mastering the game of go with deep neural networks and tree search",
+      "Highly accurate protein structure prediction with AlphaFold",
+      "GPT-4 Technical Report",
       "Greedy function approximation: a gradient boosting machine",
       "Xgboost: A scalable tree boosting system",
       "Lightgbm: A highly efficient gradient boosting decision tree",
       "CatBoost: unbiased boosting with categorical features",
       "Distinctive image features from scale-invariant keypoints",
+    ],
+  );
+});
+
+test("Nature-style books, chapters, preprints and missing separators remain title-only", () => {
+  const references = [
+    "Goodfellow, I., Bengio, Y. & Courville, A. Deep Learning (MIT Press, 2016).",
+    "Pearl, J. Causality 2nd edn (Cambridge Univ. Press, 2009).",
+    "Jiang, M. et al. Investigating Data Contamination for Pre-training Language Models. Preprint at https://arxiv.org/abs/2401.06059 (2024)",
+    "Wilcoxon, F. in Breakthroughs in Statistics: Methodology and Distribution (eds Kotz, S. & Johnson, N. L.) 196–202 (Springer, 1992).",
+    "Caruana, R., Munson, A. & Niculescu-Mizil, A. Getting the most out of ensemble selection In Proc. 6th IEEE International Conference on Data Mining (eds Clifton, C. et al.) 828–833 (IEEE, 2006).",
+    "Feurer, M. et al. in Automated Machine Learning: Methods, Systems, Challenges (eds Hutter, F. et al.) Ch. 6 (Springer, 2019).",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => parseReferenceQuery(reference).title),
+    [
+      "Deep Learning",
+      "Causality 2nd edn",
+      "Investigating Data Contamination for Pre-training Language Models",
+      "Breakthroughs in Statistics: Methodology and Distribution",
+      "Getting the most out of ensemble selection",
+      "Automated Machine Learning: Methods, Systems, Challenges",
     ],
   );
 });

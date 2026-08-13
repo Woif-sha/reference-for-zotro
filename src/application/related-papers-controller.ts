@@ -390,16 +390,19 @@ export class RelatedPapersController implements ReaderSectionController {
     this.update({
       status: "ready",
       mineruDirectory: paper.mineruDirectory,
-      references: paper.entries.map((entry) => ({
-        id: `reference:${entry.ordinal}`,
-        ordinal: entry.ordinal,
-        title:
-          parseReferenceQuery(entry.lookupText).title ??
-          UNPARSED_REFERENCE_TITLE,
-        rawReference: entry.rawMarkdown,
-        status: "matching",
-        statusText: "Matching",
-      })),
+      references: paper.entries.map((entry) => {
+        const query = parseReferenceQuery(entry.lookupText);
+        return {
+          id: `reference:${entry.ordinal}`,
+          ordinal: entry.ordinal,
+          title: query.title ?? UNPARSED_REFERENCE_TITLE,
+          rawReference: entry.rawMarkdown,
+          venue: query.venue,
+          year: query.year?.toString(),
+          status: "matching",
+          statusText: "Matching",
+        };
+      }),
     });
 
     if (!options.bypassCache && this.ports.readCachedResults) {

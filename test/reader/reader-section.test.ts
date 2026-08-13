@@ -20,6 +20,7 @@ function readyState(): ReaderSectionState {
         ordinal: 0,
         title: "First reference",
         authors: "Alpha",
+        venue: "Journal of First Results",
         year: "2024",
         doi: "10.1000/first",
         status: "resolved",
@@ -33,6 +34,7 @@ function readyState(): ReaderSectionState {
         rawReference:
           "B. Author. Second reference. Available: https://example.test/second",
         authors: "Beta",
+        venue: "Proceedings of Second Tests",
         year: "2023",
         status: "unresolved",
       },
@@ -110,7 +112,17 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   );
   assert.doesNotMatch(
     root.querySelector('[data-paper-id="ref-1"]')?.textContent ?? "",
-    /Alpha|2024/u,
+    /Alpha/u,
+  );
+  assert.equal(
+    root.querySelector('[data-paper-id="ref-1"] [data-paper-metadata]')
+      ?.textContent,
+    "2024 · Journal of First Results",
+  );
+  assert.equal(
+    root.querySelector('[data-paper-id="ref-2"] [data-paper-metadata]')
+      ?.textContent,
+    "2023 · Proceedings of Second Tests",
   );
   assert.ok(
     [...root.querySelectorAll("input")].every(

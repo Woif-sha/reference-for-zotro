@@ -660,6 +660,7 @@ function renderContent(
             selectionMatchesPaper(state, entry, paper),
           ),
         );
+        const metadata = [paper.year, paper.venue].filter(Boolean).join(" · ");
         return `<li class="rfz-paper rfz-paper--${paper.status}${
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
@@ -667,7 +668,7 @@ function renderContent(
           <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
             <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
-            )}</div>${status}
+            )}</div>${metadata ? `<small class="rfz-paper-metadata" data-paper-metadata="" data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}
             ${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
           </div>
         </li>`;
@@ -834,7 +835,7 @@ function statusLabel(status: Exclude<PaperStatus, "resolved">): string {
   return {
     matching: "Matching",
     unresolved: "Unresolved",
-    ambiguous: "Ambiguous",
+    ambiguous: "匹配不唯一",
     "invalid-identifier": "Invalid identifier",
     unreachable: "Landing page unreachable",
     failed: "Failed",

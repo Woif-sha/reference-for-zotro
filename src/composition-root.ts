@@ -46,7 +46,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 13;
+export const PROVIDER_QUERY_VERSION = 14;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -212,12 +212,14 @@ export async function resolveReferenceEntry(
   fetchPort: FetchPort,
   context: ResolutionContext,
 ): Promise<ReaderPaper> {
+  const stable = extractStableIdentifiers(lookupText);
+  const query = parseReferenceQuery(lookupText);
   const present = (paper: ReaderPaper): ReaderPaper => ({
     ...paper,
     rawReference,
+    venue: paper.venue ?? query.venue,
+    year: paper.year ?? query.year?.toString(),
   });
-  const stable = extractStableIdentifiers(lookupText);
-  const query = parseReferenceQuery(lookupText);
   const displayTitle = query.title?.trim() ?? UNPARSED_REFERENCE_TITLE;
   const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
   if (malformedIdentifier) {

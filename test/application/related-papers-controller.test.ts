@@ -52,6 +52,8 @@ test("Reference entries show parsed titles before matching and after a failure",
     controller.getState().references[0]?.title,
     "GPT-4 Technical Report",
   );
+  assert.equal(controller.getState().references[0]?.year, "2023");
+  assert.equal(controller.getState().references[0]?.venue, "Preprint at");
   assert.equal(
     controller.getState().mineruDirectory,
     "E:\\ZoteroData\\llm-for-zotero-mineru\\42",

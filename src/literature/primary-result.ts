@@ -31,6 +31,8 @@ export function selectPrimaryResult(
     )
     .sort(
       (left, right) =>
+        publisherAuthority(right.candidate) -
+          publisherAuthority(left.candidate) ||
         AUTHORITY[right.candidate.source] - AUTHORITY[left.candidate.source] ||
         Number(Boolean(right.candidate.fullTextURL)) -
           Number(Boolean(left.candidate.fullTextURL)) ||
@@ -40,6 +42,21 @@ export function selectPrimaryResult(
           right.candidate.sourceRecordID,
         ),
     )[0]?.candidate;
+}
+
+function publisherAuthority(candidate: ScholarlyCandidate): number {
+  const doi = candidate.identifiers.doi?.toLowerCase() ?? "";
+  const landingURL = candidate.landingURL?.toLowerCase() ?? "";
+  if (
+    doi.startsWith("10.1109/") ||
+    landingURL.includes("ieeexplore.ieee.org")
+  ) {
+    return 2;
+  }
+  if (doi.startsWith("10.1145/") || landingURL.includes("dl.acm.org")) {
+    return 2;
+  }
+  return 0;
 }
 
 export function hasRequiredResolutionMetadata(

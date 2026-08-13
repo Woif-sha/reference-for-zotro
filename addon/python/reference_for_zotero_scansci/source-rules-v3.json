@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 3,
+  "sourceRulesVersion": 3,
+  "routes": [
+    {
+      "id": "arxiv",
+      "enabled": true,
+      "kind": "open-access",
+      "allowedHosts": ["arxiv.org", "export.arxiv.org"]
+    },
+    {
+      "id": "pmc",
+      "enabled": true,
+      "kind": "open-access",
+      "allowedHosts": ["www.ncbi.nlm.nih.gov", "pmc.ncbi.nlm.nih.gov"]
+    },
+    {
+      "id": "institution-browser",
+      "enabled": false,
+      "kind": "institution",
+      "allowedHosts": [],
+      "disabledReason": "Institution browser route is disabled pending strict-TLS, source, egress, Windows, and Zotero acceptance"
+    }
+  ],
+  "prohibitedSources": [
+    "scihub",
+    "libgen",
+    "scibban",
+    "tor",
+    "proxy-pool",
+    "vpnsci",
+    "unknown"
+  ],
+  "forcedPolicy": {
+    "strategy": "legal_only",
+    "scihubEnabled": false,
+    "useTor": false,
+    "useVpnsci": false
+  },
+  "removedEnvironment": [
+    "ALL_PROXY",
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "NO_PROXY",
+    "all_proxy",
+    "https_proxy",
+    "http_proxy",
+    "no_proxy",
+    "PIP_CONFIG_FILE",
+    "PIP_EXTRA_INDEX_URL",
+    "PIP_INDEX_URL",
+    "PIP_TRUSTED_HOST",
+    "PIP_CERT",
+    "PIP_CLIENT_CERT",
+    "PIP_PROXY",
+    "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE",
+    "SSL_CERT_FILE",
+    "SCANSCI_PDF_PROXY",
+    "CLOAKBROWSER_LICENSE_KEY",
+    "CLOAKBROWSER_BINARY_PATH",
+    "CLOAKBROWSER_DOWNLOAD_URL"
+  ]
+}

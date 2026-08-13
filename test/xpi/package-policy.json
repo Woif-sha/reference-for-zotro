@@ -1,0 +1,58 @@
+{
+  "allowedTopLevel": [
+    "NOTICE",
+    "bootstrap.js",
+    "chrome",
+    "locale",
+    "manifest.json",
+    "python"
+  ],
+  "forbiddenPathSegments": [
+    ".git",
+    "__pycache__",
+    "_core",
+    "browser-profile",
+    "component_crx_cache",
+    "cookies",
+    "diagnostics",
+    "extensions_crx_cache",
+    "scansci_pdf",
+    "scanscicache",
+    "test",
+    "tests",
+    "tokens",
+    "venv"
+  ],
+  "forbiddenNameFragments": [
+    ".env",
+    "api-key",
+    "apikey",
+    "browsermetrics-spare.pma",
+    "credentials",
+    "grshadercache",
+    "graphitedawncache",
+    "local state",
+    "password",
+    "secret",
+    "shadercache"
+  ],
+  "forbiddenSuffixes": [
+    ".bak",
+    ".bin",
+    ".dll",
+    ".dylib",
+    ".exe",
+    ".log",
+    ".pak",
+    ".pdf",
+    ".pyc",
+    ".pyd",
+    ".so",
+    ".tmp",
+    ".zip"
+  ],
+  "maxMembers": 512,
+  "maxMemberBytes": 16777216,
+  "maxUncompressedBytes": 67108864,
+  "maxCompressionRatio": 100
+}

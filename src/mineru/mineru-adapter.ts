@@ -3,7 +3,11 @@ import {
   type MinerUIdentity,
   type ReferenceEntry,
 } from "../domain/reference";
-import { parseReferenceEntries } from "./reference-parser";
+import {
+  normalizeReferenceEntries,
+  parseReferenceEntries,
+  type ReferenceNormalization,
+} from "./reference-parser";
 
 const CACHE_ROOT_NAME = "llm-for-zotero-mineru";
 const SOURCE_FILENAME = "_llm_source.json";
@@ -41,6 +45,7 @@ export type MinerUPorts = Readonly<{
     join(...segments: string[]): string;
     exists(path: string): Promise<boolean>;
     readUtf8(path: string): Promise<MinerUReadResult>;
+    writeUtf8(path: string, text: string): Promise<void>;
   }>;
   sha256(text: string): Promise<string>;
 }>;
@@ -89,9 +94,26 @@ export async function loadMineruReferences(
   }
 
   const firstRead = await readRequiredFiles(paths, ports);
-  validateCache(firstRead, identity);
-  const fullMarkdown = firstRead[1]!.text;
-  const entries = parseReferenceEntries(fullMarkdown, firstRead[3]!.text);
+  const normalization = normalizeReferenceEntries(
+    firstRead[1]!.text,
+    firstRead[3]!.text,
+  );
+  const normalizedManifest = normalizeManifest(
+    firstRead[2]!.text,
+    normalization,
+  );
+  const normalizedRead = [
+    firstRead[0]!,
+    { ...firstRead[1]!, text: normalization.fullMarkdown },
+    { ...firstRead[2]!, text: normalizedManifest },
+    { ...firstRead[3]!, text: normalization.contentListJson },
+  ] as const;
+  validateCache(normalizedRead, identity);
+  const fullMarkdown = normalization.fullMarkdown;
+  const entries = parseReferenceEntries(
+    fullMarkdown,
+    normalization.contentListJson,
+  );
   let fullMdSha256: string;
   let sourceFingerprint: string;
   try {
@@ -101,8 +123,8 @@ export async function loadMineruReferences(
         [
           firstRead[0]!.text,
           fullMarkdown,
-          firstRead[2]!.text,
-          firstRead[3]!.text,
+          normalizedManifest,
+          normalization.contentListJson,
         ].join("\0"),
       ),
     ]);
@@ -123,6 +145,7 @@ export async function loadMineruReferences(
   if (!sameIdentity(identity, currentIdentity)) {
     throw invalidCache("The current Reader attachment changed while loading");
   }
+  await persistNormalization(paths, firstRead, normalizedRead, ports);
 
   return {
     identity,
@@ -131,6 +154,66 @@ export async function loadMineruReferences(
     sourceFingerprint,
     entries,
   };
+}
+
+function normalizeManifest(
+  manifestJson: string,
+  normalization: ReferenceNormalization,
+): string {
+  const manifest = parseObject(manifestJson);
+  if (manifest.totalChars === normalization.fullMarkdown.length) {
+    return manifestJson;
+  }
+  const inferredMarker = normalization.inferredMarker;
+  if (
+    !inferredMarker ||
+    manifest.totalChars !==
+      normalization.fullMarkdown.length - inferredMarker.length ||
+    !Array.isArray(manifest.sections)
+  ) {
+    return manifestJson;
+  }
+
+  const sections = manifest.sections.map((section) => {
+    if (!section || typeof section !== "object" || Array.isArray(section)) {
+      return section;
+    }
+    let charStart = (section as Record<string, unknown>).charStart;
+    let charEnd = (section as Record<string, unknown>).charEnd;
+    if (!Number.isInteger(charStart) || !Number.isInteger(charEnd)) {
+      return section;
+    }
+    if ((charStart as number) > inferredMarker.position) {
+      charStart = (charStart as number) + inferredMarker.length;
+      charEnd = (charEnd as number) + inferredMarker.length;
+    } else if ((charEnd as number) > inferredMarker.position) {
+      charEnd = (charEnd as number) + inferredMarker.length;
+    }
+    return { ...section, charStart, charEnd };
+  });
+
+  return JSON.stringify({
+    ...manifest,
+    totalChars: normalization.fullMarkdown.length,
+    sections,
+  });
+}
+
+async function persistNormalization(
+  paths: readonly string[],
+  original: readonly MinerUReadResult[],
+  normalized: readonly MinerUReadResult[],
+  ports: MinerUPorts,
+): Promise<void> {
+  const writeOrder = [1, 2, 3] as const;
+  try {
+    for (const index of writeOrder) {
+      if (original[index]!.text === normalized[index]!.text) continue;
+      await ports.files.writeUtf8(paths[index]!, normalized[index]!.text);
+    }
+  } catch {
+    throw invalidCache("The MinerU Reference cache could not be normalized");
+  }
 }
 
 function resolveIdentity(

@@ -39,14 +39,22 @@ import {
 } from "./platform/zotero-runtime";
 import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
+import type { DownloadSettingsController } from "./application/download-settings";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
-const PROVIDER_SCHEMA_VERSION = 2;
+export const PROVIDER_SCHEMA_VERSION = 4;
 export const PROVIDER_QUERY_VERSION = 8;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
-export function createReaderControllerFactory(): ReaderControllerFactory {
+export type ReaderDownloadDependencies = Readonly<{
+  downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
+  downloadSetup?: DownloadSettingsController;
+}>;
+
+export function createReaderControllerFactory(
+  downloadDependencies: ReaderDownloadDependencies = {},
+): ReaderControllerFactory {
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
@@ -148,10 +156,26 @@ export function createReaderControllerFactory(): ReaderControllerFactory {
             context.signal,
           );
         },
+        translationCapability() {
+          return translation.capability();
+        },
         translateSelection(text, itemID) {
           return translation.translate(text, {
             pluginID: PLUGIN_ID,
             itemID,
+          });
+        },
+        ...(downloadDependencies.downloadPapers
+          ? { downloadPapers: downloadDependencies.downloadPapers }
+          : {}),
+        ...(downloadDependencies.downloadSetup
+          ? { downloadSetup: downloadDependencies.downloadSetup }
+          : {}),
+        revealDownloadedFile(savedPath) {
+          void Zotero.File.reveal(savedPath).catch((error: unknown) => {
+            Zotero.logError(
+              error instanceof Error ? error : new Error(String(error)),
+            );
           });
         },
         copyText(text) {
@@ -221,6 +245,7 @@ export async function resolveReferenceEntry(
         landing.url,
         deterministic.matchedBy,
         landing.metadata,
+        query.identifiers,
       );
     }
     return unresolvedPaper(
@@ -346,13 +371,14 @@ function directLandingToReaderPaper(
   landingURL: string,
   matchedBy: "trusted-source-url" | "arxiv" | "ieee-article-number" | "doi",
   metadata: TrustedLandingMetadata,
+  identifiers: Readonly<{ arxiv?: string; pmcid?: string }>,
 ): ReaderPaper {
   const metadataIncomplete =
     metadata.authors.length === 0 ||
     metadata.publicationYear === undefined ||
     !metadata.venue;
   return {
-    id: metadata.doi ?? `reference:${ordinal}`,
+    id: `reference:${ordinal}`,
     ordinal,
     title: metadata.title ?? fallbackTitle,
     authors:
@@ -364,6 +390,8 @@ function directLandingToReaderPaper(
     primaryResultURL: landingURL,
     matchedBy,
     doi: metadata.doi,
+    arxivID: identifiers.arxiv,
+    pmcid: identifiers.pmcid,
     source: "trusted-source",
     sourceRecordID: landingURL,
     retrievedAt: new Date().toISOString(),

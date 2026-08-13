@@ -535,6 +535,325 @@ test("current-generation persistent cache failures are visible", async () => {
   );
 });
 
+test("download selection accepts only confirmed papers, deduplicates identity, and preserves user order", async () => {
+  const sharedReference = {
+    id: "reference:shared",
+    ordinal: 0,
+    title: "Shared paper in References",
+    status: "resolved" as const,
+    primaryResultURL: "https://doi.org/10.1000/shared",
+    doi: "10.1000/shared",
+    arxivID: "2401.00001",
+  };
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      sharedReference,
+      {
+        id: "unresolved",
+        ordinal: 1,
+        title: "Unresolved reference",
+        status: "unresolved",
+      },
+    ],
+    loadCitingPapers: async () => [
+      {
+        ...sharedReference,
+        id: "citation:shared",
+        title: "Shared paper in Citations",
+      },
+      {
+        ...sharedReference,
+        id: "citation:conflicting-arxiv",
+        title: "Conflicting arXiv identity",
+        arxivID: "2401.99999",
+      },
+      {
+        id: "citation:second",
+        ordinal: 1,
+        title: "Second citing paper",
+        status: "resolved",
+        primaryResultURL: "https://example.test/second",
+      },
+    ],
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  controller.setPaperDownloadSelected("references", "unresolved", true);
+  controller.setPaperDownloadSelected("references", "reference:shared", true);
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 3);
+  controller.setTabDownloadSelected("citations", true);
+
+  assert.deepEqual(controller.getState().downloadSelection, [
+    { originTab: "references", paperID: "reference:shared" },
+    { originTab: "citations", paperID: "citation:conflicting-arxiv" },
+    { originTab: "citations", paperID: "citation:second" },
+  ]);
+
+  controller.setPaperDownloadSelected("citations", "citation:shared", false);
+  controller.setPaperDownloadSelected("references", "reference:shared", true);
+  assert.deepEqual(controller.getState().downloadSelection.at(-1), {
+    originTab: "references",
+    paperID: "reference:shared",
+  });
+});
+
+test("citation selection follows the visible 10/30/50 window without discarding hidden choices", async () => {
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => papers(50),
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 50);
+
+  controller.setTabDownloadSelected("citations", true);
+  assert.equal(controller.getState().downloadSelection.length, 10);
+  controller.setCitationLimit(30);
+  controller.setTabDownloadSelected("citations", true);
+  assert.deepEqual(
+    controller.getState().downloadSelection.map(({ paperID }) => paperID),
+    papers(30).map(({ id }) => id),
+  );
+
+  controller.setCitationLimit(10);
+  controller.setTabDownloadSelected("citations", false);
+  assert.deepEqual(
+    controller.getState().downloadSelection.map(({ paperID }) => paperID),
+    papers(30)
+      .slice(10)
+      .map(({ id }) => id),
+  );
+});
+
+test("download command snapshots selection and consumes one batch progress stream", async () => {
+  const finish = deferred<void>();
+  const started: string[] = [];
+  const revealed: string[] = [];
+  const papersToResolve = [
+    {
+      id: "reference:first",
+      ordinal: 0,
+      title: "First selected paper",
+      status: "resolved" as const,
+      primaryResultURL: "https://example.test/first",
+      doi: "10.1000/first",
+    },
+    {
+      id: "reference:second",
+      ordinal: 1,
+      title: "Second selected paper",
+      status: "resolved" as const,
+      primaryResultURL: "https://example.test/second",
+    },
+  ];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => papersToResolve,
+    loadCitingPapers: async () => [
+      {
+        ...papersToResolve[0]!,
+        id: "citation:first",
+      },
+    ],
+    async downloadPapers({ papers, onProgress }) {
+      started.push(...papers.map(({ id }) => id));
+      onProgress({
+        paperID: papers[0]!.id,
+        result: { status: "downloaded", savedPath: "E:\\paper\\First.pdf" },
+      });
+      await finish.promise;
+      const second = {
+        paperID: papers[1]!.id,
+        result: {
+          status: "failed" as const,
+          error: "publisher rejected https://publisher.test/file",
+        },
+      };
+      onProgress(second);
+      return [
+        {
+          paperID: papers[0]!.id,
+          result: {
+            status: "downloaded" as const,
+            savedPath: "E:\\paper\\First.pdf",
+          },
+        },
+        second,
+      ];
+    },
+    revealDownloadedFile: (path) => revealed.push(path),
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  controller.setPaperDownloadSelected("references", "reference:first", true);
+  controller.setPaperDownloadSelected("references", "reference:second", true);
+
+  const run = controller.downloadSelected();
+  assert.deepEqual(started, ["reference:first", "reference:second"]);
+  assert.equal(controller.getState().downloadInProgress, true);
+  assert.deepEqual(
+    controller.getState().paperDownloads.map(({ status }) => status),
+    ["downloaded", "downloading"],
+  );
+
+  controller.setPaperDownloadSelected("references", "reference:second", false);
+  finish.resolve();
+  await run;
+
+  assert.equal(controller.getState().downloadInProgress, false);
+  assert.deepEqual(controller.getState().paperDownloads, [
+    {
+      originTab: "references",
+      paperID: "reference:first",
+      status: "downloaded",
+      savedPath: "E:\\paper\\First.pdf",
+    },
+    {
+      originTab: "references",
+      paperID: "reference:second",
+      status: "failed",
+      error: "publisher rejected https://publisher.test/file",
+    },
+  ]);
+
+  controller.openDownloadedFolder("reference:first");
+  controller.openDownloadedFolder("reference:second");
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 1);
+  controller.openDownloadedFolder("citation:first");
+  assert.deepEqual(revealed, ["E:\\paper\\First.pdf", "E:\\paper\\First.pdf"]);
+});
+
+test("a sidecar download failure leaves relationships, landing pages, details, and translation usable", async () => {
+  const opened: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        id: "10.1000/one",
+        ordinal: 0,
+        title: "Confirmed paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/one",
+      },
+    ],
+    loadCitingPapers: async () => [
+      {
+        id: "10.1000/citing",
+        ordinal: 0,
+        title: "Citing paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/citing",
+        doi: "10.1000/citing",
+      },
+    ],
+    async downloadPapers() {
+      throw new Error("ScanSci sidecar probe failed");
+    },
+    translateSelection: async (text) => `translated:${text}`,
+    openURL: (url) => opened.push(url),
+  });
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  await waitFor(() => controller.getState().citingPapers.length === 1);
+  controller.setPaperDownloadSelected("references", "10.1000/one", true);
+
+  await controller.downloadSelected();
+
+  assert.equal(controller.getState().status, "ready");
+  assert.equal(controller.getState().references[0]?.title, "Confirmed paper");
+  assert.equal(controller.getState().citingPapers[0]?.title, "Citing paper");
+  assert.deepEqual(controller.getState().paperDownloads, [
+    {
+      originTab: "references",
+      paperID: "10.1000/one",
+      status: "failed",
+      error: "ScanSci sidecar probe failed",
+    },
+  ]);
+  controller.openPaper("10.1000/one");
+  controller.openPaper("10.1000/citing");
+  controller.selectPaper("10.1000/one");
+  assert.deepEqual(opened, [
+    "https://doi.org/10.1000/one",
+    "https://doi.org/10.1000/citing",
+  ]);
+  assert.equal(controller.getState().selectedPaperID, "10.1000/one");
+  assert.equal(
+    await controller.translateSelection("Academic text"),
+    "translated:Academic text",
+  );
+});
+
+test("paper refresh cancels the active sidecar batch", async () => {
+  const replacementLoad = deferred<LoadedPaper>();
+  const started: string[] = [];
+  let downloadSignal: AbortSignal | undefined;
+  let loadCount = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => {
+      loadCount += 1;
+      return loadCount === 1 ? loadedPaper : replacementLoad.promise;
+    },
+    resolveReferences: async () => [
+      {
+        id: "reference:first",
+        ordinal: 0,
+        title: "First selected paper",
+        status: "resolved",
+        primaryResultURL: "https://example.test/first",
+      },
+      {
+        id: "reference:second",
+        ordinal: 1,
+        title: "Second selected paper",
+        status: "resolved",
+        primaryResultURL: "https://example.test/second",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    downloadPapers({ papers, signal }) {
+      started.push(...papers.map(({ id }) => id));
+      downloadSignal = signal;
+      return new Promise((_, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  controller.setPaperDownloadSelected("references", "reference:first", true);
+  controller.setPaperDownloadSelected("references", "reference:second", true);
+
+  const run = controller.downloadSelected();
+  controller.refresh();
+  assert.equal(controller.getState().status, "loading");
+  assert.equal(controller.getState().downloadInProgress, true);
+  assert.deepEqual(controller.getState().downloadSelection, []);
+  assert.deepEqual(controller.getState().paperDownloads, []);
+
+  await run;
+  assert.equal(downloadSignal?.aborted, true);
+  assert.deepEqual(started, ["reference:first", "reference:second"]);
+  assert.equal(controller.getState().downloadInProgress, false);
+  assert.deepEqual(controller.getState().paperDownloads, []);
+
+  replacementLoad.resolve({
+    ...loadedPaper,
+    sourceFingerprint: "replacement-fingerprint",
+  });
+  await waitFor(() => controller.getState().status === "ready");
+});
+
 type ReaderPaperResult = Awaited<
   ReturnType<RelatedPapersPorts["resolveReferences"]>
 >[number];

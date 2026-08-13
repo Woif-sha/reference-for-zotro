@@ -53,6 +53,11 @@ export function createZoteroMinerUPorts(): MinerUPorts {
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         return { text, revision: `${bytes.byteLength}:${await sha256(text)}` };
       },
+      async writeUtf8(path, text): Promise<void> {
+        await io.write(path, new TextEncoder().encode(text), {
+          tmpPath: `${path}.rfz-normalizing-${nextMinerUWriteID++}`,
+        });
+      },
     },
     sha256,
   };
@@ -133,6 +138,7 @@ export function createZoteroCacheStorage(): CacheStorage {
 }
 
 let nextCacheWriteID = 1;
+let nextMinerUWriteID = 1;
 
 export function createPaperTranslateBridge(): PaperTranslateBridge {
   return new PaperTranslateBridge(

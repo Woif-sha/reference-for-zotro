@@ -108,7 +108,8 @@ export function registerReaderSection(options: {
     onRender({ body, item, tabType, setEnabled }) {
       renderBody(body, item, tabType, setEnabled);
     },
-    onItemChange({ tabType, setEnabled }) {
+    onItemChange({ body, tabType, setEnabled }) {
+      destroyBody(body);
       setEnabled(tabType === "reader");
     },
     onDestroy({ body }) {

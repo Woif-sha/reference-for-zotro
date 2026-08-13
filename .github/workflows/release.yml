@@ -29,6 +29,11 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
       - name: Install dependencies
         run: npm ci
 
@@ -39,35 +44,28 @@ jobs:
           if (process.env.GITHUB_REF_NAME !== expected) {
             console.error('Release tag must equal ' + expected);
             process.exit(1);
+          }
+          const name = require('./package.json').config.addonName;
+          if (name.includes('(Second-stage Test)')) {
+            console.error('The second-stage test build cannot be published as a release.');
+            process.exit(1);
           }"
 
-      - name: Run tests
-        run: npm test
-
-      - name: Check types
-        run: npm run typecheck
-
-      - name: Lint source and tests
-        run: npm run lint
-
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Check workflow formatting
-        run: npx prettier --check ".github/workflows/*.yml"
-
-      - name: Build production XPI
-        run: npm run build
+      - name: Run complete source and artifact gate
+        run: npm run verify
 
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="$GITHUB_REF_NAME"
-          assets=(
-            build/reference-for-zotero.xpi
-            build/update.json
-          )
+          mapfile -t xpis < <(find build -maxdepth 1 -type f -name '*.xpi' -print)
+          mapfile -t updates < <(find build -maxdepth 1 -type f -name 'update.json' -print)
+          if [ "${#xpis[@]}" -ne 1 ] || [ "${#updates[@]}" -ne 1 ]; then
+            echo "Release requires exactly one audited XPI and update.json." >&2
+            exit 1
+          fi
+          assets=("${xpis[0]}" "${updates[0]}")
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber

@@ -1,4 +1,5 @@
 import { matchScholarlyCandidates, type MatchablePaper } from "./matching";
+import { normalizeDoi } from "./identifiers";
 import {
   hasRequiredResolutionMetadata,
   selectPrimaryResult,
@@ -16,7 +17,6 @@ import {
   sortCitationEdges,
   type CitationEdge,
 } from "./providers/opencitations";
-import { normalizeDoi } from "./providers/parse";
 import {
   ProviderError,
   type ProviderErrorCode,

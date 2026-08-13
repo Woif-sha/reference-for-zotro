@@ -22,15 +22,6 @@ export function firstString(value: unknown): string | undefined {
   return asString(asArray(value)[0]);
 }
 
-export function normalizeDoi(value: string | undefined): string | undefined {
-  return value
-    ?.replace(/^https?:\/\/doi\.org\//iu, "")
-    .replace(/^doi:\s*/iu, "")
-    .normalize("NFKC")
-    .trim()
-    .toLowerCase();
-}
-
 export function isoYear(value: unknown): number | undefined {
   const number = asNumber(value);
   if (number && number >= 1000 && number <= 9999) return number;

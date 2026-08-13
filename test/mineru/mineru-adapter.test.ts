@@ -48,6 +48,109 @@ test("loads references when MinerU classifies the heading as a page header", asy
   );
 });
 
+test("silently numbers an unmarked Reference entry and persists one consistent cache", async () => {
+  const unmarked =
+    "Prokhorenkova, L. et al. CatBoost: unbiased boosting with categorical features.";
+  const fullMarkdown = [
+    "## References",
+    "8. LightGBM",
+    unmarked,
+    "10. SIFT",
+  ].join("\n");
+  const files = validFiles(fullMarkdown);
+  const contentListPath = `${CACHE_DIRECTORY}/content_list.json`;
+  files[contentListPath] = {
+    text: JSON.stringify([
+      { type: "ref_text", text: "8. LightGBM" },
+      { type: "ref_text", text: unmarked },
+      { type: "ref_text", text: "10. SIFT" },
+    ]),
+    revision: "content-list-with-missing-marker",
+  };
+  const base = createPorts(files);
+  const writes: string[] = [];
+  const ports: MinerUPorts = {
+    ...base,
+    files: {
+      ...base.files,
+      async writeUtf8(path, text) {
+        writes.push(path);
+        await base.files.writeUtf8(path, text);
+      },
+    },
+  };
+
+  const result = await loadMineruReferences(ATTACHMENT_ID, ports);
+
+  assert.deepEqual(
+    result.entries.map(({ sourceLabel, rawMarkdown, lookupText }) => ({
+      sourceLabel,
+      rawMarkdown,
+      lookupText,
+    })),
+    [
+      {
+        sourceLabel: "8",
+        rawMarkdown: "8. LightGBM",
+        lookupText: "LightGBM",
+      },
+      {
+        sourceLabel: "9",
+        rawMarkdown: `9. ${unmarked}`,
+        lookupText: unmarked,
+      },
+      { sourceLabel: "10", rawMarkdown: "10. SIFT", lookupText: "SIFT" },
+    ],
+  );
+  assert.equal(
+    files[`${CACHE_DIRECTORY}/full.md`]?.text,
+    fullMarkdown.replace(unmarked, `9. ${unmarked}`),
+  );
+  assert.deepEqual(JSON.parse(files[contentListPath]!.text), [
+    { type: "ref_text", text: "8. LightGBM" },
+    { type: "ref_text", text: `9. ${unmarked}` },
+    { type: "ref_text", text: "10. SIFT" },
+  ]);
+  assert.deepEqual(
+    JSON.parse(files[`${CACHE_DIRECTORY}/manifest.json`]!.text),
+    {
+      totalChars: fullMarkdown.length + 3,
+      sections: [{ charStart: 0, charEnd: fullMarkdown.length + 3 }],
+    },
+  );
+  assert.deepEqual(writes, [
+    `${CACHE_DIRECTORY}/full.md`,
+    `${CACHE_DIRECTORY}/manifest.json`,
+    `${CACHE_DIRECTORY}/content_list.json`,
+  ]);
+
+  await loadMineruReferences(ATTACHMENT_ID, ports);
+  assert.equal(writes.length, 3);
+});
+
+test("does not guess an unmarked Reference number without a unique sequence", async () => {
+  const fullMarkdown = [
+    "## References",
+    "1. First",
+    "Unmarked reference",
+    "4. Fourth",
+  ].join("\n");
+  const files = validFiles(fullMarkdown);
+  files[`${CACHE_DIRECTORY}/content_list.json`] = {
+    text: JSON.stringify([
+      { type: "ref_text", text: "1. First" },
+      { type: "ref_text", text: "Unmarked reference" },
+      { type: "ref_text", text: "4. Fourth" },
+    ]),
+    revision: "content-list-with-ambiguous-marker",
+  };
+
+  await assertRejectsWithCode(
+    loadMineruReferences(ATTACHMENT_ID, createPorts(files)),
+    "references-entry-structure-unsupported",
+  );
+});
+
 test("loads references only from the validated current attachment MinerU cache", async () => {
   const fullMarkdown = "## References\n[1] First paper\n[2] Second paper";
   const files = validFiles(fullMarkdown);
@@ -469,6 +572,9 @@ function createPorts(files: Record<string, MinerUReadResult>): MinerUPorts {
         const result = files[path];
         if (!result) throw new Error(`Unexpected read: ${path}`);
         return result;
+      },
+      writeUtf8: async (path, text) => {
+        files[path] = { text, revision: `written:${text.length}` };
       },
     },
     sha256: async () => "known-full-md-sha256",

@@ -70,9 +70,7 @@ export function candidateToReaderPaper(
     throw new Error("Resolved paper has no verified Paper landing page");
   }
   return {
-    id:
-      candidate.identifiers.doi ??
-      `${candidate.source}:${candidate.sourceRecordID}`,
+    id: `${candidate.source}:${candidate.sourceRecordID}:${ordinal}`,
     ordinal,
     title: candidate.title ?? candidate.sourceRecordID,
     authors:
@@ -89,6 +87,8 @@ export function candidateToReaderPaper(
     primaryResultURL: candidate.landingURL,
     matchedBy,
     doi: candidate.identifiers.doi,
+    arxivID: candidate.identifiers.arxiv,
+    pmcid: candidate.identifiers.pmcid,
     abstract: stripMarkup(candidate.abstract),
     abstractSource: candidate.abstractSource,
     citationCount: candidate.citationCount ?? undefined,

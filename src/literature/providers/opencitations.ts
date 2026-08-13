@@ -1,4 +1,5 @@
-import { asRecord, asString, isoYear, normalizeDoi } from "./parse";
+import { normalizeDoi } from "../identifiers";
+import { asRecord, asString, isoYear } from "./parse";
 import { getJson } from "./transport";
 import {
   ProviderError,

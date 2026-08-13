@@ -15,6 +15,7 @@ POLICY_PATH = REPOSITORY / "test" / "xpi" / "package-policy.json"
 PACKAGE_METADATA = json.loads((REPOSITORY / "package.json").read_text(encoding="utf-8"))
 EXPECTED_ADDON_NAME = PACKAGE_METADATA["config"]["addonName"]
 EXPECTED_ADDON_VERSION = PACKAGE_METADATA["version"]
+EXPECTED_XPI_FILENAME = "reference-for-zotero.xpi"
 REQUIRED_ASSETS = {
     "NOTICE",
     "python/reference_for_zotero_scansci/__init__.py",
@@ -192,6 +193,10 @@ def main() -> None:
     if len(archives) != 1:
         raise SystemExit(
             f"Expected exactly one built XPI in {BUILD_DIRECTORY}, found {len(archives)}"
+        )
+    if archives[0].name != EXPECTED_XPI_FILENAME:
+        raise SystemExit(
+            f"Expected XPI filename {EXPECTED_XPI_FILENAME}, found {archives[0].name}"
         )
     try:
         summary = audit_archive(archives[0])

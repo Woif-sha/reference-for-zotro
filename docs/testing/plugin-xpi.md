@@ -1,6 +1,6 @@
-# 第二阶段测试 XPI 验收说明
+# 正式插件 XPI 测试说明
 
-本说明只适用于 `Reference for Zotero (Second-stage Test)` 1.1.0-beta.1。该 XPI 使用正式插件 ID 覆盖安装。Zotero 的 bootstrap 插件清单校验要求保留 `update_url`，但本任务不发布对应的 `update-beta.json`、Git tag 或 GitHub Release，因此没有可供该测试包获取的自动更新元数据。
+本说明适用于使用正式名称和插件 ID 构建的 `Reference for Zotero` 1.1.0-beta.1 修改测试包。Zotero 的 bootstrap 插件清单校验要求保留 `update_url`，但未发布对应的 `update-beta.json`、Git tag 或 GitHub Release 时，该测试包没有可用的自动更新元数据。
 
 本说明用于功能集合完成后的最终集成验收，不作为每个实现 ticket 的关闭门禁。各实现 ticket 仍须通过自动化测试、静态检查、构建与 XPI 内容审计；真实 Zotero 9 的安装和 Reader/XUL/XML 人工检查集中在最终验收 ticket 执行一次，除非某个 issue 明确另有要求。
 
@@ -13,7 +13,7 @@
 
 ## 首次使用
 
-1. 运行 `npm ci`、`npm test`、`npm run build` 和 `npm run audit:scansci-xpi`。Windows 上可再运行 `pwsh -File test/xpi/zotero-installability.ps1 -XpiPath build/reference-for-zotero-second-stage-test.xpi -ZoteroPath <zotero.exe>`，确认真实 Zotero 接受清单；随后安装 XPI 并完全重启 Zotero。
+1. 运行 `npm ci`、`npm test`、`npm run build` 和 `npm run audit:scansci-xpi`。Windows 上可再运行 `pwsh -File test/xpi/zotero-installability.ps1 -XpiPath build/reference-for-zotero.xpi -ZoteroPath <zotero.exe>`，确认真实 Zotero 接受清单；随后安装 XPI 并完全重启 Zotero。
 2. 打开真实论文 PDF，在 Reader 的 Related Papers 区域确认 References/Citations 与第一阶段详情功能仍正常。
 3. Download destination 默认是 `E:\paper`。使用 Change folder 可调用原生目录选择器；Reset 恢复默认目录，不会出现独立设置页。
 4. 插件在后台自动探测已有 Python 3.11+ 兼容运行时，并以版本化 sidecar `probe` 校验 runtime identity、contract/result schema、upstream provenance、legal-only policy 和 route capability。
@@ -41,4 +41,4 @@ WebVPN → IEEE Xplore 目前仍为 unavailable candidate，Reader 不显示机�
 
 未来实现后，只有用户主动点击才能启动可见浏览器；插件不得读取、保存或记录登录凭据及会话内容。在真实审计完成前不得下载浏览器 runtime 或读取现有 profile。
 
-机构路线只有在 strict-TLS、完整 egress host allowlist、source evidence、Windows/Zotero 9 visible login 和合法单篇下载均通过后，才可在这一个测试 XPI 的 source-rules v3 中标记 enabled。
+机构路线只有在 strict-TLS、完整 egress host allowlist、source evidence、Windows/Zotero 9 visible login 和合法单篇下载均通过后，才可在测试 XPI 的 source-rules v3 中标记 enabled。

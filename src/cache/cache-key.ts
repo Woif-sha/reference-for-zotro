@@ -29,3 +29,15 @@ export function createLiteratureCacheKey(
     identity.normalizedRequestKey,
   ].join(":");
 }
+
+export function createLiteratureCacheDirectory(
+  identity: Pick<LiteratureCacheIdentity, "libraryID" | "attachmentKey">,
+): string {
+  if (!Number.isInteger(identity.libraryID) || identity.libraryID < 0) {
+    throw new Error("libraryID must be a non-negative integer");
+  }
+  if (!/^[A-Z0-9]+$/iu.test(identity.attachmentKey)) {
+    throw new Error("attachmentKey must contain only letters and numbers");
+  }
+  return `${identity.libraryID}-${identity.attachmentKey}`;
+}

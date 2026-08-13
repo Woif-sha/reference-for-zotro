@@ -48,16 +48,29 @@ test("an aborted staged write cannot overwrite the next generation cache", async
   try {
     const storage = createZoteroCacheStorage();
     const obsolete = new AbortController();
-    const firstWrite = storage.write("same-key", "obsolete", obsolete.signal);
+    const firstWrite = storage.write(
+      "1-ABCD1234",
+      cacheFiles("obsolete"),
+      obsolete.signal,
+    );
     await firstStageStarted.promise;
     obsolete.abort();
-    const secondWrite = storage.write("same-key", "current");
+    const secondWrite = storage.write("1-ABCD1234", cacheFiles("current"));
+    let readSettled = false;
+    const readDuringWrite = storage
+      .read("1-ABCD1234", "references.json")
+      .then((value) => {
+        readSettled = true;
+        return value;
+      });
+    await Promise.resolve();
+    assert.equal(readSettled, false);
     releaseFirstStage.resolve();
 
     await assert.rejects(firstWrite, { name: "AbortError" });
     await secondWrite;
 
-    assert.equal(await storage.read("same-key"), "current");
+    assert.equal(await readDuringWrite, "current");
     assert.equal(
       [...files.keys()].some((path) => path.includes(".pending-")),
       false,
@@ -65,8 +78,11 @@ test("an aborted staged write cannot overwrite the next generation cache", async
     assert.equal(
       touchedPaths.every(
         (path) =>
-          path === "C:\\Zotero\\reference-for-zotero-cache\\v1" ||
-          path.startsWith("C:\\Zotero\\reference-for-zotero-cache\\v1\\"),
+          path ===
+            "C:\\Zotero\\reference-for-zotero-cache\\v2\\papers\\1-ABCD1234" ||
+          path.startsWith(
+            "C:\\Zotero\\reference-for-zotero-cache\\v2\\papers\\1-ABCD1234\\",
+          ),
       ),
       true,
     );
@@ -77,6 +93,14 @@ test("an aborted staged write cannot overwrite the next generation cache", async
     });
   }
 });
+
+function cacheFiles(value: string) {
+  return {
+    "manifest.json": value,
+    "references.json": value,
+    "citations.json": value,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

@@ -31,8 +31,6 @@ function readyState(): ReaderSectionState {
         id: "ref-2",
         ordinal: 1,
         title: "Second reference",
-        rawReference:
-          "B. Author. Second reference. Available: https://example.test/second",
         authors: "Beta",
         venue: "Proceedings of Second Tests",
         year: "2023",
@@ -1252,11 +1250,10 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   mounted.destroy();
 });
 
-test("unresolved references open their raw entry with clickable web links", () => {
+test("unresolved references do not expose a second raw Reference projection", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
-  const opened: string[] = [];
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
@@ -1276,9 +1273,7 @@ test("unresolved references open their raw entry with clickable web links", () =
       },
       refresh() {},
       openPaper() {},
-      openReferenceURL(url) {
-        opened.push(url);
-      },
+      openReferenceURL() {},
       performPaperAction() {},
     },
   });
@@ -1289,20 +1284,7 @@ test("unresolved references open their raw entry with clickable web links", () =
     ) as HTMLButtonElement
   ).click();
 
-  const detailCard = dom.window.document.querySelector("[data-detail-card]");
-  assert.ok(detailCard);
-  assert.match(detailCard.textContent ?? "", /Reference 原始内容/u);
-  assert.match(
-    detailCard.querySelector("[data-raw-reference]")?.textContent ?? "",
-    /B\. Author\. Second reference/u,
-  );
-  const link = detailCard.querySelector(
-    '[data-reference-link="https://example.test/second"]',
-  ) as HTMLAnchorElement | null;
-  assert.ok(link);
-  assert.equal(link.href, "https://example.test/second");
-  link.click();
-  assert.deepEqual(opened, ["https://example.test/second"]);
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
   mounted.destroy();
 });
 

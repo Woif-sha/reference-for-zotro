@@ -15,7 +15,7 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   const authorBoundary = yearSeparated
     ? undefined
     : leadingAuthorsEnd(lookupText);
-  const quoted = findQuotedTitle(lookupText, authorBoundary);
+  const quoted = findQuotedTitle(lookupText);
   const unquoted =
     yearSeparated ??
     (quoted ? undefined : findUnquotedMetadata(lookupText, authorBoundary));
@@ -188,21 +188,15 @@ function leadingCorporateAuthorEnd(value: string): number | undefined {
 
 function findQuotedTitle(
   value: string,
-  authorBoundary: number | undefined,
 ): { title: string; start: number; end: number } | undefined {
-  const corporatePrefix = /^([\p{L}][\p{L} .&'’-]{0,79},)\s*(?=["“”])/u.exec(
-    value,
-  )?.[0].length;
-  const boundary = authorBoundary ?? corporatePrefix ?? 0;
-  const remainder = value.slice(boundary);
-  const match = /^[\s,.;:]*["“”]([^"“”]+)["“”]/u.exec(remainder);
+  const match = /(^|[,.;]\s*)["“”]([^"“”]+)["“”]/u.exec(value);
   if (!match) return undefined;
-  const leadingLength = match[0].indexOf(match[1]!);
-  const start = boundary + leadingLength - 1;
+  const prefixLength = match[1]?.length ?? 0;
+  const start = match.index + prefixLength;
   return {
-    title: match[1],
+    title: match[2]!,
     start,
-    end: boundary + match[0].length,
+    end: match.index + match[0].length,
   };
 }
 

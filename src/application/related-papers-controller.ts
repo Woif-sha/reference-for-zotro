@@ -401,7 +401,6 @@ export class RelatedPapersController implements ReaderSectionController {
           id: `reference:${entry.ordinal}`,
           ordinal: entry.ordinal,
           title: query.title ?? UNPARSED_REFERENCE_TITLE,
-          rawReference: entry.rawMarkdown,
           venue: query.venue,
           year: query.year?.toString(),
           status: "matching",

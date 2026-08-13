@@ -19,10 +19,7 @@ const loadedPaper: LoadedPaper = {
     {
       ordinal: 0,
       sourceLabel: "1",
-      rawMarkdown: "[1] doi:10.1000/one",
       lookupText: "doi:10.1000/one",
-      charStart: 0,
-      charEnd: 20,
     },
   ],
 };

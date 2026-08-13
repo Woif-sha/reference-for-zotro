@@ -32,6 +32,10 @@ _Avoid_: First search result, Best guess
 The required Markdown representation of the current paper produced by the user's `llm-for-zotero` MinerU workflow. Relationship exploration does not start until a valid MinerU Markdown exists.
 _Avoid_: OCR output, parsed PDF
 
+**Canonical Reference text**:
+The single normalized text of one Reference entry stored in MinerU Markdown and shared by every consuming plugin. There is no separate raw Reference projection.
+_Avoid_: Raw Reference, lookup copy
+
 **Download selection**:
 The ordered papers with confirmed identities that the user explicitly chooses for download in the current Reader section.
 _Avoid_: Text selection, Automatic download queue

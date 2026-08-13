@@ -79,6 +79,23 @@ test("a truncated IEEE author initial does not become the paper title", () => {
   assert.equal(result.year, 2009);
 });
 
+test("quoted titles do not depend on parsing a compound author surname", () => {
+  const result = parseReferenceQuery(
+    'H. Amrouch, V. M. van Santen, T. Ebi, V. Wenzel, and J. Henkel, "Towards interdependencies of aging mechanisms," in ICCAD, 2014.',
+  );
+
+  assert.equal(result.title, "Towards interdependencies of aging mechanisms");
+  assert.deepEqual(result.authors, [
+    "Amrouch",
+    "Santen",
+    "Ebi",
+    "Wenzel",
+    "Henkel",
+  ]);
+  assert.equal(result.venue, "ICCAD");
+  assert.equal(result.year, 2014);
+});
+
 test("common unquoted author-title-venue entries use all three matching signals", () => {
   const result = parseReferenceQuery(
     "Vaswani, A., et al. Attention Is All You Need. Advances in Neural Information Processing Systems, 2017.",

@@ -39,7 +39,6 @@ type ReaderPaperBase = {
   id: string;
   ordinal: number;
   title: string;
-  rawReference?: string;
   authors?: string;
   venue?: string;
   year?: string;
@@ -792,14 +791,7 @@ function renderDetailCard(
     (candidate) => candidate.id === state.selectedPaperID,
   );
   if (!paper) return "";
-  if (paper.status !== "resolved") {
-    if (!paper.rawReference) return "";
-    return `<aside class="rfz-detail-card rfz-reference-detail" data-detail-card="" data-paper-id="${escapeAttribute(paper.id)}">
-      <button type="button" class="rfz-card-close" data-detail-close="" aria-label="关闭 Reference 原始内容">×</button>
-      <strong class="rfz-card-title" data-translation-text="">${escapeHTML(paper.title)}</strong>
-      <section class="rfz-raw-reference"><strong>Reference 原始内容</strong><p data-raw-reference="" data-translation-text="">${renderReferenceWithLinks(paper.rawReference)}</p></section>
-    </aside>`;
-  }
+  if (paper.status !== "resolved") return "";
   const badges = [
     paper.citationCount === undefined
       ? undefined
@@ -833,24 +825,6 @@ function renderDetailCard(
             : "Current metadata source did not provide an abstract."),
     )}</p></section>
   </aside>`;
-}
-
-function renderReferenceWithLinks(reference: string): string {
-  const urlPattern = /https?:\/\/[^\s<>"']+/giu;
-  let rendered = "";
-  let cursor = 0;
-  for (const match of reference.matchAll(urlPattern)) {
-    const start = match.index;
-    const matchedURL = match[0];
-    if (start === undefined || !matchedURL) continue;
-    const url = matchedURL.replace(/[),.;:!?\]}]+$/gu, "");
-    if (!url) continue;
-    rendered += escapeHTML(reference.slice(cursor, start));
-    rendered += `<a class="rfz-reference-link" href="${escapeAttribute(url)}" data-reference-link="${escapeAttribute(url)}">${escapeHTML(url)}</a>`;
-    cursor = start + url.length;
-  }
-  rendered += escapeHTML(reference.slice(cursor));
-  return rendered;
 }
 
 function positionDetailCard(root: HTMLElement, overlay: HTMLElement): void {
@@ -1122,10 +1096,6 @@ const READER_STYLES = `
   .rfz-abstract { margin: 12px 0 0; color: var(--fill-primary, #34343a); font-size: 13px; line-height: 1.55; }
   .rfz-abstract strong { display: block; margin-bottom: 3px; font-size: 12px; }
   .rfz-abstract p { margin: 0; }
-  .rfz-raw-reference { margin-top: 14px; font-size: 13px; line-height: 1.55; }
-  .rfz-raw-reference > strong { display: block; margin-bottom: 5px; font-size: 12px; }
-  .rfz-raw-reference p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .rfz-reference-link { color: var(--rfz-accent); text-decoration: underline; cursor: pointer; }
   .rfz-translation { position: fixed; z-index: 20; width: min(340px, calc(100vw - 20px)); max-height: calc(100vh - 20px); overflow: auto; padding: 10px 12px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 7px; background: var(--material-sidepane, #fff); box-shadow: 0 8px 24px #0003; user-select: text; }
   .rfz-translation-source { margin-bottom: 5px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
 `;

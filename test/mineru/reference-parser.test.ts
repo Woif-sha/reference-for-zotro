@@ -5,128 +5,135 @@ import {
   MinerUContractError,
   type MinerUErrorCode,
 } from "../../src/domain/reference";
-import { parseReferenceEntries } from "../../src/mineru/reference-parser";
+import {
+  normalizeReferenceEntries,
+  parseReferenceEntries,
+} from "../../src/mineru/reference-parser";
 
-test("parses semantic MinerU Reference blocks in encounter order", () => {
-  const first = "[1] First paper\ncontinued metadata";
+test("parses canonical Reference entries in semantic encounter order", () => {
+  const first = "[1] First paper continued metadata";
   const tenth = "[10] Tenth paper";
   const ninth = "[9] Ninth paper";
-  const fullMarkdown = [
-    "# Paper",
-    "",
-    "## References",
-    "",
-    first,
-    "",
-    tenth,
-    ninth,
-    "",
-    "## Appendix",
-    "[99] Not a reference",
-  ].join("\n");
+  const fullMarkdown = ["# Paper", first, tenth, ninth].join("\n\n");
 
   const entries = parseReferenceEntries(
     fullMarkdown,
     contentList(first, tenth, ninth),
   );
 
+  assert.deepEqual(entries, [
+    {
+      ordinal: 0,
+      sourceLabel: "1",
+      lookupText: "First paper continued metadata",
+    },
+    { ordinal: 1, sourceLabel: "10", lookupText: "Tenth paper" },
+    { ordinal: 2, sourceLabel: "9", lookupText: "Ninth paper" },
+  ]);
+});
+
+test("normalizes marker, whitespace, markup, quotes, escapes and identifier spacing", () => {
+  const raw =
+    "1)  Smith, J. &amp; Doe, A. <sup>2024</sup>. “A  title,” https: //doi.org/10.1000/ example\\_id";
+  const normalized = normalizeReferenceEntries(raw, contentList(raw));
+  const expected =
+    '[1] Smith, J. & Doe, A. 2024. "A title," https://doi.org/10.1000/example_id';
+
+  assert.equal(normalized.fullMarkdown, expected);
+  assert.deepEqual(JSON.parse(normalized.contentListJson), [
+    { type: "ref_text", text: expected },
+  ]);
   assert.deepEqual(
-    entries.map(({ ordinal, sourceLabel, lookupText }) => ({
-      ordinal,
-      sourceLabel,
-      lookupText,
-    })),
+    parseReferenceEntries(expected, normalized.contentListJson),
     [
       {
         ordinal: 0,
         sourceLabel: "1",
-        lookupText: "First paper\ncontinued metadata",
+        lookupText:
+          'Smith, J. & Doe, A. 2024. "A title," https://doi.org/10.1000/example_id',
       },
-      { ordinal: 1, sourceLabel: "10", lookupText: "Tenth paper" },
-      { ordinal: 2, sourceLabel: "9", lookupText: "Ninth paper" },
     ],
-  );
-  assert.equal(entries[0]?.rawMarkdown, first);
-  assert.equal(
-    fullMarkdown.slice(entries[0]?.charStart, entries[0]?.charEnd),
-    entries[0]?.rawMarkdown,
   );
 });
 
-test("does not require a Markdown heading when MinerU typed the Reference blocks", () => {
-  const first = "[1] First paper";
-  const second = "[2] Second paper";
-  const markdown = ["## V. CONCLUSION", "Conclusion text.", first, second].join(
-    "\n\n",
+test("merges MinerU continuation blocks into one canonical Reference line", () => {
+  const first = "[8] Michael Hofmann. Modeling negative capacitance";
+  const continuation =
+    "field-effect transistors. In 2017 IEEE Conference. 1–4.";
+  const second = "[9] Eric Jones. SciPy.";
+  const markdown = [first, "", continuation, "", second].join("\n");
+  const normalized = normalizeReferenceEntries(
+    markdown,
+    contentList(first, continuation, second),
   );
-  const semanticBlocks = JSON.stringify([
-    { type: "text", text: "V. CONCLUSION", text_level: 2 },
-    { type: "text", text: "Conclusion text." },
-    { type: "ref_text", text: first },
-    { type: "ref_text", text: second },
-    { type: "header", text: "REFERENCES" },
+
+  assert.equal(
+    normalized.fullMarkdown,
+    "[8] Michael Hofmann. Modeling negative capacitance field-effect transistors. In 2017 IEEE Conference. 1–4.\n\n[9] Eric Jones. SciPy.",
+  );
+  assert.deepEqual(
+    (
+      JSON.parse(normalized.contentListJson) as Array<Record<string, unknown>>
+    ).map((block) => block.text),
+    [
+      "[8] Michael Hofmann. Modeling negative capacitance field-effect transistors. In 2017 IEEE Conference. 1–4.",
+      "[9] Eric Jones. SciPy.",
+    ],
+  );
+});
+
+test("infers one missing marker only from a unique adjacent sequence", () => {
+  const eighth = "8. LightGBM";
+  const ninth = "CatBoost";
+  const tenth = "10. SIFT";
+  const markdown = [eighth, ninth, tenth].join("\n");
+  const normalized = normalizeReferenceEntries(
+    markdown,
+    contentList(eighth, ninth, tenth),
+  );
+
+  assert.equal(
+    normalized.fullMarkdown,
+    "[8] LightGBM\n[9] CatBoost\n[10] SIFT",
+  );
+});
+
+test("demotes unnumbered trailing material instead of treating it as a Reference", () => {
+  const reference = "1. A paper";
+  const note = "Publisher's Note: this is not a bibliography entry.";
+  const markdown = `${reference}\n\n${note}`;
+  const normalized = normalizeReferenceEntries(
+    markdown,
+    contentList(reference, note),
+  );
+
+  assert.equal(normalized.fullMarkdown, `[1] A paper\n\n${note}`);
+  assert.deepEqual(JSON.parse(normalized.contentListJson), [
+    { type: "ref_text", text: "[1] A paper" },
+    { type: "text", text: note },
   ]);
-
-  const entries = parseReferenceEntries(markdown, semanticBlocks);
-
-  assert.deepEqual(
-    entries.map(({ sourceLabel, lookupText }) => ({
-      sourceLabel,
-      lookupText,
-    })),
-    [
-      { sourceLabel: "1", lookupText: "First paper" },
-      { sourceLabel: "2", lookupText: "Second paper" },
-    ],
-  );
 });
 
-test("preserves carriage returns and supports numeric entry markers", () => {
-  const first = "1) First\rcontinued";
-  const second = "2. Second";
-  const markdown = `# Paper\r${first}\r${second}`;
-
-  const entries = parseReferenceEntries(markdown, contentList(first, second));
-
-  assert.deepEqual(
-    entries.map(({ sourceLabel, lookupText }) => ({
-      sourceLabel,
-      lookupText,
-    })),
-    [
-      { sourceLabel: "1", lookupText: "First\rcontinued" },
-      { sourceLabel: "2", lookupText: "Second" },
-    ],
+test("normalization is idempotent", () => {
+  const raw = "1. Smith. <sub>A</sub> title. https: //example.test/a";
+  const first = normalizeReferenceEntries(raw, contentList(raw));
+  const second = normalizeReferenceEntries(
+    first.fullMarkdown,
+    first.contentListJson,
   );
+
+  assert.equal(second.fullMarkdown, first.fullMarkdown);
+  assert.equal(second.contentListJson, first.contentListJson);
+  assert.deepEqual(second.edits, []);
 });
 
-test("preserves exact Reference text and source offsets", () => {
-  const rawReference =
-    "[123456] **Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued";
-  const markdown = `Preface\n\n${rawReference}\n\nFooter`;
-
-  const [entry] = parseReferenceEntries(markdown, contentList(rawReference));
-
-  assert.equal(entry?.rawMarkdown, rawReference);
-  assert.equal(
-    entry?.lookupText,
-    "**Title** https://example.test/a\\_b?x=1&amp;y=2\n\ncontinued",
-  );
-  assert.equal(markdown.slice(entry?.charStart, entry?.charEnd), rawReference);
-});
-
-test("rejects invalid content lists and inconsistent Reference structures", () => {
+test("rejects invalid content lists and unsupported Reference structures", () => {
   const cases: readonly [string, string, MinerUErrorCode][] = [
     ["# Paper", "[]", "references-section-empty"],
     [
       "Author. Title. 2024.",
       contentList("Author. Title. 2024."),
       "references-entry-structure-unsupported",
-    ],
-    [
-      "[1] One\n2. Two",
-      contentList("[1] One", "2. Two"),
-      "references-marker-mixed",
     ],
     [
       "[1] Actual",
@@ -144,10 +151,11 @@ test("rejects invalid content lists and inconsistent Reference structures", () =
   ];
 
   for (const [markdown, semanticBlocks, code] of cases) {
-    assertMinerUCode(
-      () => parseReferenceEntries(markdown, semanticBlocks),
-      code,
-    );
+    const operation =
+      code === "references-section-empty"
+        ? () => parseReferenceEntries(markdown, semanticBlocks)
+        : () => normalizeReferenceEntries(markdown, semanticBlocks);
+    assertMinerUCode(operation, code);
   }
 });
 

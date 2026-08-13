@@ -56,6 +56,7 @@ WebVPN → IEEE Xplore 在真实审计完成前只是不可用的 acceptance can
 ## 数据与匹配
 
 - Reference entries 只读取当前附件经过身份校验的 MinerU Markdown，不扫描其他附件或旧缓存。
+- 首次读取时会将 Reference 规范化为共享的唯一 `full.md` 版本，并同步 `content_list.json` 与 `manifest.json`；完整契约见 [MinerU Reference normalization](docs/mineru-reference-normalization.md)。
 - Crossref 与 DataCite 用于注册元数据和候选匹配。
 - OpenCitations 用于 Citing papers。
 - ACL Anthology 等可信页面的标准 citation metadata 可用于补全作者、会议、年份、DOI 和摘要。

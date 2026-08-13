@@ -163,14 +163,18 @@ function normalizeManifest(
   normalization: ReferenceNormalization,
 ): string {
   const manifest = parseObject(manifestJson);
-  if (manifest.totalChars === normalization.fullMarkdown.length) {
+  if (
+    normalization.edits.length === 0 &&
+    manifest.totalChars === normalization.fullMarkdown.length
+  ) {
     return manifestJson;
   }
-  const inferredMarker = normalization.inferredMarker;
+  const lengthDelta = normalization.edits.reduce(
+    (total, edit) => total + edit.insertedLength - edit.removedLength,
+    0,
+  );
   if (
-    !inferredMarker ||
-    manifest.totalChars !==
-      normalization.fullMarkdown.length - inferredMarker.length ||
+    manifest.totalChars !== normalization.fullMarkdown.length - lengthDelta ||
     !Array.isArray(manifest.sections)
   ) {
     return manifestJson;
@@ -185,12 +189,16 @@ function normalizeManifest(
     if (!Number.isInteger(charStart) || !Number.isInteger(charEnd)) {
       return section;
     }
-    if ((charStart as number) > inferredMarker.position) {
-      charStart = (charStart as number) + inferredMarker.length;
-      charEnd = (charEnd as number) + inferredMarker.length;
-    } else if ((charEnd as number) > inferredMarker.position) {
-      charEnd = (charEnd as number) + inferredMarker.length;
-    }
+    charStart = mapNormalizedOffset(
+      charStart as number,
+      "start",
+      normalization.edits,
+    );
+    charEnd = mapNormalizedOffset(
+      charEnd as number,
+      "end",
+      normalization.edits,
+    );
     return { ...section, charStart, charEnd };
   });
 
@@ -199,6 +207,29 @@ function normalizeManifest(
     totalChars: normalization.fullMarkdown.length,
     sections,
   });
+}
+
+function mapNormalizedOffset(
+  offset: number,
+  edge: "start" | "end",
+  edits: ReferenceNormalization["edits"],
+): number {
+  let delta = 0;
+  for (const edit of edits) {
+    const editEnd = edit.position + edit.removedLength;
+    if (
+      offset < edit.position ||
+      (offset === edit.position && edge === "start")
+    ) {
+      return offset + delta;
+    }
+    if (offset > editEnd || (offset === editEnd && edge === "start")) {
+      delta += edit.insertedLength - edit.removedLength;
+      continue;
+    }
+    return edit.position + delta + (edge === "end" ? edit.insertedLength : 0);
+  }
+  return offset + delta;
 }
 
 async function persistNormalization(

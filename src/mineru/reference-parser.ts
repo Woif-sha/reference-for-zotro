@@ -1,77 +1,149 @@
+import { decodeHTML } from "entities";
+
 import { MinerUContractError, type ReferenceEntry } from "../domain/reference";
 
 type EntryMarker = Readonly<{
-  style: "bracket" | "numeric";
   sourceLabel: string;
-  punctuation?: "." | ")";
+}>;
+
+type ReferenceBlock = Readonly<{
+  blockIndex: number;
+  text: string;
+}>;
+
+type LocatedReferenceBlock = ReferenceBlock &
+  Readonly<{
+    charStart: number;
+    charEnd: number;
+    marker?: EntryMarker;
+  }>;
+
+export type ReferenceTextEdit = Readonly<{
+  position: number;
+  removedLength: number;
+  insertedLength: number;
 }>;
 
 export type ReferenceNormalization = Readonly<{
   fullMarkdown: string;
   contentListJson: string;
-  inferredMarker?: Readonly<{ position: number; length: number }>;
+  edits: readonly ReferenceTextEdit[];
 }>;
 
 const BRACKET_MARKER = /^(\s*)\[(\d+)\]\s*/u;
-const NUMERIC_MARKER = /^(\s*)(\d+)([.)])\s+/u;
+const NUMERIC_MARKER = /^(\s*)(\d+)[.)]\s+/u;
 
 export function normalizeReferenceEntries(
   fullMarkdown: string,
   contentListJson: string,
 ): ReferenceNormalization {
   const parsed = parseContentList(contentListJson);
-  const markers = parsed.references.map(({ text }) => tryParseMarker(text));
-  const missing = markers.flatMap((marker, index) => (marker ? [] : [index]));
-  if (missing.length === 0) {
-    return { fullMarkdown, contentListJson };
+  if (parsed.references.length === 0) {
+    return { fullMarkdown, contentListJson, edits: [] };
   }
-  if (missing.length !== 1) unsupportedMarker();
 
-  const missingIndex = missing[0]!;
-  const previous = markers[missingIndex - 1];
-  const next = markers[missingIndex + 1];
-  if (
-    !previous ||
-    !next ||
-    previous.style !== next.style ||
-    Number(next.sourceLabel) - Number(previous.sourceLabel) !== 2
-  ) {
-    unsupportedMarker();
-  }
-  const raw = parsed.references[missingIndex]!.text;
-  const normalized = prependMarker(
-    raw,
-    Number(previous.sourceLabel) + 1,
-    previous,
+  const located = locateReferenceBlocks(fullMarkdown, parsed.references);
+  const markedIndexes = located.flatMap((block, index) =>
+    block.marker ? [index] : [],
   );
-  let searchStart = 0;
-  for (let index = 0; index < missingIndex; index += 1) {
-    const text = parsed.references[index]!.text;
-    const position = fullMarkdown.indexOf(text, searchStart);
-    if (position < 0) entryDoesNotMatch();
-    searchStart = position + text.length;
+  if (markedIndexes.length === 0) unsupportedMarker();
+
+  const firstMarked = markedIndexes[0]!;
+  const lastMarked = markedIndexes.at(-1)!;
+  const groups: Array<{
+    marker: EntryMarker;
+    members: LocatedReferenceBlock[];
+  }> = [];
+  const nonReferenceBlocks = new Set<number>();
+
+  for (const [index, block] of located.entries()) {
+    if (block.marker) {
+      groups.push({ marker: block.marker, members: [block] });
+      continue;
+    }
+    if (index < firstMarked || index > lastMarked) {
+      nonReferenceBlocks.add(block.blockIndex);
+      continue;
+    }
+    const current = groups.at(-1);
+    if (!current) unsupportedMarker();
+    const nextMarked = located
+      .slice(index + 1)
+      .find((candidate) => candidate.marker);
+    const sequenceGap = nextMarked?.marker
+      ? Number(nextMarked.marker.sourceLabel) -
+        Number(current.marker.sourceLabel)
+      : 0;
+    if (nextMarked?.marker && sequenceGap === 2) {
+      groups.push({
+        marker: { sourceLabel: String(Number(current.marker.sourceLabel) + 1) },
+        members: [block],
+      });
+      continue;
+    }
+    if (sequenceGap !== 1) unsupportedMarker();
+    current.members.push(block);
   }
-  const rawStart = fullMarkdown.indexOf(raw, searchStart);
-  const normalizedStart = fullMarkdown.indexOf(normalized, searchStart);
-  const alreadyNormalized =
-    normalizedStart >= 0 && (rawStart < 0 || normalizedStart <= rawStart);
-  const entryStart = alreadyNormalized ? normalizedStart : rawStart;
-  if (entryStart < 0) entryDoesNotMatch();
-  const fullMarkdownWithMarker = alreadyNormalized
-    ? fullMarkdown
-    : `${fullMarkdown.slice(0, entryStart)}${normalized}${fullMarkdown.slice(entryStart + raw.length)}`;
-  const markerLength = normalized.length - raw.length;
-  const normalizedBlocks = [...parsed.blocks];
-  const blockIndex = parsed.references[missingIndex]!.blockIndex;
-  normalizedBlocks[blockIndex] = {
-    ...(normalizedBlocks[blockIndex] as Record<string, unknown>),
-    text: normalized,
-  };
+
+  const replacements = groups.map((group) => {
+    const first = group.members[0]!;
+    const last = group.members.at(-1)!;
+    const body = group.members
+      .map((member) => removeMarker(member.text))
+      .join(" ");
+    const text = `[${group.marker.sourceLabel}] ${normalizeReferenceText(body)}`;
+    return {
+      group,
+      text,
+      position: first.charStart,
+      removedLength: last.charEnd - first.charStart,
+      insertedLength: text.length,
+    };
+  });
+
+  let normalizedMarkdown = fullMarkdown;
+  for (const replacement of [...replacements].reverse()) {
+    normalizedMarkdown = `${normalizedMarkdown.slice(0, replacement.position)}${replacement.text}${normalizedMarkdown.slice(replacement.position + replacement.removedLength)}`;
+  }
+
+  const firstBlockByIndex = new Map(
+    replacements.map((replacement) => [
+      replacement.group.members[0]!.blockIndex,
+      replacement.text,
+    ]),
+  );
+  const continuationIndexes = new Set(
+    replacements.flatMap((replacement) =>
+      replacement.group.members.slice(1).map((member) => member.blockIndex),
+    ),
+  );
+  const normalizedBlocks = parsed.blocks.flatMap((block, blockIndex) => {
+    if (continuationIndexes.has(blockIndex)) return [];
+    if (nonReferenceBlocks.has(blockIndex)) {
+      return [{ ...(block as Record<string, unknown>), type: "text" }];
+    }
+    const text = firstBlockByIndex.get(blockIndex);
+    return text === undefined
+      ? [block]
+      : [{ ...(block as Record<string, unknown>), text }];
+  });
 
   return {
-    fullMarkdown: fullMarkdownWithMarker,
+    fullMarkdown: normalizedMarkdown,
     contentListJson: JSON.stringify(normalizedBlocks),
-    inferredMarker: { position: entryStart, length: markerLength },
+    edits: replacements
+      .filter(
+        (replacement) =>
+          fullMarkdown.slice(
+            replacement.position,
+            replacement.position + replacement.removedLength,
+          ) !== replacement.text,
+      )
+      .map(({ position, removedLength, insertedLength }) => ({
+        position,
+        removedLength,
+        insertedLength,
+      })),
   };
 }
 
@@ -87,37 +159,62 @@ export function parseReferenceEntries(
     );
   }
 
-  const markers = referenceTexts.map(parseMarker);
-  const style = markers[0]!.style;
-  if (markers.some((marker) => marker.style !== style)) {
-    throw new MinerUContractError(
-      "references-marker-mixed",
-      "The References section mixes marker styles",
-    );
-  }
-
   let searchStart = 0;
-  return referenceTexts.map((rawMarkdown, ordinal) => {
-    const charStart = fullMarkdown.indexOf(rawMarkdown, searchStart);
-    if (charStart < 0) {
-      throw new MinerUContractError(
-        "references-entry-structure-unsupported",
-        "A MinerU Reference entry does not match full.md",
-      );
-    }
-    const charEnd = charStart + rawMarkdown.length;
-    searchStart = charEnd;
-    const marker = markers[ordinal]!;
-    const markerPattern =
-      marker.style === "bracket" ? BRACKET_MARKER : NUMERIC_MARKER;
-
+  return referenceTexts.map((markdown, ordinal) => {
+    const marker = parseCanonicalMarker(markdown);
+    const charStart = fullMarkdown.indexOf(markdown, searchStart);
+    if (charStart < 0) entryDoesNotMatch();
+    searchStart = charStart + markdown.length;
     return {
       ordinal,
       sourceLabel: marker.sourceLabel,
-      rawMarkdown,
-      lookupText: rawMarkdown.replace(markerPattern, "").trim(),
+      lookupText: markdown.replace(BRACKET_MARKER, "").trim(),
+    };
+  });
+}
+
+function normalizeReferenceText(value: string): string {
+  const normalized = decodeHTML(value)
+    .normalize("NFKC")
+    .replace(/<\/?(?:sup|sub)>/giu, "")
+    .replace(/[“”„‟]/gu, '"')
+    .replace(/[‘’]/gu, "'")
+    .replace(/\\([\p{P}\p{S}])/gu, "$1")
+    .replace(/\b(https?)\s*:\s*\/\s*\/\s*/giu, "$1://")
+    .replace(/\b(https?)\s*:\s*\/\s+(?=[\p{L}\p{N}])/giu, "$1://")
+    .replace(/\b(10\.\d{4,9}\/)\s+(?=[-._;()/:\p{L}\p{N}])/giu, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return normalizeUrlSlashWhitespace(normalized);
+}
+
+function normalizeUrlSlashWhitespace(value: string): string {
+  let normalized = value;
+  while (true) {
+    const next = normalized.replace(
+      /(\bhttps?:\/\/[^\n,;"']*?\/)\s+(?!(?:Accessed|Retrieved)\s*:)(?=[\p{L}\p{N}])/giu,
+      "$1",
+    );
+    if (next === normalized) return normalized;
+    normalized = next;
+  }
+}
+
+function locateReferenceBlocks(
+  fullMarkdown: string,
+  references: readonly ReferenceBlock[],
+): readonly LocatedReferenceBlock[] {
+  let searchStart = 0;
+  return references.map((reference) => {
+    const charStart = fullMarkdown.indexOf(reference.text, searchStart);
+    if (charStart < 0) entryDoesNotMatch();
+    const charEnd = charStart + reference.text.length;
+    searchStart = charEnd;
+    return {
+      ...reference,
       charStart,
       charEnd,
+      marker: tryParseMarker(reference.text),
     };
   });
 }
@@ -128,7 +225,7 @@ function parseReferenceTexts(contentListJson: string): readonly string[] {
 
 function parseContentList(contentListJson: string): Readonly<{
   blocks: readonly unknown[];
-  references: readonly Readonly<{ blockIndex: number; text: string }>[];
+  references: readonly ReferenceBlock[];
 }> {
   let contentList: unknown;
   try {
@@ -140,7 +237,7 @@ function parseContentList(contentListJson: string): Readonly<{
     throw invalidCache("The MinerU content list is not a JSON array");
   }
 
-  const references: Array<{ blockIndex: number; text: string }> = [];
+  const references: ReferenceBlock[] = [];
   for (const [blockIndex, block] of contentList.entries()) {
     if (!block || typeof block !== "object" || Array.isArray(block)) {
       throw invalidCache("The MinerU content list contains an invalid block");
@@ -155,39 +252,21 @@ function parseContentList(contentListJson: string): Readonly<{
   return { blocks: contentList, references };
 }
 
-function parseMarker(referenceText: string): EntryMarker {
-  const marker = tryParseMarker(referenceText);
-  if (marker) return marker;
-  return unsupportedMarker();
+function parseCanonicalMarker(referenceText: string): EntryMarker {
+  const match = BRACKET_MARKER.exec(referenceText);
+  if (!match) return unsupportedMarker();
+  return { sourceLabel: match[2]! };
 }
 
 function tryParseMarker(referenceText: string): EntryMarker | undefined {
   const bracket = BRACKET_MARKER.exec(referenceText);
-  if (bracket) {
-    return { style: "bracket", sourceLabel: bracket[2]! };
-  }
+  if (bracket) return { sourceLabel: bracket[2]! };
   const numeric = NUMERIC_MARKER.exec(referenceText);
-  if (numeric) {
-    return {
-      style: "numeric",
-      sourceLabel: numeric[2]!,
-      punctuation: numeric[3] as "." | ")",
-    };
-  }
-  return undefined;
+  return numeric ? { sourceLabel: numeric[2]! } : undefined;
 }
 
-function prependMarker(
-  referenceText: string,
-  sourceLabel: number,
-  previous: EntryMarker,
-): string {
-  const indentation = /^[\t ]*/u.exec(referenceText)?.[0] ?? "";
-  const marker =
-    previous.style === "bracket"
-      ? `[${sourceLabel}] `
-      : `${sourceLabel}${previous.punctuation ?? "."} `;
-  return `${indentation}${marker}${referenceText.slice(indentation.length)}`;
+function removeMarker(referenceText: string): string {
+  return referenceText.replace(BRACKET_MARKER, "").replace(NUMERIC_MARKER, "");
 }
 
 function unsupportedMarker(): never {

@@ -186,17 +186,15 @@ export function createRelatedLiteratureGateway(
       match = matchScholarlyCandidates(query, candidates);
     }
     const outcomes = runs.map(({ outcome }) => outcome);
-    if (match.status === "ambiguous") {
-      return { status: "ambiguous", candidates: match.candidates, outcomes };
-    }
     if (match.status === "no-candidate") {
       return outcomes.some(({ status }) => status === "failed")
         ? { status: "failed", outcomes }
         : { status: "unresolved", reason: "no-candidate", outcomes };
     }
 
+    const matchedCandidates = match.candidates;
     const reachableCandidates = await Promise.all(
-      match.candidates.map((candidate) =>
+      matchedCandidates.map((candidate) =>
         withVerifiedLanding(
           candidate,
           ports,
@@ -234,7 +232,7 @@ export function createRelatedLiteratureGateway(
       status: "resolved",
       primaryResult: verifiedPrimaryResult,
       candidates: reachableCandidates.map(({ candidate }) => candidate),
-      matchedBy: match.matchedBy,
+      matchedBy: match.status === "confirmed" ? match.matchedBy : "metadata",
       outcomes,
     };
   }

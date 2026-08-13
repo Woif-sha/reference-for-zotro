@@ -13,8 +13,8 @@ test("unique Reader row identities invalidate the old cached provider projection
   assert.equal(PROVIDER_SCHEMA_VERSION, 4);
 });
 
-test("trusted-title presentation invalidates previously cached provider results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 8);
+test("Reader reference projection changes invalidate previous cached results", () => {
+  assert.equal(PROVIDER_QUERY_VERSION, 16);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -60,6 +60,7 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
 
   const paper = await resolveReferenceEntry(
     27,
+    "28",
     lookupText,
     gateway,
     async (url) => {
@@ -87,6 +88,7 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
   );
 
   assert.equal(paper.status, "resolved");
+  assert.equal(paper.sourceLabel, "28");
   assert.equal(resolvedDoi, "10.18653/v1/n19-1423");
   assert.equal(
     paper.title,
@@ -144,6 +146,7 @@ test("unresolved references display titles wrapped in MinerU right double quotes
 
   const paper = await resolveReferenceEntry(
     10,
+    "11",
     lookupText,
     gateway,
     () => {
@@ -156,5 +159,108 @@ test("unresolved references display titles wrapped in MinerU right double quotes
     paper.title,
     "A Statistical Cell Delay Model for Estimating the 3σ Delay by Matching Kurtosis",
   );
+  assert.equal(paper.year, "2022");
+  assert.equal(paper.venue, "IEEE Trans. Circuits Syst. II Express Briefs");
   assert.doesNotMatch(paper.title, /L\. Jin|IEEE Trans|2022/u);
+});
+
+test("a landing-page timeout is unreachable instead of a red fatal failure", async () => {
+  const abortController = new AbortController();
+  const context: ResolutionContext = {
+    paper: {
+      identity: {
+        libraryID: 1,
+        attachmentID: 2,
+        attachmentKey: "ATTACHMENT",
+        parentItemKey: "PARENT",
+      },
+      sourceFingerprint: "fingerprint",
+      entries: [],
+    },
+    token: {
+      libraryID: 1,
+      attachmentID: 2,
+      attachmentKey: "ATTACHMENT",
+      parentItemKey: "PARENT",
+      sourceFingerprint: "fingerprint",
+      generation: 1,
+    },
+    signal: abortController.signal,
+  };
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: () => {
+      throw new Error("not used");
+    },
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    4,
+    "5",
+    "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
+    gateway,
+    async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    },
+    context,
+  );
+
+  assert.equal(abortController.signal.aborted, false);
+  assert.equal(paper.status, "unreachable");
+  assert.equal(paper.title, "GPT-4 Technical Report");
+  assert.equal(paper.statusText, "Landing page is unreachable");
+});
+
+test("an unparsed bibliography never falls back to the complete reference", async () => {
+  const abortController = new AbortController();
+  const context: ResolutionContext = {
+    paper: {
+      identity: {
+        libraryID: 1,
+        attachmentID: 2,
+        attachmentKey: "ATTACHMENT",
+        parentItemKey: "PARENT",
+      },
+      sourceFingerprint: "fingerprint",
+      entries: [],
+    },
+    token: {
+      libraryID: 1,
+      attachmentID: 2,
+      attachmentKey: "ATTACHMENT",
+      parentItemKey: "PARENT",
+      sourceFingerprint: "fingerprint",
+      generation: 1,
+    },
+    signal: abortController.signal,
+  };
+  const normalizedReference =
+    "Unknown, A. Author data https://example.test/paper, 2024.";
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: () => {
+      throw new Error("unparsed references must not be queried");
+    },
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    0,
+    "1",
+    normalizedReference,
+    gateway,
+    () => {
+      throw new Error("not used");
+    },
+    context,
+  );
+
+  assert.equal(paper.title, "Title unavailable");
+  assert.equal(paper.statusText, "Reference title could not be parsed");
+  assert.doesNotMatch(paper.title, /Unknown|example\.test|2024/u);
 });

@@ -247,7 +247,7 @@ test("traditional literature falls back to DataCite only after Crossref has no c
   assert.ok(seen[1]?.includes("api.datacite.org"));
 });
 
-test("competing publication records with exact title year and authors stay ambiguous", async () => {
+test("competing exact records automatically select the strongest IEEE or ACM result", async () => {
   const title =
     "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
   const gateway = createRelatedLiteratureGateway(
@@ -323,7 +323,8 @@ test("competing publication records with exact title year and authors stay ambig
     channel: "conference",
   });
 
-  assert.equal(result.status, "ambiguous");
+  assert.equal(result.status, "resolved");
+  assert.equal(result.primaryResult.identifiers.doi, "10.1145/3670474.3685965");
   assert.equal(result.candidates.length, 2);
 });
 

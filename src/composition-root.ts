@@ -24,7 +24,10 @@ import {
   findMalformedStableIdentifier,
   resolveDeterministicLandingPage,
 } from "./literature/identifiers";
-import { parseReferenceQuery } from "./literature/reference-query";
+import {
+  parseReferenceQuery,
+  UNPARSED_REFERENCE_TITLE,
+} from "./literature/reference-query";
 import { lookupAvailableAbstract } from "./literature/providers/abstract";
 import {
   parseTrustedLandingMetadata,
@@ -43,7 +46,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 8;
+export const PROVIDER_QUERY_VERSION = 16;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -81,6 +84,7 @@ export function createReaderControllerFactory(
           return {
             identity: loaded.identity,
             sourceFingerprint: loaded.sourceFingerprint,
+            mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
         },
@@ -90,6 +94,7 @@ export function createReaderControllerFactory(
             if (context.signal.aborted) throw abortError();
             const paper = await resolveReferenceEntry(
               entry.ordinal,
+              entry.sourceLabel,
               entry.lookupText,
               gatewayFor(context),
               providerPorts.fetch,
@@ -111,14 +116,15 @@ export function createReaderControllerFactory(
             limit,
           );
           if (result.status === "failed") {
+            if (result.errorCode === "citation-identifier-unsupported") {
+              throw new Error("当前论文缺少 DOI 或 PMID，无法查询引用论文。");
+            }
             throw new Error(
-              `Citing papers unavailable: ${result.errorCode} (${result.source})`,
+              `OpenCitations 查询失败：${result.errorCode} (${result.source})`,
             );
           }
           if (result.status === "no-results") {
-            throw new Error(
-              "OpenCitations returned no citation edges for this source; this is not proof that the paper has no Citing papers.",
-            );
+            return [];
           }
           return result.papers.map((candidate, index) =>
             candidateToReaderPaper(candidate, index),
@@ -178,11 +184,23 @@ export function createReaderControllerFactory(
             );
           });
         },
+        revealMineruDirectory(directory) {
+          Zotero.launchFile(directory);
+        },
         copyText(text) {
           Zotero.Utilities.Internal.copyTextToClipboard(text);
         },
         openURL(url) {
           Zotero.launchURL(url);
+        },
+        externalInteractionDocuments() {
+          return Zotero.Reader._readers
+            .filter(({ itemID }) => Number(itemID) === actualAttachmentID)
+            .flatMap((reader) =>
+              reader._iframeWindow?.document
+                ? [reader._iframeWindow.document]
+                : [],
+            );
         },
         dispose() {
           gateway?.dispose();
@@ -198,6 +216,7 @@ export function createReaderControllerFactory(
 
 export async function resolveReferenceEntry(
   ordinal: number,
+  sourceLabel: string,
   lookupText: string,
   gateway: RelatedLiteratureGateway,
   fetchPort: FetchPort,
@@ -205,14 +224,32 @@ export async function resolveReferenceEntry(
 ): Promise<ReaderPaper> {
   const stable = extractStableIdentifiers(lookupText);
   const query = parseReferenceQuery(lookupText);
-  const displayTitle = query.title?.trim() || lookupText.trim();
+  const present = (paper: ReaderPaper): ReaderPaper => ({
+    ...paper,
+    sourceLabel,
+    venue: paper.venue ?? query.venue,
+    year: paper.year ?? query.year?.toString(),
+  });
+  const displayTitle = query.title?.trim() ?? UNPARSED_REFERENCE_TITLE;
   const malformedIdentifier = findMalformedStableIdentifier(lookupText, stable);
   if (malformedIdentifier) {
-    return unresolvedPaper(
-      ordinal,
-      displayTitle,
-      `Invalid ${malformedIdentifier} format`,
-      "invalid-identifier",
+    return present(
+      unresolvedPaper(
+        ordinal,
+        displayTitle,
+        `Invalid ${malformedIdentifier} format`,
+        "invalid-identifier",
+      ),
+    );
+  }
+  if (!query.title && Object.keys(query.identifiers).length === 0) {
+    return present(
+      unresolvedPaper(
+        ordinal,
+        UNPARSED_REFERENCE_TITLE,
+        "Reference title could not be parsed",
+        "unresolved",
+      ),
     );
   }
   const deterministic = resolveDeterministicLandingPage(stable);
@@ -236,23 +273,29 @@ export async function resolveReferenceEntry(
           context: gatewayContext(context),
         });
         if (resolution.status === "resolved") {
-          return resolutionToReaderPaper(ordinal, displayTitle, resolution);
+          return present(
+            resolutionToReaderPaper(ordinal, displayTitle, resolution),
+          );
         }
       }
-      return directLandingToReaderPaper(
-        ordinal,
-        displayTitle,
-        landing.url,
-        deterministic.matchedBy,
-        landing.metadata,
-        query.identifiers,
+      return present(
+        directLandingToReaderPaper(
+          ordinal,
+          displayTitle,
+          landing.url,
+          deterministic.matchedBy,
+          landing.metadata,
+          query.identifiers,
+        ),
       );
     }
-    return unresolvedPaper(
-      ordinal,
-      displayTitle,
-      "Landing page is unreachable",
-      "unreachable",
+    return present(
+      unresolvedPaper(
+        ordinal,
+        displayTitle,
+        "Landing page is unreachable",
+        "unreachable",
+      ),
     );
   }
 
@@ -261,7 +304,7 @@ export async function resolveReferenceEntry(
     signal: context.signal,
     context: gatewayContext(context),
   });
-  return resolutionToReaderPaper(ordinal, displayTitle, resolution);
+  return present(resolutionToReaderPaper(ordinal, displayTitle, resolution));
 }
 
 function currentPaperIdentifiers(context: ResolutionContext): {
@@ -355,7 +398,8 @@ async function loadDirectLandingPage(
     const html = await response.text();
     return { url: landingURL, metadata: parseTrustedLandingMetadata(html) };
   } catch (error) {
-    if (isAbortError(error)) throw error;
+    if (signal.aborted) throw error;
+    if (isAbortError(error)) return undefined;
     throw new Error(
       `Landing page reachability check failed: ${
         error instanceof Error ? error.message : String(error)

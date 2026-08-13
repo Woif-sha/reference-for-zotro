@@ -83,39 +83,39 @@ test("silently numbers an unmarked Reference entry and persists one consistent c
   const result = await loadMineruReferences(ATTACHMENT_ID, ports);
 
   assert.deepEqual(
-    result.entries.map(({ sourceLabel, rawMarkdown, lookupText }) => ({
+    result.entries.map(({ sourceLabel, lookupText }) => ({
       sourceLabel,
-      rawMarkdown,
       lookupText,
     })),
     [
       {
         sourceLabel: "8",
-        rawMarkdown: "8. LightGBM",
         lookupText: "LightGBM",
       },
       {
         sourceLabel: "9",
-        rawMarkdown: `9. ${unmarked}`,
         lookupText: unmarked,
       },
-      { sourceLabel: "10", rawMarkdown: "10. SIFT", lookupText: "SIFT" },
+      { sourceLabel: "10", lookupText: "SIFT" },
     ],
   );
   assert.equal(
     files[`${CACHE_DIRECTORY}/full.md`]?.text,
-    fullMarkdown.replace(unmarked, `9. ${unmarked}`),
+    fullMarkdown
+      .replace("8. LightGBM", "[8] LightGBM")
+      .replace(unmarked, `[9] ${unmarked}`)
+      .replace("10. SIFT", "[10] SIFT"),
   );
   assert.deepEqual(JSON.parse(files[contentListPath]!.text), [
-    { type: "ref_text", text: "8. LightGBM" },
-    { type: "ref_text", text: `9. ${unmarked}` },
-    { type: "ref_text", text: "10. SIFT" },
+    { type: "ref_text", text: "[8] LightGBM" },
+    { type: "ref_text", text: `[9] ${unmarked}` },
+    { type: "ref_text", text: "[10] SIFT" },
   ]);
   assert.deepEqual(
     JSON.parse(files[`${CACHE_DIRECTORY}/manifest.json`]!.text),
     {
-      totalChars: fullMarkdown.length + 3,
-      sections: [{ charStart: 0, charEnd: fullMarkdown.length + 3 }],
+      totalChars: fullMarkdown.length + 6,
+      sections: [{ charStart: 0, charEnd: fullMarkdown.length + 6 }],
     },
   );
   assert.deepEqual(writes, [
@@ -126,6 +126,58 @@ test("silently numbers an unmarked Reference entry and persists one consistent c
 
   await loadMineruReferences(ATTACHMENT_ID, ports);
   assert.equal(writes.length, 3);
+});
+
+test("keeps manifest sections aligned when split Reference blocks are merged", async () => {
+  const first = "[1] First";
+  const continuation = "continued metadata";
+  const second = "[2] Second";
+  const fullMarkdown = ["Intro", first, continuation, second, "Appendix"].join(
+    "\n",
+  );
+  const appendixStart = fullMarkdown.indexOf("Appendix");
+  const files = validFiles(fullMarkdown);
+  files[`${CACHE_DIRECTORY}/content_list.json`] = {
+    text: JSON.stringify([
+      { type: "ref_text", text: first },
+      { type: "ref_text", text: continuation },
+      { type: "ref_text", text: second },
+    ]),
+    revision: "content-list-with-continuation",
+  };
+  files[`${CACHE_DIRECTORY}/manifest.json`] = {
+    text: JSON.stringify({
+      totalChars: fullMarkdown.length,
+      sections: [
+        { charStart: 0, charEnd: 5 },
+        { charStart: 6, charEnd: appendixStart - 1 },
+        { charStart: appendixStart, charEnd: fullMarkdown.length },
+      ],
+    }),
+    revision: "manifest-with-reference-section",
+  };
+
+  const result = await loadMineruReferences(ATTACHMENT_ID, createPorts(files));
+  const normalizedAppendixStart = result.fullMarkdown.indexOf("Appendix");
+
+  assert.equal(
+    result.fullMarkdown,
+    "Intro\n[1] First continued metadata\n[2] Second\nAppendix",
+  );
+  assert.deepEqual(
+    JSON.parse(files[`${CACHE_DIRECTORY}/manifest.json`]!.text),
+    {
+      totalChars: result.fullMarkdown.length,
+      sections: [
+        { charStart: 0, charEnd: 5 },
+        { charStart: 6, charEnd: normalizedAppendixStart - 1 },
+        {
+          charStart: normalizedAppendixStart,
+          charEnd: result.fullMarkdown.length,
+        },
+      ],
+    },
+  );
 });
 
 test("does not guess an unmarked Reference number without a unique sequence", async () => {
@@ -165,6 +217,7 @@ test("loads references only from the validated current attachment MinerU cache",
     attachmentKey: "ATTACH01",
   });
   assert.equal(result.fullMarkdown, fullMarkdown);
+  assert.equal(result.cacheDirectory, CACHE_DIRECTORY);
   assert.equal(result.fullMdSha256, "known-full-md-sha256");
   assert.equal(result.sourceFingerprint, "known-full-md-sha256");
   assert.deepEqual(

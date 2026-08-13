@@ -17,10 +17,15 @@ import {
 } from "../reader/mountReaderSection";
 import { PaperSessionCoordinator } from "../session/paper-session";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
+import {
+  parseReferenceQuery,
+  UNPARSED_REFERENCE_TITLE,
+} from "../literature/reference-query";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
   sourceFingerprint: string;
+  mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
 
@@ -81,6 +86,8 @@ export interface RelatedPapersPorts {
     }>,
   ): Promise<readonly PaperDownloadProgress[]>;
   revealDownloadedFile?(savedPath: string): void;
+  revealMineruDirectory?(directory: string): void;
+  externalInteractionDocuments?(): readonly Document[];
   downloadSetup?: DownloadSettingsController;
   copyText?(text: string): void;
   openURL(url: string): void;
@@ -95,6 +102,7 @@ export class RelatedPapersController implements ReaderSectionController {
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 0,
+    citingPapersStatus: { status: "idle" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
@@ -108,6 +116,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private downloadRun?: { invalidated: boolean; controller: AbortController };
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
+  private citingRequestGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
   private unsubscribeDownloadSetup?: () => void;
@@ -142,7 +151,7 @@ export class RelatedPapersController implements ReaderSectionController {
     if (
       tab === "citations" &&
       this.context &&
-      this.state.citingPapers.length === 0
+      this.state.citingPapersStatus.status === "idle"
     ) {
       void this.loadCitingPapers(this.state.citingPaperLimit);
     }
@@ -309,6 +318,11 @@ export class RelatedPapersController implements ReaderSectionController {
     this.ports.revealDownloadedFile?.(result.savedPath);
   }
 
+  openMineruDirectory(): void {
+    const directory = this.state.mineruDirectory;
+    if (directory) this.ports.revealMineruDirectory?.(directory);
+  }
+
   changeDownloadDestination(): Promise<void> {
     return (
       this.ports.downloadSetup?.changeDownloadDestination() ?? Promise.resolve()
@@ -340,12 +354,15 @@ export class RelatedPapersController implements ReaderSectionController {
     this.cancelDownloads();
     this.sessions.cancelActive();
     this.context = undefined;
+    this.citingRequestGeneration += 1;
     this.update({
       status: "loading",
       message: undefined,
+      mineruDirectory: undefined,
       references: [],
       citingPapers: [],
       citingPapersLoaded: 0,
+      citingPapersStatus: { status: "idle" },
       selectedPaperID: undefined,
       downloadSelection: [],
       paperDownloads: [],
@@ -377,13 +394,20 @@ export class RelatedPapersController implements ReaderSectionController {
     this.context = context;
     this.update({
       status: "ready",
-      references: paper.entries.map((entry) => ({
-        id: `reference:${entry.ordinal}`,
-        ordinal: entry.ordinal,
-        title: entry.lookupText,
-        status: "matching",
-        statusText: "Matching",
-      })),
+      mineruDirectory: paper.mineruDirectory,
+      references: paper.entries.map((entry) => {
+        const query = parseReferenceQuery(entry.lookupText);
+        return {
+          id: `reference:${entry.ordinal}`,
+          ordinal: entry.ordinal,
+          sourceLabel: entry.sourceLabel,
+          title: query.title ?? UNPARSED_REFERENCE_TITLE,
+          venue: query.venue,
+          year: query.year?.toString(),
+          status: "matching",
+          statusText: "Matching",
+        };
+      }),
     });
 
     if (!options.bypassCache && this.ports.readCachedResults) {
@@ -395,6 +419,9 @@ export class RelatedPapersController implements ReaderSectionController {
             references: [...cached.references],
             citingPapers: [...cached.citingPapers],
             citingPapersLoaded: cached.citingPapersLoaded,
+            citingPapersStatus: {
+              status: cached.citingPapersLoaded > 0 ? "ready" : "idle",
+            },
           });
           return;
         }
@@ -449,6 +476,14 @@ export class RelatedPapersController implements ReaderSectionController {
     );
   }
 
+  openReferenceURL(url: string): void {
+    const target = new URL(url);
+    if (target.protocol !== "http:" && target.protocol !== "https:") {
+      throw new Error("Reference URL must use HTTP or HTTPS");
+    }
+    this.ports.openURL(target.href);
+  }
+
   performPaperAction(paperID: string, action: ReaderPaperAction): void {
     const paper = this.findPaper(paperID);
     if (!paper) return;
@@ -483,6 +518,10 @@ export class RelatedPapersController implements ReaderSectionController {
       : { available: false, reason: "not-installed" };
   }
 
+  externalInteractionDocuments(): readonly Document[] {
+    return this.ports.externalInteractionDocuments?.() ?? [];
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -500,6 +539,8 @@ export class RelatedPapersController implements ReaderSectionController {
   private async loadCitingPapers(limit: 10 | 30 | 50): Promise<void> {
     const context = this.context;
     if (!context || !this.sessions.canCommit(context.token)) return;
+    const requestGeneration = ++this.citingRequestGeneration;
+    this.update({ citingPapersStatus: { status: "loading" } });
     try {
       const citingPapers = await this.ports.loadCitingPapers(limit, context);
       if (!this.sessions.canCommit(context.token)) return;
@@ -510,15 +551,21 @@ export class RelatedPapersController implements ReaderSectionController {
           : this.state.citingPapers;
       this.update({
         citingPapers: [...cumulativePapers],
-        citingPapersLoaded: Math.max(
-          this.state.citingPapersLoaded,
-          citingPapers.length,
-        ),
+        citingPapersLoaded: Math.max(this.state.citingPapersLoaded, limit),
+        ...(requestGeneration === this.citingRequestGeneration
+          ? { citingPapersStatus: { status: "ready" as const } }
+          : {}),
       });
       await this.persistResults(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
-      this.update({ message: conciseError(error) });
+      if (requestGeneration !== this.citingRequestGeneration) return;
+      this.update({
+        citingPapersStatus: {
+          status: "error",
+          message: conciseError(error),
+        },
+      });
     }
   }
 

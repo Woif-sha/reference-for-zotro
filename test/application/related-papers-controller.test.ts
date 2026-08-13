@@ -14,17 +14,57 @@ const loadedPaper: LoadedPaper = {
     parentItemKey: "PARENT01",
   },
   sourceFingerprint: "fingerprint",
+  mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   entries: [
     {
       ordinal: 0,
       sourceLabel: "1",
-      rawMarkdown: "[1] doi:10.1000/one",
       lookupText: "doi:10.1000/one",
-      charStart: 0,
-      charEnd: 20,
     },
   ],
 };
+
+test("Reference entries show parsed titles before matching and after a failure", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ...loadedPaper.entries[0],
+        sourceLabel: "5",
+        lookupText:
+          "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaper[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  assert.equal(
+    controller.getState().references[0]?.title,
+    "GPT-4 Technical Report",
+  );
+  assert.equal(controller.getState().references[0]?.year, "2023");
+  assert.equal(controller.getState().references[0]?.sourceLabel, "5");
+  assert.equal(controller.getState().references[0]?.venue, "Preprint at");
+  assert.equal(
+    controller.getState().mineruDirectory,
+    "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
+  );
+
+  finish.reject(new Error("provider failed"));
+  await refresh;
+  assert.equal(
+    controller.getState().references[0]?.title,
+    "GPT-4 Technical Report",
+  );
+});
 
 test("Reference entries render before online resolution completes", async () => {
   const resolution =
@@ -235,10 +275,12 @@ test("paper actions copy available metadata and open an explicit Google search",
   controller.performPaperAction("reference:0", "copy-title");
   controller.performPaperAction("reference:0", "copy-doi");
   controller.performPaperAction("reference:0", "google-search");
+  controller.openReferenceURL("https://example.test/reference");
 
   assert.deepEqual(copied, ["Resolved paper", "10.1000/one"]);
   assert.deepEqual(opened, [
     "https://www.google.com/search?q=%22Resolved%20paper%22%202024",
+    "https://example.test/reference",
   ]);
 });
 
@@ -352,6 +394,29 @@ test("late smaller citation responses cannot discard a larger cumulative prefix"
   assert.equal(controller.getState().citingPapers.length, 30);
   assert.equal(controller.getState().citingPapersLoaded, 30);
   assert.equal(controller.getState().message, undefined);
+});
+
+test("Citations publish loading and completed-empty states around the provider request", async () => {
+  const citations = deferred<readonly []>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: () => citations.promise,
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  assert.deepEqual(controller.getState().citingPapersStatus, {
+    status: "loading",
+  });
+
+  citations.resolve([]);
+  await waitFor(
+    () => controller.getState().citingPapersStatus.status === "ready",
+  );
+  assert.equal(controller.getState().citingPapersLoaded, 10);
+  assert.deepEqual(controller.getState().citingPapers, []);
 });
 
 test("a late Reference response from an obsolete generation updates neither UI nor cache", async () => {
@@ -870,10 +935,12 @@ function resolvedPaper(title: string, doi: string): ReaderPaperResult {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

@@ -86,6 +86,22 @@ test("safe version-of-record full text evidence breaks equal-authority ties", ()
   );
 });
 
+test("IEEE and ACM publisher evidence outranks an otherwise complete generic record", () => {
+  const generic = option("crossref", "generic", {
+    identifiers: { doi: "10.1000/generic" },
+    referenceCount: 20,
+    citationCount: 30,
+  });
+  const ieee = option("crossref", "ieee", {
+    identifiers: { doi: "10.1109/example" },
+    landingURL: "https://ieeexplore.ieee.org/document/1/",
+    authors: [],
+    venue: null,
+  });
+
+  assert.equal(selectPrimaryResult([generic, ieee])?.sourceRecordID, "ieee");
+});
+
 test("Primary result requires a non-empty title and stable identity", () => {
   assert.equal(
     selectPrimaryResult([

@@ -42,12 +42,76 @@ function readyState(): ReaderSectionState {
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
+    citingPapersStatus: { status: "ready" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: true,
   };
 }
+
+test("Citations distinguish an active lookup from a completed empty result", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = {
+    ...readyState(),
+    activeTab: "citations",
+    citingPapers: [],
+    citingPapersLoaded: 0,
+    citingPapersStatus: { status: "loading" },
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.equal(
+    dom.window.document.querySelector('[data-tab="citations"] span')
+      ?.textContent,
+    "…",
+  );
+  assert.match(
+    dom.window.document.querySelector(".rfz-content")?.textContent ?? "",
+    /正在查找引用论文/u,
+  );
+
+  state = {
+    ...state,
+    citingPapersLoaded: 10,
+    citingPapersStatus: { status: "ready" },
+  };
+  listener?.(state);
+
+  assert.equal(
+    dom.window.document.querySelector('[data-tab="citations"] span')
+      ?.textContent,
+    "0",
+  );
+  assert.match(
+    dom.window.document.querySelector(".rfz-content")?.textContent ?? "",
+    /未找到引用文献/u,
+  );
+  assert.match(
+    dom.window.document.querySelector(".rfz-content")?.textContent ?? "",
+    /OpenCitations 暂未返回/u,
+  );
+  mounted.destroy();
+});
 
 function downloadControllerStubs(): Pick<
   ReaderSectionController,
@@ -1121,6 +1185,9 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
     "http://www.w3.org/1999/xhtml",
     "section",
   )[0] as HTMLElement;
+  const readerDocument = new JSDOM(
+    "<!doctype html><body><main data-reader-page></main></body>",
+  ).window.document;
   let state = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
   const selections: string[] = [];
@@ -1149,6 +1216,7 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
       refresh() {},
       openPaper() {},
       performPaperAction() {},
+      externalInteractionDocuments: () => [readerDocument],
     },
   });
 
@@ -1172,10 +1240,11 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
     /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*none/u,
   );
 
-  detailCard.click();
-  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
-
-  overlay.click();
+  readerDocument.querySelector("[data-reader-page]")?.dispatchEvent(
+    new readerDocument.defaultView!.MouseEvent("pointerdown", {
+      bubbles: true,
+    }),
+  );
   assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
   assert.ok(!overlay.classList.contains("is-open"));
   assert.deepEqual(selections, ["ref-1", "ref-1"]);

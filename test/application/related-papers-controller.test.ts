@@ -397,6 +397,29 @@ test("late smaller citation responses cannot discard a larger cumulative prefix"
   assert.equal(controller.getState().message, undefined);
 });
 
+test("Citations publish loading and completed-empty states around the provider request", async () => {
+  const citations = deferred<readonly []>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: () => citations.promise,
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+  controller.selectTab("citations");
+  assert.deepEqual(controller.getState().citingPapersStatus, {
+    status: "loading",
+  });
+
+  citations.resolve([]);
+  await waitFor(
+    () => controller.getState().citingPapersStatus.status === "ready",
+  );
+  assert.equal(controller.getState().citingPapersLoaded, 10);
+  assert.deepEqual(controller.getState().citingPapers, []);
+});
+
 test("a late Reference response from an obsolete generation updates neither UI nor cache", async () => {
   const firstResolution = deferred<readonly ReaderPaperResult[]>();
   const writes: string[] = [];

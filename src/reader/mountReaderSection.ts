@@ -11,6 +11,11 @@ const TRANSLATION_POPOVER_WIDTH = 340;
 export type ReaderTab = "references" | "citations";
 export type ReaderPaperAction = "copy-title" | "copy-doi" | "google-search";
 export type ReaderStatus = "loading" | "ready" | "error" | "no-md";
+export type CitingPapersStatus =
+  | Readonly<{ status: "idle" }>
+  | Readonly<{ status: "loading" }>
+  | Readonly<{ status: "ready" }>
+  | Readonly<{ status: "error"; message: string }>;
 export type PaperStatus =
   | "matching"
   | "resolved"
@@ -100,6 +105,7 @@ export interface ReaderSectionState {
   citingPapers: readonly ReaderPaper[];
   citingPaperLimit: 10 | 30 | 50;
   citingPapersLoaded: number;
+  citingPapersStatus: CitingPapersStatus;
   selectedPaperID?: string;
   downloadSelection: readonly DownloadSelectionEntry[];
   paperDownloads: readonly PaperDownloadProjection[];
@@ -131,6 +137,7 @@ export interface ReaderSectionController {
   resetDownloadDestination?(): void;
   translationCapability?(): TranslationCapability;
   translateSelection?(text: string): Promise<string>;
+  externalInteractionDocuments?(): readonly Document[];
 }
 
 export interface MountedReaderSection {
@@ -163,10 +170,24 @@ export function mountReaderSection(options: {
   body.ownerDocument.documentElement.append(portal);
   let destroyed = false;
   let translationRequest = 0;
+  let detailWasOpenAtPointerDown = false;
+  const externalInteractionDocuments = new Set<Document>();
 
   const dismissSelectedPaper = (): void => {
     const selectedPaperID = controller.getState().selectedPaperID;
     if (selectedPaperID) controller.selectPaper(selectedPaperID);
+  };
+
+  const onExternalPointerDown = (): void => {
+    dismissSelectedPaper();
+  };
+
+  const syncExternalInteractionDocuments = (): void => {
+    for (const document of controller.externalInteractionDocuments?.() ?? []) {
+      if (externalInteractionDocuments.has(document)) continue;
+      externalInteractionDocuments.add(document);
+      document.addEventListener("pointerdown", onExternalPointerDown, true);
+    }
   };
 
   const closeContextMenu = (): void => {
@@ -242,7 +263,7 @@ export function mountReaderSection(options: {
       </header>
       <nav class="rfz-tabs" aria-label="Paper relationship">
         <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" data-focus-key="tab:references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
-        <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" data-focus-key="tab:citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapers.length}</span></div>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" data-focus-key="tab:citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapersStatus.status === "loading" && state.citingPapers.length === 0 ? "…" : state.citingPapers.length}</span></div>
       </nav>
       ${
         state.activeTab === "citations"
@@ -281,6 +302,7 @@ export function mountReaderSection(options: {
     if (overlayTranslation && detailCard.length > 0) {
       overlay.append(overlayTranslation);
     }
+    syncExternalInteractionDocuments();
   }
 
   const onClick = (event: Event): void => {
@@ -467,19 +489,11 @@ export function mountReaderSection(options: {
   contextMenu.addEventListener("keydown", onContextMenuKeyDown);
   const onDocumentClick = (event: Event): void => {
     if (!contextMenu.contains(event.target as Node)) closeContextMenu();
-    const target = event.target;
-    if (!(target instanceof body.ownerDocument.defaultView!.Element)) return;
-    const detailCard = overlay.querySelector<HTMLElement>("[data-detail-card]");
-    if (
-      detailCard &&
-      !detailCard.contains(target) &&
-      !target.closest("[data-paper-title]")
-    ) {
-      dismissSelectedPaper();
-    }
+    if (detailWasOpenAtPointerDown) dismissSelectedPaper();
   };
   body.ownerDocument.addEventListener("click", onDocumentClick);
   const onDocumentPointerDown = (event: Event): void => {
+    detailWasOpenAtPointerDown = Boolean(controller.getState().selectedPaperID);
     const target = event.target;
     if (!(target instanceof body.ownerDocument.defaultView!.Node)) return;
     const translation =
@@ -574,6 +588,14 @@ export function mountReaderSection(options: {
         repositionDetailCard,
         true,
       );
+      for (const document of externalInteractionDocuments) {
+        document.removeEventListener(
+          "pointerdown",
+          onExternalPointerDown,
+          true,
+        );
+      }
+      externalInteractionDocuments.clear();
       portal.remove();
       root.remove();
     },
@@ -626,6 +648,32 @@ function renderContent(
       <strong>${escapeHTML(content[0])}</strong>
       <p>${escapeHTML(content[1])}</p>
     </section>`;
+  }
+
+  if (
+    state.activeTab === "citations" &&
+    state.citingPapersStatus.status === "loading" &&
+    papers.length === 0
+  ) {
+    return `<section class="rfz-status" role="status"><strong>正在查找引用论文…</strong><p>正在使用当前论文的 DOI 等标识查询 OpenCitations。</p></section>`;
+  }
+
+  if (
+    state.activeTab === "citations" &&
+    state.citingPapersStatus.status === "error" &&
+    papers.length === 0
+  ) {
+    return `<section class="rfz-status" role="alert"><strong>引用论文查询失败</strong><p>${escapeHTML(
+      state.citingPapersStatus.message,
+    )}</p></section>`;
+  }
+
+  if (
+    state.activeTab === "citations" &&
+    state.citingPapersStatus.status === "ready" &&
+    papers.length === 0
+  ) {
+    return `<section class="rfz-status"><strong>未找到引用文献</strong><p>OpenCitations 暂未返回引用该论文的记录。</p></section>`;
   }
 
   if (papers.length === 0) {

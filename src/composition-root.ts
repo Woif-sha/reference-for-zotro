@@ -116,14 +116,15 @@ export function createReaderControllerFactory(
             limit,
           );
           if (result.status === "failed") {
+            if (result.errorCode === "citation-identifier-unsupported") {
+              throw new Error("当前论文缺少 DOI 或 PMID，无法查询引用论文。");
+            }
             throw new Error(
-              `Citing papers unavailable: ${result.errorCode} (${result.source})`,
+              `OpenCitations 查询失败：${result.errorCode} (${result.source})`,
             );
           }
           if (result.status === "no-results") {
-            throw new Error(
-              "OpenCitations returned no citation edges for this source; this is not proof that the paper has no Citing papers.",
-            );
+            return [];
           }
           return result.papers.map((candidate, index) =>
             candidateToReaderPaper(candidate, index),
@@ -191,6 +192,15 @@ export function createReaderControllerFactory(
         },
         openURL(url) {
           Zotero.launchURL(url);
+        },
+        externalInteractionDocuments() {
+          return Zotero.Reader._readers
+            .filter(({ itemID }) => Number(itemID) === actualAttachmentID)
+            .flatMap((reader) =>
+              reader._iframeWindow?.document
+                ? [reader._iframeWindow.document]
+                : [],
+            );
         },
         dispose() {
           gateway?.dispose();

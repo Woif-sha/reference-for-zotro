@@ -88,6 +88,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     citingPapers: [],
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
+    citingPapersStatus: { status: "ready" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,

@@ -400,6 +400,7 @@ export class RelatedPapersController implements ReaderSectionController {
         return {
           id: `reference:${entry.ordinal}`,
           ordinal: entry.ordinal,
+          sourceLabel: entry.sourceLabel,
           title: query.title ?? UNPARSED_REFERENCE_TITLE,
           venue: query.venue,
           year: query.year?.toString(),

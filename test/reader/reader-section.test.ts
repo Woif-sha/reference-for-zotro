@@ -18,6 +18,7 @@ function readyState(): ReaderSectionState {
       {
         id: "ref-1",
         ordinal: 0,
+        sourceLabel: "1",
         title: "First reference",
         authors: "Alpha",
         venue: "Journal of First Results",
@@ -30,6 +31,7 @@ function readyState(): ReaderSectionState {
       {
         id: "ref-2",
         ordinal: 1,
+        sourceLabel: "5",
         title: "Second reference",
         authors: "Beta",
         venue: "Proceedings of Second Tests",
@@ -573,6 +575,12 @@ test("Reader section renders Reference entries in source order and selects Citat
       (element) => element.querySelector("[data-paper-title]")?.textContent,
     ),
     ["First reference", "Second reference"],
+  );
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll(".rfz-ordinal")].map(
+      (element) => element.textContent,
+    ),
+    ["1.", "5."],
   );
 
   const citationsTab = dom.window.document.querySelector(

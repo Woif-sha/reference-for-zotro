@@ -46,7 +46,7 @@ import type { DownloadSettingsController } from "./application/download-settings
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 15;
+export const PROVIDER_QUERY_VERSION = 16;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -94,6 +94,7 @@ export function createReaderControllerFactory(
             if (context.signal.aborted) throw abortError();
             const paper = await resolveReferenceEntry(
               entry.ordinal,
+              entry.sourceLabel,
               entry.lookupText,
               gatewayFor(context),
               providerPorts.fetch,
@@ -215,6 +216,7 @@ export function createReaderControllerFactory(
 
 export async function resolveReferenceEntry(
   ordinal: number,
+  sourceLabel: string,
   lookupText: string,
   gateway: RelatedLiteratureGateway,
   fetchPort: FetchPort,
@@ -224,6 +226,7 @@ export async function resolveReferenceEntry(
   const query = parseReferenceQuery(lookupText);
   const present = (paper: ReaderPaper): ReaderPaper => ({
     ...paper,
+    sourceLabel,
     venue: paper.venue ?? query.venue,
     year: paper.year ?? query.year?.toString(),
   });

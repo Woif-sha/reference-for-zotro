@@ -193,3 +193,144 @@ test("joint ACM IEEE proceedings entries preserve the exact title year and order
   assert.equal(result.year, 2024);
   assert.equal(result.channel, "conference");
 });
+
+test("single full-name ACM references expose the title after their publication year", () => {
+  const result = parseReferenceQuery(
+    "Wen lun Tan. 2021. Machine Learning Overcomes Library Challenges at the Latest Process Nodes. (2021). https://www.techdesignforums.com",
+  );
+
+  assert.equal(
+    result.title,
+    "Machine Learning Overcomes Library Challenges at the Latest Process Nodes",
+  );
+  assert.equal(result.year, 2021);
+});
+
+test("initial-first ACM references expose the title after their publication year", () => {
+  const result = parseReferenceQuery(
+    "W. T. Anderson. 2001. Semiconductor device reliability in extreme high temperature space environments. In 2001 IEEE Aerospace Conference Proceedings, Vol. 5.",
+  );
+
+  assert.equal(
+    result.title,
+    "Semiconductor device reliability in extreme high temperature space environments",
+  );
+  assert.equal(result.year, 2001);
+});
+
+test("parenthesized years between authors and titles remain metadata", () => {
+  const result = parseReferenceQuery(
+    "S. Venugopalan et al. (2016). BSIM-CMG 110. [Online]. Available: http://bsim.berkeley.edu/models/bsimcmg/",
+  );
+
+  assert.equal(result.title, "BSIM-CMG 110");
+  assert.deepEqual(result.authors, ["Venugopalan"]);
+  assert.equal(result.year, 2016);
+});
+
+test("corporate authors with legal suffixes are separated from web titles", () => {
+  const result = parseReferenceQuery(
+    "Silvaco, Inc. (2019). Silvaco and Si2 Release Unique, Free 15 nm Open-Source Digital Cell Library. [Online]. Available: https://www.silvaco.com/news/pressreleases/2019_05_30_01.html",
+  );
+
+  assert.equal(
+    result.title,
+    "Silvaco and Si2 Release Unique, Free 15 nm Open-Source Digital Cell Library",
+  );
+  assert.equal(result.year, 2019);
+});
+
+test("vendor-authored guidelines stop their title before version metadata", () => {
+  const result = parseReferenceQuery(
+    "Synopsys, CCS Timing Library characterization guidelines, Version 3.4, Mountain View, CA, October 2016, available at https://www.synopsys.com/.",
+  );
+
+  assert.equal(result.title, "CCS Timing Library characterization guidelines");
+  assert.equal(result.year, 2016);
+});
+
+test("report titles stop before explicit report metadata", () => {
+  const result = parseReferenceQuery(
+    "Lippuner, J. NVIDIA CUDA; Technical Report; Los Alamos National Laboratory (LANL): Los Alamos, NM, USA, 2019.",
+  );
+
+  assert.equal(result.title, "NVIDIA CUDA");
+  assert.deepEqual(result.authors, ["Lippuner"]);
+  assert.equal(result.year, 2019);
+});
+
+test("full-name authors are separated from an unquoted paper title", () => {
+  const result = parseReferenceQuery(
+    "Iris Hui-Ru Jiang. Lightning talk: All routes to timing closure. In Proceedings of Design Automation Conference (DAC), pages 1–2, 2023.",
+  );
+
+  assert.equal(result.title, "Lightning talk: All routes to timing closure");
+  assert.deepEqual(result.authors, ["Jiang"]);
+  assert.equal(result.year, 2023);
+});
+
+test("vendor manuals expose their product title without treating metadata as title text", () => {
+  const result = parseReferenceQuery(
+    "Hspice User Guide, Synopsys, Inc., Sunnyvale, CA, USA, 2020.",
+  );
+
+  assert.equal(result.title, "Hspice User Guide");
+  assert.equal(result.year, 2020);
+});
+
+test("standalone web references stop the title before access metadata", () => {
+  const result = parseReferenceQuery(
+    "Floating Point and IEEE 754 Compliance for NVIDIA GPUs. Accessed: May 15, 2018. [Online]. Available: https://docs.nvidia.com/cuda/floating-point/index.html",
+  );
+
+  assert.equal(
+    result.title,
+    "Floating Point and IEEE 754 Compliance for NVIDIA GPUs",
+  );
+  assert.equal(result.year, 2018);
+});
+
+test("short standalone web titles are not mistaken for full-name authors", () => {
+  const result = parseReferenceQuery(
+    "Dense Linear Algebra on GPUs. Accessed: Mar. 2018. [Online]. Available: https://developer.nvidia.com/cublas",
+  );
+
+  assert.equal(result.title, "Dense Linear Algebra on GPUs");
+});
+
+test("organization names followed directly by access metadata remain titles", () => {
+  const result = parseReferenceQuery(
+    "Compute Canada. Accessed: Jul. 2017. [Online]. Available: https://www.computecanada.ca/home/",
+  );
+
+  assert.equal(result.title, "Compute Canada");
+});
+
+test("leading publication dates are removed from standalone manual titles", () => {
+  const result = parseReferenceQuery(
+    "(Jan. 2017). CUDA Programming Guide V8.0. Accessed: Sep. 2017. [Online]. Available: https://developer.nvidia.com/cuda-80-ga2-download-archive",
+  );
+
+  assert.equal(result.title, "CUDA Programming Guide V8.0");
+});
+
+test("named software publishers are separated from their product titles", () => {
+  const result = parseReferenceQuery(
+    "GLU. GPU-Accelerated Sparse Parallel LU Factorization Solver Version 2.0. Accessed: Jul. 2017. [Online]. Available: http://www.ee.ucr.edu/~stan/project/glu/glu_proj.htm",
+  );
+
+  assert.equal(
+    result.title,
+    "GPU-Accelerated Sparse Parallel LU Factorization Solver Version 2.0",
+  );
+});
+
+test("model numbers inside a bounded title are not rejected as publication years", () => {
+  const result = parseReferenceQuery(
+    "Lee, K. Nvidia GeForce RTX 2080 Ti Review. Available online: https://www.techradar.com/reviews/nvidia-geforce-rtx-2080-ti-review (accessed on 1 January 2020).",
+  );
+
+  assert.equal(result.title, "Nvidia GeForce RTX 2080 Ti Review");
+  assert.deepEqual(result.authors, ["Lee"]);
+  assert.equal(result.year, 2020);
+});

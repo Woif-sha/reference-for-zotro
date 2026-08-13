@@ -56,6 +56,27 @@ test("normalizes marker, whitespace, markup, quotes, escapes and identifier spac
   );
 });
 
+test("preserves ambiguous URL token boundaries in the canonical Reference text", () => {
+  const raw =
+    "6. Cadence, “Spectre,” https: //www.cadence.com/global/en US/ home/library-characterization spectre.html.";
+  const normalized = normalizeReferenceEntries(raw, contentList(raw));
+
+  assert.equal(
+    normalized.fullMarkdown,
+    '[6] Cadence, "Spectre," https://www.cadence.com/global/en US/home/library-characterization spectre.html.',
+  );
+});
+
+test("does not absorb access metadata after a URL path separator", () => {
+  const raw = "1. Product guide. https://example.test/ Accessed: June 5, 2024.";
+  const normalized = normalizeReferenceEntries(raw, contentList(raw));
+
+  assert.equal(
+    normalized.fullMarkdown,
+    "[1] Product guide. https://example.test/ Accessed: June 5, 2024.",
+  );
+});
+
 test("merges MinerU continuation blocks into one canonical Reference line", () => {
   const first = "[8] Michael Hofmann. Modeling negative capacitance";
   const continuation =

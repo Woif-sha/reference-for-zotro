@@ -38,6 +38,7 @@ export type PaperDownloadProjection = DownloadSelectionEntry &
 type ReaderPaperBase = {
   id: string;
   ordinal: number;
+  sourceLabel?: string;
   title: string;
   authors?: string;
   venue?: string;
@@ -712,7 +713,7 @@ function renderContent(
           state.selectedPaperID === paper.id ? " is-selected" : ""
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
           <button class="rfz-paper-checkbox" type="button" role="checkbox" aria-checked="${selectedForDownload}" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectable ? "" : 'disabled=""'}><span class="rfz-checkbox-mark" aria-hidden="true">✓</span></button>
-          <span class="rfz-ordinal">${paper.ordinal + 1}.</span><div class="rfz-paper-main">
+          <span class="rfz-ordinal">${escapeHTML(paper.sourceLabel ?? String(paper.ordinal + 1))}.</span><div class="rfz-paper-main">
             <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
             )}</div>${metadata ? `<small class="rfz-paper-metadata" data-paper-metadata="" data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}

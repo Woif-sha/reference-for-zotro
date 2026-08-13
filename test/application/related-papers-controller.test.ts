@@ -30,6 +30,7 @@ test("Reference entries show parsed titles before matching and after a failure",
     entries: [
       {
         ...loadedPaper.entries[0],
+        sourceLabel: "5",
         lookupText:
           "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
       },
@@ -50,6 +51,7 @@ test("Reference entries show parsed titles before matching and after a failure",
     "GPT-4 Technical Report",
   );
   assert.equal(controller.getState().references[0]?.year, "2023");
+  assert.equal(controller.getState().references[0]?.sourceLabel, "5");
   assert.equal(controller.getState().references[0]?.venue, "Preprint at");
   assert.equal(
     controller.getState().mineruDirectory,

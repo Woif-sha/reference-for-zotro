@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("Reader reference projection changes invalidate previous cached results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 15);
+  assert.equal(PROVIDER_QUERY_VERSION, 16);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -60,6 +60,7 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
 
   const paper = await resolveReferenceEntry(
     27,
+    "28",
     lookupText,
     gateway,
     async (url) => {
@@ -87,6 +88,7 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
   );
 
   assert.equal(paper.status, "resolved");
+  assert.equal(paper.sourceLabel, "28");
   assert.equal(resolvedDoi, "10.18653/v1/n19-1423");
   assert.equal(
     paper.title,
@@ -144,6 +146,7 @@ test("unresolved references display titles wrapped in MinerU right double quotes
 
   const paper = await resolveReferenceEntry(
     10,
+    "11",
     lookupText,
     gateway,
     () => {
@@ -196,6 +199,7 @@ test("a landing-page timeout is unreachable instead of a red fatal failure", asy
 
   const paper = await resolveReferenceEntry(
     4,
+    "5",
     "OpenAI. GPT-4 Technical Report. Preprint at https://arxiv.org/abs/2303.08774 (2023).",
     gateway,
     async () => {
@@ -247,6 +251,7 @@ test("an unparsed bibliography never falls back to the complete reference", asyn
 
   const paper = await resolveReferenceEntry(
     0,
+    "1",
     normalizedReference,
     gateway,
     () => {

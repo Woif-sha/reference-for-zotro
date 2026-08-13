@@ -185,14 +185,19 @@ function normalizeReferenceText(value: string): string {
     .replace(/\b(10\.\d{4,9}\/)\s+(?=[-._;()/:\p{L}\p{N}])/giu, "$1")
     .replace(/\s+/gu, " ")
     .trim();
-  return normalizeBrokenUrlWhitespace(normalized);
+  return normalizeUrlSlashWhitespace(normalized);
 }
 
-function normalizeBrokenUrlWhitespace(value: string): string {
-  return value.replace(
-    /\bhttps?:\/\/.*?(?=(?:,\s*(?:accessed|retrieved|19\d{2}|20\d{2})\b|\s+\((?:accessed|retrieved)\b|$))/giu,
-    (url) => url.replace(/\s+/gu, ""),
-  );
+function normalizeUrlSlashWhitespace(value: string): string {
+  let normalized = value;
+  while (true) {
+    const next = normalized.replace(
+      /(\bhttps?:\/\/[^\n,;"']*?\/)\s+(?!(?:Accessed|Retrieved)\s*:)(?=[\p{L}\p{N}])/giu,
+      "$1",
+    );
+    if (next === normalized) return normalized;
+    normalized = next;
+  }
 }
 
 function locateReferenceBlocks(

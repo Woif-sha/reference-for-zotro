@@ -56,6 +56,48 @@ test("normalizes marker, whitespace, markup, quotes, escapes and identifier spac
   );
 });
 
+test("removes orphan combining marks from real Latin Reference text", () => {
+  const references = [
+    '[9] O. Schenk and K. Gartner, "Solving unsymmetric sparse systems of \u0308 linear equations with PARDISO," Future Generation Computer Systems, vol. 20, no. 3, pp. 475–487, 2004.',
+    '[10] O. Schenk, K. Gartner, W. Fichtner, and A. Stricker, "PARDISO: A \u0308 High-Performance Serial and Parallel Sparse Linear Solver in Semiconductor Device Simulation," Future Gener. Comput. Syst., vol. 18, no. 1, pp. 69–78, Sep. 2001.',
+    '[24] M. Bollhofer, O. Schenk, R. Janalik, S. Hamm, and K. Gullapalli, "State- \u0308 of-the-art sparse direct solvers," Parallel algorithms in computational science and engineering, pp. 3–33, 2020.',
+  ];
+  const normalized = normalizeReferenceEntries(
+    references.join("\n\n"),
+    contentList(...references),
+  );
+
+  assert.deepEqual(
+    parseReferenceEntries(
+      normalized.fullMarkdown,
+      normalized.contentListJson,
+    ).map(({ lookupText }) => lookupText),
+    [
+      'O. Schenk and K. Gartner, "Solving unsymmetric sparse systems of linear equations with PARDISO," Future Generation Computer Systems, vol. 20, no. 3, pp. 475–487, 2004.',
+      'O. Schenk, K. Gartner, W. Fichtner, and A. Stricker, "PARDISO: A High-Performance Serial and Parallel Sparse Linear Solver in Semiconductor Device Simulation," Future Gener. Comput. Syst., vol. 18, no. 1, pp. 69–78, Sep. 2001.',
+      'M. Bollhofer, O. Schenk, R. Janalik, S. Hamm, and K. Gullapalli, "State-of-the-art sparse direct solvers," Parallel algorithms in computational science and engineering, pp. 3–33, 2020.',
+    ],
+  );
+});
+
+test("removes NFKC spacing-diacritic artifacts without stripping attached accents", () => {
+  const spacingDiacritics = ["¨", "¯", "´", "¸", "˘", "˙", "˚", "˛", "˜", "˝"];
+
+  for (const mark of spacingDiacritics) {
+    const raw = `[1] State-${mark} of-the-art`;
+    assert.equal(
+      normalizeReferenceEntries(raw, contentList(raw)).fullMarkdown,
+      "[1] State-of-the-art",
+    );
+  }
+
+  const accented = "[2] José García, Jürgen Müller, and Mu\u0308ller";
+  assert.equal(
+    normalizeReferenceEntries(accented, contentList(accented)).fullMarkdown,
+    "[2] José García, Jürgen Müller, and Müller",
+  );
+});
+
 test("preserves ambiguous URL token boundaries in the canonical Reference text", () => {
   const raw =
     "6. Cadence, “Spectre,” https: //www.cadence.com/global/en US/ home/library-characterization spectre.html.";

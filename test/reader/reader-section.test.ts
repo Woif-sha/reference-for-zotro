@@ -1258,6 +1258,78 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   mounted.destroy();
 });
 
+test("selecting text inside an open detail card does not dismiss it", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        state = {
+          ...state,
+          selectedPaperID:
+            state.selectedPaperID === paperID ? undefined : paperID,
+        };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      externalInteractionDocuments: () => [dom.window.document],
+    },
+  });
+
+  (
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement
+  ).click();
+  const detailCard = dom.window.document.querySelector("[data-detail-card]");
+  const overlay = dom.window.document.querySelector("[data-reader-overlay]");
+  assert.ok(detailCard);
+  assert.ok(overlay);
+  assert.equal(
+    overlay.parentElement?.parentElement,
+    dom.window.document.documentElement,
+  );
+  assert.ok(Number(dom.window.getComputedStyle(overlay).zIndex) >= 2147483000);
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.ok(abstract);
+  selectNodeContents(dom, abstract);
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  abstract.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  dom.window.document.body.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  dom.window.document.body.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true }),
+  );
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  mounted.destroy();
+});
+
 test("unresolved references do not expose a second raw Reference projection", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();

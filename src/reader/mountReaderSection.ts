@@ -184,6 +184,7 @@ export function mountReaderSection(options: {
 
   const syncExternalInteractionDocuments = (): void => {
     for (const document of controller.externalInteractionDocuments?.() ?? []) {
+      if (document === body.ownerDocument) continue;
       if (externalInteractionDocuments.has(document)) continue;
       externalInteractionDocuments.add(document);
       document.addEventListener("pointerdown", onExternalPointerDown, true);
@@ -489,7 +490,16 @@ export function mountReaderSection(options: {
   contextMenu.addEventListener("keydown", onContextMenuKeyDown);
   const onDocumentClick = (event: Event): void => {
     if (!contextMenu.contains(event.target as Node)) closeContextMenu();
-    if (detailWasOpenAtPointerDown) dismissSelectedPaper();
+    const target = event.target;
+    if (!(target instanceof body.ownerDocument.defaultView!.Node)) return;
+    const detailCard = overlay.querySelector<HTMLElement>("[data-detail-card]");
+    if (
+      detailWasOpenAtPointerDown &&
+      detailCard &&
+      !detailCard.contains(target)
+    ) {
+      dismissSelectedPaper();
+    }
   };
   body.ownerDocument.addEventListener("click", onDocumentClick);
   const onDocumentPointerDown = (event: Event): void => {

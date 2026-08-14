@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("Reader reference projection changes invalidate previous cached results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 16);
+  assert.equal(PROVIDER_QUERY_VERSION, 17);
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {
@@ -161,6 +161,7 @@ test("unresolved references display titles wrapped in MinerU right double quotes
   );
   assert.equal(paper.year, "2022");
   assert.equal(paper.venue, "IEEE Trans. Circuits Syst. II Express Briefs");
+  assert.equal(paper.referenceText, lookupText);
   assert.doesNotMatch(paper.title, /L\. Jin|IEEE Trans|2022/u);
 });
 

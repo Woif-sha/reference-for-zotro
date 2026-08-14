@@ -34,6 +34,8 @@ function readyState(): ReaderSectionState {
         ordinal: 1,
         sourceLabel: "5",
         title: "Second reference",
+        referenceText:
+          "B. Author. Second reference. Available: https://example.test/second",
         authors: "Beta",
         venue: "Proceedings of Second Tests",
         year: "2023",
@@ -1359,10 +1361,11 @@ test("selecting text inside an open detail card does not dismiss it", () => {
   mounted.destroy();
 });
 
-test("unresolved references do not expose a second raw Reference projection", () => {
+test("unresolved references open their canonical Reference text", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
+  const opened: string[] = [];
   const mounted = mountReaderSection({
     body: dom.window.document.body,
     controller: {
@@ -1382,7 +1385,9 @@ test("unresolved references do not expose a second raw Reference projection", ()
       },
       refresh() {},
       openPaper() {},
-      openReferenceURL() {},
+      openReferenceURL(url) {
+        opened.push(url);
+      },
       performPaperAction() {},
     },
   });
@@ -1393,7 +1398,18 @@ test("unresolved references do not expose a second raw Reference projection", ()
     ) as HTMLButtonElement
   ).click();
 
-  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  const detailCard = dom.window.document.querySelector("[data-detail-card]");
+  assert.ok(detailCard);
+  assert.match(
+    detailCard.querySelector("[data-reference-text]")?.textContent ?? "",
+    /B\. Author\. Second reference/u,
+  );
+  const link = detailCard.querySelector(
+    '[data-reference-link="https://example.test/second"]',
+  ) as HTMLAnchorElement | null;
+  assert.ok(link);
+  link.click();
+  assert.deepEqual(opened, ["https://example.test/second"]);
   mounted.destroy();
 });
 

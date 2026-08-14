@@ -17,11 +17,12 @@ Each entry is one complete line. MinerU `ref_text` blocks without a marker betwe
 The bibliography text is normalized by these rules, in order:
 
 1. Decode HTML entities and apply Unicode NFKC normalization.
-2. Remove MinerU `<sup>` and `<sub>` wrappers while retaining their text.
-3. Convert typographic single and double quotation marks to ASCII quotes.
-4. Remove Markdown escapes from punctuation and symbol characters.
-5. Repair whitespace around `http://`, `https://`, DOI paths, and whitespace inserted inside a trailing URL.
-6. Collapse all remaining whitespace runs to one ASCII space and trim the entry.
+2. Remove orphan combining marks between Latin tokens. Preserve one word space, or rejoin the tokens when the artifact interrupts a hyphenated word. Combining marks attached to a letter are retained.
+3. Remove MinerU `<sup>` and `<sub>` wrappers while retaining their text.
+4. Convert typographic single and double quotation marks to ASCII quotes.
+5. Remove Markdown escapes from punctuation and symbol characters.
+6. Repair whitespace around `http://`, `https://`, DOI paths, and whitespace inserted inside a trailing URL.
+7. Collapse all remaining whitespace runs to one ASCII space and trim the entry.
 
 Normalization is idempotent: applying it again produces no file changes. It repairs only evidence present in the MinerU output; it does not invent missing bibliography entries, author names, titles, years, venues, or identifier characters.
 

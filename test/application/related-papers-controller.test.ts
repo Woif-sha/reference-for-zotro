@@ -54,6 +54,10 @@ test("Reference entries show parsed titles before matching and after a failure",
   assert.equal(controller.getState().references[0]?.sourceLabel, "5");
   assert.equal(controller.getState().references[0]?.venue, "Preprint at");
   assert.equal(
+    controller.getState().references[0]?.referenceText,
+    paper.entries[0]?.lookupText,
+  );
+  assert.equal(
     controller.getState().mineruDirectory,
     "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   );

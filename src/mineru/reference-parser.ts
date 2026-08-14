@@ -174,8 +174,9 @@ export function parseReferenceEntries(
 }
 
 function normalizeReferenceText(value: string): string {
-  const normalized = decodeHTML(value)
-    .normalize("NFKC")
+  const normalized = removeOrphanLatinCombiningMarks(
+    decodeHTML(value).normalize("NFKC"),
+  )
     .replace(/<\/?(?:sup|sub)>/giu, "")
     .replace(/[“”„‟]/gu, '"')
     .replace(/[‘’]/gu, "'")
@@ -186,6 +187,16 @@ function normalizeReferenceText(value: string): string {
     .replace(/\s+/gu, " ")
     .trim();
   return normalizeUrlSlashWhitespace(normalized);
+}
+
+function removeOrphanLatinCombiningMarks(value: string): string {
+  return value
+    .replace(/(?<=-)\s+\p{M}+\s*(?=[\p{Script=Latin}\p{N}])/gu, "")
+    .replace(/(?<=[\p{Script=Latin}\p{N}])\s+\p{M}+\s*(?=-)/gu, "")
+    .replace(
+      /(?<=[\p{Script=Latin}\p{N}])\s+\p{M}+\s*(?=[\p{Script=Latin}\p{N}])/gu,
+      " ",
+    );
 }
 
 function normalizeUrlSlashWhitespace(value: string): string {

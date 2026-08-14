@@ -402,6 +402,7 @@ export class RelatedPapersController implements ReaderSectionController {
           ordinal: entry.ordinal,
           sourceLabel: entry.sourceLabel,
           title: query.title ?? UNPARSED_REFERENCE_TITLE,
+          referenceText: entry.lookupText,
           venue: query.venue,
           year: query.year?.toString(),
           status: "matching",

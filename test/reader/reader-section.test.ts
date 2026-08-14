@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 
+import { zoteroReaderInteractionDocuments } from "../../src/composition-root";
 import {
   mountReaderSection,
   type ReaderPaper,
@@ -1182,7 +1183,7 @@ test("Reader context actions stay on the original list title after details open"
   mounted.destroy();
 });
 
-test("Reader section closes an open detail card when clicking elsewhere", () => {
+test("Reader section closes an open detail card when clicking the paper view", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
     { contentType: "application/xml" },
@@ -1191,9 +1192,23 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
     "http://www.w3.org/1999/xhtml",
     "section",
   )[0] as HTMLElement;
-  const readerDocument = new JSDOM(
+  const readerChromeDocument = new JSDOM("<!doctype html><body></body>").window
+    .document;
+  const paperDocument = new JSDOM(
     "<!doctype html><body><main data-reader-page></main></body>",
   ).window.document;
+  const secondaryPaperDocument = new JSDOM(
+    "<!doctype html><body><main data-reader-page></main></body>",
+  ).window.document;
+  const reader = {
+    _iframeWindow: readerChromeDocument.defaultView!,
+    _internalReader: {
+      _primaryView: { _iframeWindow: paperDocument.defaultView! },
+      _secondaryView: {
+        _iframeWindow: secondaryPaperDocument.defaultView!,
+      },
+    },
+  };
   let state = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
   const selections: string[] = [];
@@ -1222,7 +1237,8 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
       refresh() {},
       openPaper() {},
       performPaperAction() {},
-      externalInteractionDocuments: () => [readerDocument],
+      externalInteractionDocuments: () =>
+        zoteroReaderInteractionDocuments(reader),
     },
   });
 
@@ -1246,8 +1262,8 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
     /\.rfz-overlay\.is-open\s*\{[^}]*pointer-events:\s*none/u,
   );
 
-  readerDocument.querySelector("[data-reader-page]")?.dispatchEvent(
-    new readerDocument.defaultView!.MouseEvent("pointerdown", {
+  paperDocument.querySelector("[data-reader-page]")?.dispatchEvent(
+    new paperDocument.defaultView!.MouseEvent("pointerdown", {
       bubbles: true,
     }),
   );
@@ -1255,6 +1271,91 @@ test("Reader section closes an open detail card when clicking elsewhere", () => 
   assert.ok(!overlay.classList.contains("is-open"));
   assert.deepEqual(selections, ["ref-1", "ref-1"]);
 
+  (
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement
+  ).click();
+  secondaryPaperDocument.querySelector("[data-reader-page]")?.dispatchEvent(
+    new secondaryPaperDocument.defaultView!.MouseEvent("pointerdown", {
+      bubbles: true,
+    }),
+  );
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  assert.deepEqual(selections, ["ref-1", "ref-1", "ref-1", "ref-1"]);
+
+  mounted.destroy();
+});
+
+test("selecting text inside an open detail card does not dismiss it", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        state = {
+          ...state,
+          selectedPaperID:
+            state.selectedPaperID === paperID ? undefined : paperID,
+        };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      externalInteractionDocuments: () => [dom.window.document],
+    },
+  });
+
+  (
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement
+  ).click();
+  const detailCard = dom.window.document.querySelector("[data-detail-card]");
+  const overlay = dom.window.document.querySelector("[data-reader-overlay]");
+  assert.ok(detailCard);
+  assert.ok(overlay);
+  assert.equal(
+    overlay.parentElement?.parentElement,
+    dom.window.document.documentElement,
+  );
+  assert.ok(Number(dom.window.getComputedStyle(overlay).zIndex) >= 2147483000);
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.ok(abstract);
+  selectNodeContents(dom, abstract);
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  abstract.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true }),
+  );
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  abstract.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+
+  assert.ok(dom.window.document.querySelector("[data-detail-card]"));
+  dom.window.document.body.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true }),
+  );
+  dom.window.document.body.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true }),
+  );
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
   mounted.destroy();
 });
 

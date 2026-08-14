@@ -24,6 +24,29 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [1.1.2] - 2026-08-14
+
+### 新增
+
+- 暂无。
+
+### 调整
+
+- 详情卡继续显示在 Reader 顶层，并明确区分卡内交互与卡外关闭：卡内划词、翻译和点击保持详情打开，点击插件列表或论文页面关闭详情。
+
+### 修复
+
+- 修复详情卡内划词后，鼠标事件冒泡到文档级关闭监听而导致详情立即消失的问题。
+- 修复只监听 Reader 外壳、未监听实际论文 iframe，导致点击原始论文页面无法关闭详情的问题；主论文视图和分屏论文视图均已覆盖。
+
+### 安全
+
+- 暂无。
+
+### 工程
+
+- Reader 交互回归测试改为经过生产文档映射，覆盖详情内划词、插件页外部点击、主论文视图和分屏论文视图。
+
 ## [1.1.1] - 2026-08-13
 
 ### 新增
@@ -123,3 +146,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.0.0
 [1.1.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.0
 [1.1.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.1
+[1.1.2]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.2

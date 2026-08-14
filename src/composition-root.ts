@@ -52,6 +52,23 @@ export type ReaderDownloadDependencies = Readonly<{
   downloadSetup?: DownloadSettingsController;
 }>;
 
+export function zoteroReaderInteractionDocuments(
+  reader: unknown,
+): readonly Document[] {
+  const source = reader as {
+    _iframeWindow?: Pick<Window, "document">;
+    _internalReader?: {
+      _primaryView?: { _iframeWindow?: Pick<Window, "document"> };
+      _secondaryView?: { _iframeWindow?: Pick<Window, "document"> };
+    };
+  };
+  return [
+    source._iframeWindow,
+    source._internalReader?._primaryView?._iframeWindow,
+    source._internalReader?._secondaryView?._iframeWindow,
+  ].flatMap((view) => (view?.document ? [view.document] : []));
+}
+
 export function createReaderControllerFactory(
   downloadDependencies: ReaderDownloadDependencies = {},
 ): ReaderControllerFactory {
@@ -181,11 +198,7 @@ export function createReaderControllerFactory(
         externalInteractionDocuments() {
           return Zotero.Reader._readers
             .filter(({ itemID }) => Number(itemID) === actualAttachmentID)
-            .flatMap((reader) =>
-              reader._iframeWindow?.document
-                ? [reader._iframeWindow.document]
-                : [],
-            );
+            .flatMap(zoteroReaderInteractionDocuments);
         },
         dispose() {
           gateway?.dispose();

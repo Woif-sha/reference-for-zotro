@@ -24,6 +24,29 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [1.1.3] - 2026-08-14
+
+### 新增
+
+- 暂无。
+
+### 调整
+
+- 未找到论文落地页的 Reference 支持左键打开详情，展示规范化后的 Canonical Reference text，并保留其中可点击的 HTTP(S) 链接。
+
+### 修复
+
+- 修复 Canonical Reference 规范化改造误删未解析条目详情展示的问题，同时使旧缓存按新投影版本失效。
+- 修复 MinerU 间距型附加符号经 NFKC 展开后遗留孤立组合符的问题；普通词间保留空格，连字符处重新连接，并保留附着于字母的合法重音。
+
+### 安全
+
+- 暂无。
+
+### 工程
+
+- 增加未解析 Reference 详情、Canonical Reference 投影、缓存失效、真实异常条目、常见间距型附加符号和合法重音的回归测试。
+
 ## [1.1.2] - 2026-08-14
 
 ### 新增
@@ -147,3 +170,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.1.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.0
 [1.1.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.1
 [1.1.2]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.2
+[1.1.3]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.3

@@ -1,80 +1,106 @@
 # Reference for Zotero
 
-> 当前稳定版本为 `1.1.2`。机构认证与端到端论文下载尚未配置完成，相关入口和 sidecar 仅作为后续迭代基础，不应视为可用的下载能力。
+Reference for Zotero 是一个 Zotero 9 Reader 插件。它把论文末尾的参考文献列表变成可以浏览、核验和继续追踪的论文关系入口，让读者留在 Zotero 里就能看清“这篇论文引用了谁”以及“后来谁引用了它”。
 
-Reference for Zotero 是面向 Zotero 9 Reader 的相关文献插件。它从当前论文已有的 MinerU Markdown 中读取参考文献，并在 Reader 侧栏中提供文献解析、反向引用、详情卡片与可信落地页跳转。
+> Reference for Zotero is a Zotero 9 Reader extension for exploring references and citing papers without leaving the reading workflow.
 
-Reference for Zotero is a Zotero 9 Reader extension for exploring resolved references and citing papers without leaving the reading workflow.
+## 为什么需要它
+
+阅读论文时，参考文献通常只是 PDF 末尾的一段文本。想了解其中一篇论文，往往要复制题名、打开浏览器、搜索、辨认结果，再回到 Zotero 继续阅读。这个过程会频繁打断思路，而且搜索结果未必就是原文引用的那一篇。
+
+Reference for Zotero 在 Reader 侧栏中补上了这层关系：它读取已有的 MinerU Markdown，识别每条 Reference 对应的论文，并把书目信息、摘要、引用关系和可信学术页面放回当前阅读上下文。
+
+它主要解决这些问题：
+
+- 参考文献只有纯文本，题名、作者、DOI 和发表信息散在同一条目里，不便查看。
+- 参考文献列表只能告诉你当前论文引用了什么，却很难直接看到后来有哪些论文引用了它。
+- 手动搜索需要反复切换窗口，同一篇论文还可能被重复检索。
+- 仅凭相似题名容易打开错误结果，需要结合 DOI、作者、年份和来源共同核验。
 
 ## 功能
 
-- 按原始顺序显示 MinerU Markdown 中的 References。
-- 使用 DOI、可信学术 URL、题名、作者和年份解析文献身份。
-- 显示 Citing papers，并支持 10、30、50 条累计加载。
-- 在所选论文旁显示详情卡片；卡片随论文位置移动并在视口边缘自动约束。
-- 显示题名、作者、期刊或会议、年份、DOI、引用数、参考文献数与摘要。
-- 摘要缺失时仅在打开详情卡后按 DOI 延迟补全，避免批量请求。
-- `Ctrl + 左键` 打开经过确认的论文落地页。
-- 可选调用 Paper Translate 的公开接口翻译插件界面内选中的文字。
-- 在 Reader 下载区域显示当前保存目录；默认使用 `E:\paper`，也可通过 Windows 原生目录选择器修改或恢复默认值。
-- 启动及每次下载前自动探测已有 Python 3.11+ 兼容运行时，并只通过插件自有 sidecar 的版本化 `probe` 建立下载能力；插件不会创建、安装或切换 Python 环境。
+- 在 Zotero Reader 侧栏中按原始顺序展示当前论文的 References。
+- 使用 DOI、可信学术 URL、题名、作者和年份解析论文身份；没有精确结果时保留规范化后的原始条目，方便人工判断。
+- 查询 Citations，查看引用当前论文的后续研究，并按 10、30、50 条逐步加载。
+- 点击论文题名打开详情卡，查看作者、期刊或会议、年份、DOI、引用数、参考文献数和摘要。
+- 摘要缺失时，在打开详情卡后按 DOI 查询 OpenAlex 或 Semantic Scholar，避免为整份列表批量请求。
+- 使用 `Ctrl + 左键` 打开已核验的论文落地页；未解析条目会按题名转到 Google Scholar 搜索。
+- 通过题名的右键菜单复制可用书目信息，或显式发起 Google 搜索。
+- 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations 和落地页信息。
+- 可选调用 Paper Translate 的公开接口，翻译插件界面中选中的文字。
+- 规范化 MinerU Reference 的编号、断行、转义字符和 URL，并同步共享的 Markdown 数据，减少其他插件重复处理同一条目。
 
-> **当前限制：**机构认证尚未接入，论文下载也未完成可用配置和真实环境验收。当前版本的下载界面、目录配置与 sidecar 协议不代表端到端下载已经可用，后续版本将继续迭代。
+## 它如何工作
+
+1. 插件读取当前 Reader 附件对应的 MinerU Markdown，不重新上传或解析 PDF。
+2. Reference 条目经过规范化后，使用 DOI、Crossref、DataCite 和可信学术页面进行匹配。
+3. 候选结果会比较标识符、题名、作者、年份和来源；只有身份得到确认的论文才会显示为已解析结果。
+4. OpenCitations 提供 Citations，OpenAlex 和 Semantic Scholar 只在需要补全摘要时调用。
+
+Reference for Zotero 专注于阅读过程中的论文关系探索。它关心的是当前论文与相关研究之间的联系，以及每个匹配结果能否被可靠核验；Zotero 原有的文献管理方式不会因此改变。
 
 ## 运行要求
 
 - Zotero `9.0.6` 至 `9.0.x`。
-- 当前 Reader 附件已经由 `llm-for-zotero` MinerU 工作流生成有效 Markdown。
+- 当前 Reader 附件已有由 `llm-for-zotero` MinerU 工作流生成的有效 Markdown。
 - 联网元数据功能需要能够访问 DOI、Crossref、DataCite、OpenCitations、OpenAlex 和 Semantic Scholar。
 
-本插件不会上传当前 PDF。外部请求包含解析文献所需的题名、作者、年份或 DOI；详情见 [PRIVACY.md](PRIVACY.md)。
+插件不会上传当前 PDF。外部请求只包含解析文献所需的题名、作者、年份或 DOI；详情见 [PRIVACY.md](PRIVACY.md)。
 
 ## 安装
 
-1. 从 `dev` 分支执行 `npm ci && npm run build`，使用生成的 `build/reference-for-zotero.xpi`。
-2. 在 Zotero 中打开 **工具 → 插件**。
-3. 选择 **Install Plugin From File / 从文件安装插件**，选择下载的 XPI。
+1. 前往 [Releases](https://github.com/Woif-sha/reference-for-zotro/releases/latest) 下载 `reference-for-zotero.xpi`。
+2. 在 Zotero 中打开“工具 → 插件”。
+3. 选择“Install Plugin From File / 从文件安装插件”，安装下载的 XPI。
 4. 完全重启 Zotero。
 
-后续稳定版可通过插件更新地址获取 `update.json`。也可以下载新 XPI 后按相同步骤覆盖安装。
+也可以从 `dev` 分支构建：
 
-正式版本使用固定插件名称和 ID 覆盖安装，并通过 Zotero bootstrap 清单中的 `update_url` 接收稳定更新。完整验收步骤见 [正式插件 XPI 测试说明](docs/testing/plugin-xpi.md)。
+```powershell
+npm ci
+npm run build
+```
+
+生成的插件位于 `build/reference-for-zotero.xpi`。
 
 ## 使用
 
-打开已生成 MinerU Markdown 的 PDF，展开 Reader 右侧的 **相关论文 / Related Papers**：
+打开已经生成 MinerU Markdown 的 PDF，然后展开 Reader 右侧的“相关论文 / Related Papers”：
 
-- **References**：当前论文引用的文献。
-- **Citations**：引用当前论文的文献。
-- 单击已解析题名：打开论文详情卡。
-- 再次单击题名或卡片关闭按钮：关闭详情卡。
-- `Ctrl + 左键`：在浏览器打开已验证的学术落地页。
-- **Refresh**：跳过当前缓存并重新解析。
-- **Change folder**：选择 Download destination；插件不会创建独立设置页。
-- ScanSci 能力由插件在后台自动探测。若 runtime、协议、schema、来源清单、legal-only policy 或 route capability 不兼容，下载会显示具体错误，不会尝试安装或 fallback。
+- “References”显示当前论文引用的文献。
+- “Citations”显示引用当前论文的文献。
+- 单击论文题名可以打开或关闭详情卡。
+- `Ctrl + 左键`可以打开已核验的学术落地页；未解析条目会转到 Google Scholar 搜索。
+- 右键单击题名可以复制书目信息或发起 Google 搜索。
+- “Refresh”会跳过当前缓存，重新解析和查询。
 
-WebVPN → IEEE Xplore 在真实审计完成前只是不可用的 acceptance candidate，不在 Reader 中显示为支持项，也不会启动浏览器或读取 profile、凭据与会话数据。
+## 数据与匹配原则
 
-## 数据与匹配
+插件只读取当前附件经过身份校验的 MinerU Markdown，不扫描其他附件或旧缓存。Crossref 与 DataCite 用于注册元数据和候选匹配，OpenCitations 用于查询 Citations。ACL Anthology 等可信页面中的标准 citation metadata 也可用于补全论文信息。
 
-- Reference entries 只读取当前附件经过身份校验的 MinerU Markdown，不扫描其他附件或旧缓存。
-- 首次读取时会将 Reference 规范化为共享的唯一 `full.md` 版本，并同步 `content_list.json` 与 `manifest.json`；完整契约见 [MinerU Reference normalization](docs/mineru-reference-normalization.md)。
-- Crossref 与 DataCite 用于注册元数据和候选匹配。
-- OpenCitations 用于 Citing papers。
-- ACL Anthology 等可信页面的标准 citation metadata 可用于补全作者、会议、年份、DOI 和摘要。
-- OpenAlex 与 Semantic Scholar 仅在用户打开缺少摘要的 DOI 论文详情时请求摘要，并验证返回 DOI 与目标完全一致。
-- 只有已确认身份且落地页可达的结果才能通过 `Ctrl + 左键` 打开。
+匹配结果宁缺毋滥。题名相似但 DOI、作者或年份冲突的候选不会被当作同一篇论文。身份确认且页面可达时，`Ctrl + 左键`会直接打开论文落地页；未解析条目只会按题名发起 Google Scholar 搜索，不会被标记为已解析。完整的 Reference 规范化规则见 [MinerU Reference normalization](docs/mineru-reference-normalization.md)。
 
-## 故障排查
+## 常见问题
 
-- **显示 No MinerU Markdown**：先在 `llm-for-zotero` 中为当前附件生成 Markdown，再刷新本节。
-- **文献长期处于 Unresolved**：检查引用文本是否包含可识别题名、作者、年份、DOI 或可信学术 URL。
-- **摘要不可用**：详情卡会显示具体 provider 错误；可稍后重新打开卡片重试。
-- **安装新版本后界面未变化**：完全退出所有 Zotero 进程，再重新打开。
+### 显示 No MinerU Markdown
 
-报告问题时请附上 Zotero 版本、插件版本、可见错误文本、当前论文状态和复现步骤：[GitHub Issues](https://github.com/Woif-sha/reference-for-zotro/issues)。
+先在 `llm-for-zotero` 中为当前附件生成 MinerU Markdown，再刷新“相关论文”侧栏。
 
-## 开发与验证
+### 文献长期显示 Unresolved
+
+这表示插件没有找到证据充分的精确结果。可以展开详情查看规范化后的原始 Reference，确认其中是否有题名、作者、年份、DOI 或可信学术 URL。
+
+### 摘要不可用
+
+详情卡会保留具体的服务错误。稍后重新打开卡片即可重试，不会影响已经解析出的书目信息。
+
+### 安装新版本后界面没有变化
+
+完全退出所有 Zotero 进程，再重新打开 Zotero。
+
+报告问题时，请附上 Zotero 版本、插件版本、可见错误文本和复现步骤：[GitHub Issues](https://github.com/Woif-sha/reference-for-zotro/issues)。
+
+## 开发与贡献
 
 ```powershell
 npm ci
@@ -82,7 +108,7 @@ npm run verify
 git diff --check
 ```
 
-验证生成的正式命名 XPI 位于 `build/reference-for-zotero.xpi`。贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
+贡献约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，版本变化见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 许可证
 

@@ -506,7 +506,15 @@ export function mountReaderSection(options: {
   const onDocumentPointerDown = (event: Event): void => {
     detailWasOpenAtPointerDown = Boolean(controller.getState().selectedPaperID);
     const target = event.target;
-    if (!(target instanceof body.ownerDocument.defaultView!.Node)) return;
+    const view = body.ownerDocument.defaultView!;
+    if (!(target instanceof view.Node)) return;
+    if (
+      (event as MouseEvent).button === 0 &&
+      target instanceof view.Element &&
+      target.closest("[data-paper-title]")
+    ) {
+      view.getSelection()?.removeAllRanges();
+    }
     const translation =
       root.querySelector<HTMLElement>("[data-translation]") ??
       overlay.querySelector<HTMLElement>("[data-translation]");

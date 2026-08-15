@@ -24,6 +24,28 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [1.1.4] - 2026-08-15
+
+### 新增
+
+- 暂无。
+
+### 调整
+
+- 暂无。
+
+### 修复
+
+- 修复 Reader 中已有文本选区时，第一次普通左键点击另一篇论文无反应的问题；新点击会取消旧选区并正常打开论文详情，同时保留右键、`Ctrl + 左键`和重新划词行为。
+
+### 安全
+
+- 暂无。
+
+### 工程
+
+- 增加旧文本选区后的论文点击回归测试，并验证重新划词不会误触论文操作。
+
 ## [1.1.3] - 2026-08-14
 
 ### 新增
@@ -171,3 +193,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.1.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.1
 [1.1.2]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.2
 [1.1.3]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.3
+[1.1.4]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.4

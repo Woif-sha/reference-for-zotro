@@ -927,6 +927,59 @@ test("Reader section delegates Ctrl+left-click for resolved and unresolved title
   mounted.destroy();
 });
 
+test("a normal left click replaces a stale text selection with the paper action", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {
+    pretendToBeVisual: true,
+  });
+  const selected: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: readyState,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper: (paperID) => selected.push(paperID),
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+  const firstTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-1"] [data-paper-title]',
+  );
+  const secondTitle = dom.window.document.querySelector(
+    '[data-paper-id="ref-2"] [data-paper-title]',
+  );
+  assert.ok(firstTitle);
+  assert.ok(secondTitle);
+  selectNodeContents(dom, firstTitle);
+
+  secondTitle.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+  );
+  secondTitle.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true, button: 0 }),
+  );
+
+  assert.deepEqual(selected, ["ref-2"]);
+
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+  );
+  selectNodeContents(dom, firstTitle);
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", { bubbles: true, button: 0 }),
+  );
+  firstTitle.dispatchEvent(
+    new dom.window.MouseEvent("click", { bubbles: true, button: 0 }),
+  );
+
+  assert.deepEqual(selected, ["ref-2"]);
+  mounted.destroy();
+});
+
 test("Reader paper rows expose XUL-compatible context actions", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',

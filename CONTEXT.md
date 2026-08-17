@@ -12,6 +12,10 @@ _Avoid_: Source paper, selected PDF
 One bibliography entry cited by the current paper and extracted from its existing MinerU Markdown.
 _Avoid_: Citation
 
+**In-text reference marker**:
+A numeric marker in the current paper body, such as `[12]`, that points to a Reference entry.
+_Avoid_: Reference entry, Citation
+
 **Resolved reference**:
 A reference entry that has been matched to a scholarly landing page and descriptive metadata.
 _Avoid_: Download

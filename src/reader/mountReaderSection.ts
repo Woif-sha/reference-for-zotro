@@ -1,6 +1,10 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 import { relateScholarlyIdentities } from "../literature/identifiers";
+import {
+  referenceForMarkerNumber,
+  referenceMarkerNumberAtPoint,
+} from "./reference-marker-navigation";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const TRANSLATION_POPOVER_GAP = 8;
@@ -168,6 +172,7 @@ export function mountReaderSection(options: {
   let destroyed = false;
   let translationRequest = 0;
   let detailWasOpenAtPointerDown = false;
+  let jumpHighlightTimer: number | undefined;
   const externalInteractionDocuments = new Set<Document>();
 
   const dismissSelectedPaper = (): void => {
@@ -179,12 +184,55 @@ export function mountReaderSection(options: {
     dismissSelectedPaper();
   };
 
+  const revealReference = async (paperID: string): Promise<void> => {
+    controller.selectTab("references");
+    await revealReaderSection(body);
+    if (destroyed) return;
+    const row = [...root.querySelectorAll<HTMLElement>("[data-paper-id]")].find(
+      (candidate) => candidate.dataset.paperId === paperID,
+    );
+    if (!row) return;
+    row.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    row.classList.remove("is-reference-jump-target");
+    void row.getBoundingClientRect();
+    row.classList.add("is-reference-jump-target");
+    const view = body.ownerDocument.defaultView;
+    if (!view) return;
+    if (jumpHighlightTimer !== undefined) {
+      view.clearTimeout(jumpHighlightTimer);
+    }
+    jumpHighlightTimer = view.setTimeout(() => {
+      row.classList.remove("is-reference-jump-target");
+      jumpHighlightTimer = undefined;
+    }, 1800);
+  };
+
+  const onExternalContextMenu = (event: Event): void => {
+    const mouseEvent = event as MouseEvent;
+    if (!mouseEvent.ctrlKey) return;
+    const document = event.currentTarget as Document;
+    const markerNumber = referenceMarkerNumberAtPoint(
+      document,
+      mouseEvent.clientX,
+      mouseEvent.clientY,
+    );
+    if (markerNumber === undefined) return;
+    const state = controller.getState();
+    if (state.status !== "ready") return;
+    const reference = referenceForMarkerNumber(state.references, markerNumber);
+    if (!reference) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void revealReference(reference.id);
+  };
+
   const syncExternalInteractionDocuments = (): void => {
     for (const document of controller.externalInteractionDocuments?.() ?? []) {
       if (document === body.ownerDocument) continue;
       if (externalInteractionDocuments.has(document)) continue;
       externalInteractionDocuments.add(document);
       document.addEventListener("pointerdown", onExternalPointerDown, true);
+      document.addEventListener("contextmenu", onExternalContextMenu, true);
     }
   };
 
@@ -603,10 +651,18 @@ export function mountReaderSection(options: {
         repositionDetailCard,
         true,
       );
+      if (jumpHighlightTimer !== undefined) {
+        body.ownerDocument.defaultView?.clearTimeout(jumpHighlightTimer);
+      }
       for (const document of externalInteractionDocuments) {
         document.removeEventListener(
           "pointerdown",
           onExternalPointerDown,
+          true,
+        );
+        document.removeEventListener(
+          "contextmenu",
+          onExternalContextMenu,
           true,
         );
       }
@@ -615,6 +671,27 @@ export function mountReaderSection(options: {
       root.remove();
     },
   };
+}
+
+type ReaderSectionHost = Element & {
+  collapsed?: boolean;
+  open?: boolean;
+  scrollToPane?(
+    paneID: string,
+    behavior?: "instant" | "smooth",
+  ): Promise<unknown> | unknown;
+};
+
+async function revealReaderSection(body: HTMLElement): Promise<void> {
+  const section = body.closest<ReaderSectionHost>("[data-pane]");
+  const contextPane = section?.closest<ReaderSectionHost>("context-pane");
+  if (contextPane && "collapsed" in contextPane) {
+    contextPane.collapsed = false;
+  }
+  if (section && "open" in section) section.open = true;
+  const paneID = section?.getAttribute("data-pane");
+  const itemDetails = section?.closest<ReaderSectionHost>("item-details");
+  if (paneID) await itemDetails?.scrollToPane?.(paneID, "instant");
 }
 
 function escapeHTML(value: string): string {
@@ -1093,6 +1170,11 @@ const READER_STYLES = `
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-paper.is-reference-jump-target { animation: rfz-reference-jump 1.8s ease-out; }
+  @keyframes rfz-reference-jump {
+    0%, 35% { background: color-mix(in srgb, var(--accent-blue, #4d74b2) 32%, transparent); }
+    100% { background: transparent; }
+  }
   .rfz-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
   .rfz-paper-checkbox { grid-column: 1; margin: 1px 0 0; cursor: pointer; }

@@ -29,6 +29,7 @@ export type RecommendationState =
       status: "completed";
       priority: readonly RecommendationItem[];
       optional: readonly RecommendationItem[];
+      restoredFromCache: boolean;
     }>;
 export type PaperStatus =
   | "matching"
@@ -889,6 +890,7 @@ function renderRecommendation(state: RecommendationState): string {
   }
   return `<section class="rfz-recommendation-results">
     <h2>当前论文的 AI 阅读建议</h2>
+    ${state.restoredFromCache ? '<p class="rfz-recommendation-cache-status" role="status"><strong>缓存恢复</strong>：已从本地 recommendation.json 恢复，本次未调用 AI。</p>' : ""}
     ${renderRecommendationGroup("优先看", state.priority)}
     ${renderRecommendationGroup("可选看", state.optional)}
   </section>`;

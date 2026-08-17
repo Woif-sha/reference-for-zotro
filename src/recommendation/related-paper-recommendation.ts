@@ -1,5 +1,9 @@
 import type { RecommendationModelPort } from "../model/configured-recommendation-model";
 import {
+  RecommendationCacheRepository,
+  type RecommendationCacheIdentity,
+} from "../cache/recommendation-cache-repository";
+import {
   normalizeScholarlyIdentifier,
   relateScholarlyIdentities,
 } from "../literature/identifiers";
@@ -8,6 +12,7 @@ import type { ReaderPaper } from "../reader/mountReaderSection";
 export const RECOMMENDATION_INPUT_MAX_BYTES = 384 * 1024;
 export const RECOMMENDATION_OUTPUT_MAX_CHARACTERS = 32_768;
 export const RECOMMENDATION_TIMEOUT_MS = 180_000;
+export const RECOMMENDATION_PROMPT_VERSION = 1;
 
 type RecommendationSource = "reference" | "citation";
 
@@ -29,6 +34,10 @@ export type RecommendationResult =
 
 export type RecommendationRequest = Readonly<{
   currentPaper: Readonly<{
+    libraryID: number;
+    attachmentID: number;
+    attachmentKey: string;
+    parentItemKey: string;
     fullMarkdown: string;
     fullMdSha256: string;
     sourceFingerprint: string;
@@ -66,16 +75,43 @@ Return one JSON object with exactly schemaVersion, priority, and optional. schem
 export class RelatedPaperRecommendationService {
   constructor(
     private readonly model: RecommendationModelPort,
-    private readonly options: Readonly<{ timeoutMs?: number }> = {},
+    private readonly options: Readonly<{
+      timeoutMs?: number;
+      cache?: RecommendationCacheRepository;
+    }> = {},
   ) {}
+
+  async readCached(
+    request: RecommendationRequest,
+  ): Promise<
+    Extract<RecommendationResult, { status: "completed" }> | undefined
+  > {
+    if (!this.options.cache) return undefined;
+    if (!this.model.identity) {
+      throw new Error("Recommendation model identity is unavailable");
+    }
+    const candidates = recommendationCandidates(
+      request.references,
+      request.citingPapers,
+    );
+    const cached = await this.options.cache.read(
+      cacheIdentity(request, candidates, this.model.identity()),
+    );
+    return cached ? { status: "completed", ...cached } : undefined;
+  }
+
+  subscribeIdentityChange(listener: () => void): () => void {
+    return this.model.subscribeIdentityChange?.(listener) ?? (() => undefined);
+  }
 
   async recommend(
     request: RecommendationRequest,
   ): Promise<RecommendationResult> {
-    const candidates = recommendationCandidates(
+    const allCandidates = recommendationCandidates(
       request.references,
       request.citingPapers,
-    ).filter((candidate) => candidate.abstract);
+    );
+    const candidates = allCandidates.filter((candidate) => candidate.abstract);
     if (candidates.length === 0) return { status: "no-candidates" };
 
     const prompt = JSON.stringify({
@@ -123,11 +159,19 @@ export class RelatedPaperRecommendationService {
         reason,
       };
     };
-    return {
+    const result = {
       status: "completed",
       priority: output.priority.map(project),
       optional: output.optional.map(project),
-    };
+    } as const;
+    if (this.options.cache) {
+      await this.options.cache.write(
+        cacheIdentity(request, allCandidates, generated.identity),
+        { priority: result.priority, optional: result.optional },
+        request.signal,
+      );
+    }
+    return result;
   }
 
   private async generateWithDeadline(
@@ -168,6 +212,41 @@ export class RelatedPaperRecommendationService {
       externalSignal?.removeEventListener("abort", onExternalAbort);
     }
   }
+}
+
+function cacheIdentity(
+  request: RecommendationRequest,
+  candidates: readonly Candidate[],
+  model: RecommendationCacheIdentity["model"],
+): RecommendationCacheIdentity {
+  return {
+    currentPaper: {
+      libraryID: request.currentPaper.libraryID,
+      attachmentID: request.currentPaper.attachmentID,
+      attachmentKey: request.currentPaper.attachmentKey,
+      parentItemKey: request.currentPaper.parentItemKey,
+      sourceFingerprint: request.currentPaper.sourceFingerprint,
+      fullMdSha256: request.currentPaper.fullMdSha256,
+    },
+    visibleCandidates: candidates.map((candidate) => ({
+      candidateKey: candidate.candidateKey,
+      paperID: candidate.paper.id,
+      title: candidate.paper.title,
+      sources: candidate.sources,
+    })),
+    analyzedCandidates: candidates.flatMap((candidate) =>
+      candidate.abstract
+        ? [
+            {
+              candidateKey: candidate.candidateKey,
+              abstract: candidate.abstract,
+            },
+          ]
+        : [],
+    ),
+    model,
+    promptVersion: RECOMMENDATION_PROMPT_VERSION,
+  };
 }
 
 function recommendationCandidates(

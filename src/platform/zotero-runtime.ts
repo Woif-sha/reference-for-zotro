@@ -4,6 +4,7 @@ import type {
   CacheStorage,
   LiteratureCacheFileName,
 } from "../cache/cache-repository";
+import type { RecommendationCacheStorage } from "../cache/recommendation-cache-repository";
 import {
   PaperTranslateBridge,
   type PaperTranslateGlobal,
@@ -81,12 +82,7 @@ export function createProviderPorts(): ProviderPorts {
 
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
-  const root = joinPath(
-    getDataDirectory(),
-    "reference-for-zotero-cache",
-    "v2",
-    "papers",
-  );
+  const root = paperCacheRoot();
   const writes = new Map<string, Promise<void>>();
   const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
     const previous = writes.get(key) ?? Promise.resolve();
@@ -151,7 +147,53 @@ export function createZoteroCacheStorage(): CacheStorage {
   };
 }
 
+export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
+  const io = getIOUtils();
+  const root = paperCacheRoot();
+  const writes = new Map<string, Promise<void>>();
+  const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
+    const previous = writes.get(key) ?? Promise.resolve();
+    const operation = previous.catch(() => undefined).then(task);
+    writes.set(key, operation);
+    return operation.finally(() => {
+      if (writes.get(key) === operation) writes.delete(key);
+    });
+  };
+  return {
+    async read(directory) {
+      await writes.get(directory);
+      const path = joinPath(root, directory, "recommendation.json");
+      if (!(await io.exists(path))) return undefined;
+      const raw = await io.read(path);
+      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    },
+    write(directory, value, signal) {
+      return enqueue(directory, async () => {
+        if (signal?.aborted) throw abortError();
+        const paperDirectory = joinPath(root, directory);
+        await io.makeDirectory(paperDirectory, {
+          createAncestors: true,
+          ignoreExisting: true,
+        });
+        const path = joinPath(paperDirectory, "recommendation.json");
+        const stagedPath = `${path}.pending-${nextRecommendationCacheWriteID++}`;
+        try {
+          await io.write(stagedPath, new TextEncoder().encode(value), {
+            tmpPath: `${stagedPath}.tmp`,
+          });
+          if (signal?.aborted) throw abortError();
+          await io.move(stagedPath, path, { noOverwrite: false });
+        } finally {
+          await io.remove(stagedPath, { ignoreAbsent: true });
+        }
+      });
+    },
+  };
+}
+
 let nextCacheWriteID = 1;
+let nextRecommendationCacheWriteID = 1;
 let nextMinerUWriteID = 1;
 
 export function createPaperTranslateBridge(): PaperTranslateBridge {
@@ -177,6 +219,15 @@ function getDataDirectory(): string {
     .DataDirectory?.dir;
   if (!value?.trim()) throw new Error("Cannot resolve Zotero data directory");
   return value.trim();
+}
+
+function paperCacheRoot(): string {
+  return joinPath(
+    getDataDirectory(),
+    "reference-for-zotero-cache",
+    "v2",
+    "papers",
+  );
 }
 
 function joinPath(...parts: string[]): string {

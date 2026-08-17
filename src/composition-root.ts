@@ -10,6 +10,7 @@ import {
   unresolvedPaper,
 } from "./application/reader-paper-presentation";
 import { LiteratureCacheRepository } from "./cache/cache-repository";
+import { RecommendationCacheRepository } from "./cache/recommendation-cache-repository";
 import { decideRelatedPapersCacheWrite } from "./cache/related-papers-cache-policy";
 import { loadMineruReferences } from "./mineru/mineru-adapter";
 import {
@@ -36,6 +37,7 @@ import {
   createProviderPorts,
   createZoteroCacheStorage,
   createZoteroMinerUPorts,
+  createZoteroRecommendationCacheStorage,
 } from "./platform/zotero-runtime";
 import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
@@ -77,8 +79,13 @@ export function createReaderControllerFactory(
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
   const cache = new LiteratureCacheRepository(createZoteroCacheStorage());
+  const recommendationCache = new RecommendationCacheRepository(
+    createZoteroRecommendationCacheStorage(),
+  );
   const recommendation = dependencies.recommendationModel
-    ? new RelatedPaperRecommendationService(dependencies.recommendationModel)
+    ? new RelatedPaperRecommendationService(dependencies.recommendationModel, {
+        cache: recommendationCache,
+      })
     : undefined;
 
   return {
@@ -160,6 +167,10 @@ export function createReaderControllerFactory(
         },
         ...(recommendation
           ? {
+              subscribeRecommendationIdentityChange: (listener) =>
+                recommendation.subscribeIdentityChange(listener),
+              readCachedRecommendation: (request) =>
+                recommendation.readCached(request),
               recommendPapers: (request) => recommendation.recommend(request),
             }
           : {}),

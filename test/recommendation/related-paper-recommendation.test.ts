@@ -5,6 +5,13 @@ import type { RecommendationModelPort } from "../../src/model/configured-recomme
 import { RelatedPaperRecommendationService } from "../../src/recommendation/related-paper-recommendation";
 import type { ReaderPaper } from "../../src/reader/mountReaderSection";
 
+const currentPaperIdentity = {
+  libraryID: 1,
+  attachmentID: 42,
+  attachmentKey: "ATTACH01",
+  parentItemKey: "PARENT01",
+};
+
 test("one global model call ranks every abstract-bearing candidate and merges shared scholarly identities", async () => {
   const requests: Array<{ instructions: string; prompt: string }> = [];
   const model: RecommendationModelPort = {
@@ -36,6 +43,7 @@ test("one global model call ranks every abstract-bearing candidate and merges sh
 
   const result = await service.recommend({
     currentPaper: {
+      ...currentPaperIdentity,
       fullMarkdown: "# Current paper\n\nComplete MinerU Markdown.",
       fullMdSha256: "full-md-sha256",
       sourceFingerprint: "source-fingerprint",
@@ -194,6 +202,7 @@ test("the complete model output is rejected when any strict schema rule fails", 
     await assert.rejects(
       service.recommend({
         currentPaper: {
+          ...currentPaperIdentity,
           fullMarkdown: "Current paper",
           fullMdSha256: "sha",
           sourceFingerprint: "fingerprint",
@@ -226,6 +235,7 @@ test("empty candidates skip the model and oversized UTF-8 input fails without tr
   assert.deepEqual(
     await service.recommend({
       currentPaper: {
+        ...currentPaperIdentity,
         fullMarkdown: "Current paper",
         fullMdSha256: "sha",
         sourceFingerprint: "fingerprint",
@@ -238,6 +248,7 @@ test("empty candidates skip the model and oversized UTF-8 input fails without tr
   await assert.rejects(
     service.recommend({
       currentPaper: {
+        ...currentPaperIdentity,
         fullMarkdown: "论".repeat(384 * 1024),
         fullMdSha256: "sha",
         sourceFingerprint: "fingerprint",
@@ -273,6 +284,7 @@ test("the whole analysis times out once and aborts the single model request", as
   await assert.rejects(
     service.recommend({
       currentPaper: {
+        ...currentPaperIdentity,
         fullMarkdown: "Current paper",
         fullMdSha256: "sha",
         sourceFingerprint: "fingerprint",
@@ -310,6 +322,7 @@ test("visible model output over 32,768 characters fails as a whole", async () =>
   await assert.rejects(
     service.recommend({
       currentPaper: {
+        ...currentPaperIdentity,
         fullMarkdown: "Current paper",
         fullMdSha256: "sha",
         sourceFingerprint: "fingerprint",
@@ -388,6 +401,7 @@ test("identity merging requires a shared non-conflicting stable identifier and r
 
   await service.recommend({
     currentPaper: {
+      ...currentPaperIdentity,
       fullMarkdown: "Current paper",
       fullMdSha256: "sha",
       sourceFingerprint: "fingerprint",
@@ -445,6 +459,7 @@ test("a duplicate in one source remains eligible when any copy has a non-empty A
 
   await service.recommend({
     currentPaper: {
+      ...currentPaperIdentity,
       fullMarkdown: "Current paper",
       fullMdSha256: "sha",
       sourceFingerprint: "fingerprint",

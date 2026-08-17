@@ -36,6 +36,7 @@ export function createZoteroModelSubsystem(): ZoteroModelSubsystem {
       openAICompatible: (request) =>
         runOpenAICompatibleRequest({ ...request, fetch: runtime.fetch }),
     },
+    (listener) => store.subscribe(() => listener()),
   );
   const connectionTester = new ModelConnectionTester({
     legacy: (model, signal) =>

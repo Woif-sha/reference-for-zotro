@@ -29,6 +29,8 @@ export type RecommendationModelResult = Readonly<{
 }>;
 
 export interface RecommendationModelPort {
+  identity?(): RecommendationModelIdentity;
+  subscribeIdentityChange?(listener: () => void): () => void;
   generate(
     request: RecommendationModelRequest,
   ): Promise<RecommendationModelResult>;
@@ -46,7 +48,20 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
   constructor(
     private readonly getConfiguration: () => ModelProviderConfiguration,
     private readonly transports: RecommendationModelTransports,
+    private readonly subscribeToConfigurationChanges?: (
+      listener: () => void,
+    ) => () => void,
   ) {}
+
+  identity(): RecommendationModelIdentity {
+    return modelIdentity(activeModel(this.getConfiguration()));
+  }
+
+  subscribeIdentityChange(listener: () => void): () => void {
+    return (
+      this.subscribeToConfigurationChanges?.(listener) ?? (() => undefined)
+    );
+  }
 
   async generate(
     request: RecommendationModelRequest,

@@ -116,6 +116,7 @@ test("AI recommendation is the third tab and renders every analysis state withou
     ...state,
     recommendation: {
       status: "completed",
+      restoredFromCache: false,
       priority: [
         {
           candidateKey: "doi:10.1000/priority",
@@ -145,9 +146,23 @@ test("AI recommendation is the third tab and renders every analysis state withou
   assert.match(completedText, /Citation/u);
   assert.match(completedText, /直接扩展当前论文的方法/u);
   assert.doesNotMatch(completedText, /score|相关度\s*[:：]?\s*\d/iu);
+  assert.doesNotMatch(completedText, /缓存恢复/u);
   assert.equal(
     dom.window.document.querySelector("[data-generate-recommendations]"),
     null,
+  );
+
+  if (state.recommendation.status !== "completed") {
+    throw new Error("expected completed recommendation state");
+  }
+  state = {
+    ...state,
+    recommendation: { ...state.recommendation, restoredFromCache: true },
+  };
+  listener?.(state);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /缓存恢复.*未调用 AI/u,
   );
 
   state = {

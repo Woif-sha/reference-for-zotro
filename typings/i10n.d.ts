@@ -4,4 +4,5 @@
 // @ts-nocheck
 export type FluentMessageId =
   | 'reference-for-zotero-section-header'
+  | 'reference-for-zotero-section-settings'
   | 'reference-for-zotero-section-sidenav';

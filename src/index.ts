@@ -13,6 +13,10 @@ import {
 } from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
 import {
+  createZoteroModelSubsystem,
+  type ZoteroModelSubsystem,
+} from "./platform/zotero-model-runtime";
+import {
   registerReferenceForZoteroPreferences,
   type PreferencePanesPort,
   type ReferenceForZoteroPreferencesHandle,
@@ -32,6 +36,8 @@ if (!zotero[config.addonInstance]) {
     "DOMException",
     "fetch",
     "IOUtils",
+    "PathUtils",
+    "Services",
     "TextDecoder",
     "TextEncoder",
   ]) {
@@ -56,6 +62,7 @@ function defineRuntimeGlobal(name: string): void {
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
   let preferences: ReferenceForZoteroPreferencesHandle | undefined;
+  let modelSubsystem: ZoteroModelSubsystem | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -94,11 +101,13 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
+        modelSubsystem = createZoteroModelSubsystem();
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
           pluginID: config.addonID,
           rootURI: packagedRootURI,
           settings: downloadSetup,
+          modelSettings: modelSubsystem.settings,
         });
         handle = startReferenceForZotero({
           factory: createReaderControllerFactory({
@@ -118,6 +127,8 @@ function createRuntime() {
       onShutdown(): void {
         preferences?.unregister();
         preferences = undefined;
+        modelSubsystem?.shutdown();
+        modelSubsystem = undefined;
         handle?.shutdown();
         handle = undefined;
         Zotero.getMainWindows().forEach((window) => {

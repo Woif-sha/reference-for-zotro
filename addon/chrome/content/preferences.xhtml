@@ -33,6 +33,19 @@
     data-recommendation-model-settings=""
   >
     <label><html:h2>推荐模型</html:h2></label>
-    <html:p>模型选择将在后续实现中提供。</html:p>
+    <html:label class="reference-for-zotero-active-model">
+      活动模型
+      <html:span data-active-model-select-host=""></html:span>
+    </html:label>
+    <html:div data-model-provider-cards=""></html:div>
+    <html:button type="button" data-add-model-provider="">
+      添加服务商
+    </html:button>
+    <html:p
+      data-model-settings-error=""
+      class="reference-for-zotero-model-error"
+      role="alert"
+      hidden="hidden"
+    ></html:p>
   </groupbox>
 </vbox>

@@ -22,6 +22,45 @@
   color: var(--fill-error, #c33);
 }
 
-#reference-for-zotero-preferences-model-group p {
-  color: var(--fill-secondary, #666);
+.reference-for-zotero-active-model,
+.reference-for-zotero-provider-card label {
+  display: grid;
+  gap: 4px;
+}
+
+.reference-for-zotero-active-model {
+  margin-block: 6px 12px;
+}
+
+.reference-for-zotero-provider-card {
+  display: grid;
+  gap: 10px;
+  margin-block: 10px;
+  padding: 12px;
+  border: 1px solid var(--material-border, #ccc);
+  border-radius: 6px;
+}
+
+.reference-for-zotero-provider-header,
+.reference-for-zotero-provider-actions,
+.reference-for-zotero-model-row {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+
+.reference-for-zotero-provider-header label,
+.reference-for-zotero-model-row label {
+  flex: 1 1 180px;
+}
+
+.reference-for-zotero-model-list {
+  display: grid;
+  gap: 8px;
+}
+
+.reference-for-zotero-model-error,
+[data-provider-status][data-failed] {
+  color: var(--fill-error, #c33);
 }

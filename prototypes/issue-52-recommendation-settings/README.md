@@ -6,13 +6,21 @@ Zotero 9?
 
 The three variants deliberately disagree about information architecture:
 
-- **A — Dedicated recommendation tab**: Reader gets a third peer tab; settings
-  are one scrollable page grouped into Download, Cache, and Model sections.
+- **A — Dedicated AI recommendation tab (selected direction)**: Reader gets an
+  `AI 推荐` tab immediately to the right of Citations; settings are one
+  scrollable page grouped into Download, Cache, and Model sections.
 - **B — Header analysis workspace**: analysis is a global Reader-header action;
   results sit above the current paper list; settings use a conventional category
   sidebar.
 - **C — Reading queue and setup checklist**: analysis starts from a bottom dock;
   results become a single labelled queue; settings are an ordered setup flow.
+
+## Decision captured
+
+- Use variant A's peer-tab structure and single-page settings layout.
+- Add `AI 推荐` immediately to the right of Citations.
+- Use `生成 AI 推荐` for the explicit action and `AI 阅读建议` for the result
+  heading.
 
 Run from the repository root:
 

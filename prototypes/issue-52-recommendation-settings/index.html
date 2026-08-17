@@ -791,7 +791,7 @@
     </nav>
     <script>
       const variants = {
-        A: "专属推荐标签 + 单页分组",
+        A: "AI 推荐标签 + 单页分组",
         B: "标题栏分析 + 分类设置",
         C: "阅读队列 + 配置清单",
       };
@@ -870,7 +870,7 @@
         return `<span class="status-chip">刚刚分析</span>`;
       }
       function resultGroups() {
-        return `<div class="result-head"><div><h3>当前论文的阅读推荐</h3><p>合并 7 篇 References 与 5 篇 Citations</p></div>${statusChip()}</div><h4 class="group-title">优先看 <span>最相关 · ${priority.length} 篇</span></h4>${priority.map((item) => paper(item)).join("")}<h4 class="group-title">可选看 <span>补充视角 · ${optional.length} 篇</span></h4>${optional.map((item) => paper(item)).join("")}`;
+        return `<div class="result-head"><div><h3>当前论文的 AI 阅读建议</h3><p>合并 7 篇 References 与 5 篇 Citations</p></div>${statusChip()}</div><h4 class="group-title">优先看 <span>最相关 · ${priority.length} 篇</span></h4>${priority.map((item) => paper(item)).join("")}<h4 class="group-title">可选看 <span>补充视角 · ${optional.length} 篇</span></h4>${optional.map((item) => paper(item)).join("")}`;
       }
       function stateBody(layout) {
         if (model.status === "idle") {
@@ -882,7 +882,7 @@
                 : "";
           const action =
             layout === "A"
-              ? `<button class="primary" data-analyze>分析当前论文</button>`
+              ? `<button class="primary" data-analyze>生成 AI 推荐</button>`
               : "";
           return `<div class="empty"><div class="glyph">✦</div><h3>从当前论文开始推荐</h3><p>使用 MinerU 全文理解主题，并只排序目前已有 Abstract 的 12 篇候选论文。${hint}</p>${action}</div>`;
         }
@@ -899,7 +899,7 @@
         return resultGroups();
       }
       function tabs(active) {
-        return `<nav class="tabs"><button>References <span class="count">19</span></button><button>Citations <span class="count">10</span></button>${active ? `<button aria-selected="true">推荐</button>` : ""}</nav>`;
+        return `<nav class="tabs"><button>References <span class="count">19</span></button><button>Citations <span class="count">10</span></button>${active ? `<button aria-selected="true">AI 推荐</button>` : ""}</nav>`;
       }
       function readerA() {
         return `<div class="reader-shell" style="--pane-width:${model.width}px"><div class="section-head">📚 Reference for Zotero <span class="chevron">⌃</span></div><div class="reader-pane"><div class="source-bar"><strong>MinerU MD</strong><span>…\\full.md</span><span class="spacer"></span><button class="text-action">↻ 刷新</button></div>${tabs(true)}${stateBody("A")}</div></div>`;

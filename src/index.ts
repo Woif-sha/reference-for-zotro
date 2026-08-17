@@ -6,12 +6,17 @@ import {
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
 import { DownloadSettingsCoordinator } from "./application/download-settings";
-import { createScanSciDownloadDependencies } from "./application/scan-sci-download";
+import { createScanSciDownloadPapers } from "./application/scan-sci-download";
 import {
   createZoteroDownloadSettingsPorts,
   zoteroSidecarDataRoot,
 } from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
+import {
+  registerReferenceForZoteroPreferences,
+  type PreferencePanesPort,
+  type ReferenceForZoteroPreferencesHandle,
+} from "./preferences/download-preferences";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -50,6 +55,7 @@ function defineRuntimeGlobal(name: string): void {
 
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
+  let preferences: ReferenceForZoteroPreferencesHandle | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -88,19 +94,30 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
+        preferences = await registerReferenceForZoteroPreferences({
+          manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
+          pluginID: config.addonID,
+          rootURI: packagedRootURI,
+          settings: downloadSetup,
+        });
         handle = startReferenceForZotero({
-          factory: createReaderControllerFactory(
-            createScanSciDownloadDependencies({
+          factory: createReaderControllerFactory({
+            downloadPapers: createScanSciDownloadPapers({
               runtime: scanSci,
               setup: downloadSetup,
             }),
-          ),
+          }),
           downloadSetup,
         });
       },
       onMainWindowLoad,
       onMainWindowUnload,
+      onPreferencesLoad(root: Element): void {
+        preferences?.mount(root);
+      },
       onShutdown(): void {
+        preferences?.unregister();
+        preferences = undefined;
         handle?.shutdown();
         handle = undefined;
         Zotero.getMainWindows().forEach((window) => {

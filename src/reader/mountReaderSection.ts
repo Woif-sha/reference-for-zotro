@@ -1,5 +1,4 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
-import type { DownloadSettingsState } from "../application/download-settings";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 import { relateScholarlyIdentities } from "../literature/identifiers";
 
@@ -112,7 +111,6 @@ export interface ReaderSectionState {
   paperDownloads: readonly PaperDownloadProjection[];
   downloadInProgress: boolean;
   downloadAvailable: boolean;
-  downloadSetup?: DownloadSettingsState;
 }
 
 export interface ReaderSectionController {
@@ -134,8 +132,6 @@ export interface ReaderSectionController {
   downloadSelected(): Promise<void>;
   openDownloadedFolder(paperID: string): void;
   openMineruDirectory?(): void;
-  changeDownloadDestination?(): Promise<void>;
-  resetDownloadDestination?(): void;
   translationCapability?(): TranslationCapability;
   translateSelection?(text: string): Promise<string>;
   externalInteractionDocuments?(): readonly Document[];

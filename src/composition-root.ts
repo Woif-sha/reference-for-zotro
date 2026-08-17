@@ -39,7 +39,6 @@ import {
 } from "./platform/zotero-runtime";
 import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
-import type { DownloadSettingsController } from "./application/download-settings";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
@@ -49,7 +48,6 @@ const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
 export type ReaderDownloadDependencies = Readonly<{
   downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
-  downloadSetup?: DownloadSettingsController;
 }>;
 
 export function zoteroReaderInteractionDocuments(
@@ -175,9 +173,6 @@ export function createReaderControllerFactory(
         },
         ...(downloadDependencies.downloadPapers
           ? { downloadPapers: downloadDependencies.downloadPapers }
-          : {}),
-        ...(downloadDependencies.downloadSetup
-          ? { downloadSetup: downloadDependencies.downloadSetup }
           : {}),
         revealDownloadedFile(savedPath) {
           void Zotero.File.reveal(savedPath).catch((error: unknown) => {

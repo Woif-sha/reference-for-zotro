@@ -1,9 +1,5 @@
 import type { ReferenceEntry } from "../domain/reference";
 import type { PaperIdentity, SessionToken } from "../domain/literature";
-import {
-  DEFAULT_DOWNLOAD_DESTINATION,
-  type DownloadSettingsController,
-} from "./download-settings";
 import type {
   ReaderPaper,
   ReaderPaperAction,
@@ -88,7 +84,6 @@ export interface RelatedPapersPorts {
   revealDownloadedFile?(savedPath: string): void;
   revealMineruDirectory?(directory: string): void;
   externalInteractionDocuments?(): readonly Document[];
-  downloadSetup?: DownloadSettingsController;
   copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
@@ -107,7 +102,6 @@ export class RelatedPapersController implements ReaderSectionController {
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: false,
-    downloadSetup: defaultDownloadSetupState(),
   };
   private readonly listeners = new Set<(state: ReaderSectionState) => void>();
   private readonly sessions = new PaperSessionCoordinator();
@@ -119,7 +113,6 @@ export class RelatedPapersController implements ReaderSectionController {
   private citingRequestGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
-  private unsubscribeDownloadSetup?: () => void;
 
   constructor(
     private readonly attachmentItemID: number,
@@ -128,12 +121,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.state = {
       ...this.state,
       downloadAvailable: Boolean(ports.downloadPapers),
-      downloadSetup:
-        ports.downloadSetup?.getState() ?? defaultDownloadSetupState(),
     };
-    this.unsubscribeDownloadSetup = ports.downloadSetup?.subscribe(
-      (downloadSetup) => this.update({ downloadSetup }),
-    );
   }
 
   getState(): ReaderSectionState {
@@ -321,16 +309,6 @@ export class RelatedPapersController implements ReaderSectionController {
   openMineruDirectory(): void {
     const directory = this.state.mineruDirectory;
     if (directory) this.ports.revealMineruDirectory?.(directory);
-  }
-
-  changeDownloadDestination(): Promise<void> {
-    return (
-      this.ports.downloadSetup?.changeDownloadDestination() ?? Promise.resolve()
-    );
-  }
-
-  resetDownloadDestination(): void {
-    this.ports.downloadSetup?.resetDownloadDestination();
   }
 
   selectPaper(paperID: string): void {
@@ -531,8 +509,6 @@ export class RelatedPapersController implements ReaderSectionController {
     this.cancelDownloads();
     this.sessions.dispose();
     this.ports.dispose?.();
-    this.unsubscribeDownloadSetup?.();
-    this.unsubscribeDownloadSetup = undefined;
     this.listeners.clear();
     this.context = undefined;
   }
@@ -735,14 +711,6 @@ export class RelatedPapersController implements ReaderSectionController {
   private assertActive(): void {
     if (this.disposed) throw new Error("RelatedPapersController is disposed");
   }
-}
-
-function defaultDownloadSetupState(): ReaderSectionState["downloadSetup"] {
-  return {
-    downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-    usingDefaultDestination: true,
-    runtime: { status: "unchecked" },
-  };
 }
 
 function searchURL(

@@ -1,0 +1,38 @@
+<vbox
+  id="reference-for-zotero-preferences"
+  data-reference-for-zotero-preferences=""
+  onload="Zotero.ReferenceForZotero.hooks.onPreferencesLoad(this)"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+>
+  <groupbox id="reference-for-zotero-preferences-download-group">
+    <label><html:h2>文件</html:h2></label>
+    <html:div
+      id="reference-for-zotero-preferences-download-row"
+      data-download-directory-row=""
+    >
+      <html:span data-download-directory-label="">下载目录</html:span>
+      <html:span
+        id="reference-for-zotero-preferences-download-path"
+        data-download-directory-path=""
+        aria-label="当前下载目录"
+      ></html:span>
+      <html:button type="button" data-change-download-directory="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
+    </html:div>
+    <html:p
+      id="reference-for-zotero-preferences-download-error"
+      data-download-directory-error=""
+      role="alert"
+      hidden="hidden"
+    ></html:p>
+  </groupbox>
+  <groupbox
+    id="reference-for-zotero-preferences-model-group"
+    data-recommendation-model-settings=""
+  >
+    <label><html:h2>推荐模型</html:h2></label>
+    <html:p>模型选择将在后续实现中提供。</html:p>
+  </groupbox>
+</vbox>

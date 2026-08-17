@@ -1915,14 +1915,6 @@ test("Reader keeps every self-painted checkbox visible when Zotero hides native 
   const state: ReaderSectionState = {
     ...readyState(),
     downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
-    downloadSetup: {
-      downloadDestination: "E:\\paper",
-      usingDefaultDestination: true,
-      runtime: {
-        status: "unavailable",
-        error: "requests==2.34.2 is missing",
-      },
-    },
   };
   let downloadAttempts = 0;
   const mounted = mountReaderSection({
@@ -1995,49 +1987,6 @@ test("Reader does not project the unavailable institution candidate as support",
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
     ...readyState(),
-    downloadSetup: {
-      downloadDestination: "E:\\paper",
-      usingDefaultDestination: true,
-      runtime: {
-        status: "ready",
-        capability: {
-          status: "available",
-          executable: "C:\\Python312\\python.exe",
-          pythonVersion: "3.12.10",
-          architecture: "x64",
-          moduleVersion: "3.2.0",
-          schemaVersion: 3,
-          sourceRulesVersion: 3,
-          dependencies: [],
-          features: {
-            onePaperDownload: "available",
-            batchDownload: "available",
-            visibleLogin: "disabled",
-          },
-          routes: [
-            {
-              routeID: "open-access",
-              status: "available",
-              sources: ["arxiv", "pmc"],
-              operations: ["downloadOne", "downloadBatch"],
-            },
-            {
-              routeID: "institution-webvpn/ieee/one-click-single",
-              status: "candidate",
-              reason: "real-world-route-audit-pending",
-              operations: ["visibleLogin", "downloadOne"],
-            },
-          ],
-          sidecar: {
-            protocol: "reference-for-zotero.scansci-sidecar",
-            contractVersion: "1.1.0",
-            resultSchemaVersion: "1.0.0",
-            upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
-            dirty: false,
-          },
-        },
-      },
-    },
   };
   const mounted = mountReaderSection({
     body,

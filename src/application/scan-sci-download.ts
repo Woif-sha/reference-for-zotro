@@ -48,16 +48,6 @@ export function createScanSciDownloadPapers(options: {
   };
 }
 
-export function createScanSciDownloadDependencies(options: {
-  runtime: ScanSciPort;
-  setup: DownloadSettingsController;
-}) {
-  return {
-    downloadSetup: options.setup,
-    downloadPapers: createScanSciDownloadPapers(options),
-  } as const;
-}
-
 function confirmedPaper(paper: ReaderPaper & { status: "resolved" }) {
   return {
     title: paper.title,

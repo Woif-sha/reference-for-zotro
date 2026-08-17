@@ -1,0 +1,27 @@
+#reference-for-zotero-preferences {
+  overflow-y: auto;
+}
+
+#reference-for-zotero-preferences-download-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 10px;
+  align-items: center;
+}
+
+#reference-for-zotero-preferences-download-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+#reference-for-zotero-preferences-download-error {
+  margin-block: 8px 0;
+  color: var(--fill-error, #c33);
+}
+
+#reference-for-zotero-preferences-model-group p {
+  color: var(--fill-secondary, #666);
+}

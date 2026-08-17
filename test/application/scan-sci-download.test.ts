@@ -5,7 +5,6 @@ import type {
   DownloadSettingsState,
 } from "../../src/application/download-settings";
 import {
-  createScanSciDownloadDependencies,
   createScanSciDownloadPapers,
   safeWindowsFilenameStem,
 } from "../../src/application/scan-sci-download";
@@ -75,15 +74,28 @@ test("production download adapter snapshots the configured destination and prese
   ]);
 });
 
-test("production download dependencies expose setup and the live ScanSci adapter together", () => {
-  const setup = setupController(() => readyState("E:\\paper"));
-  const dependencies = createScanSciDownloadDependencies({
-    runtime: runtimeWithDownload(async () => []),
-    setup,
+test("each Download request starts with the latest saved destination", async () => {
+  let state = readyState("E:\\paper");
+  const destinations: string[] = [];
+  const runtime = runtimeWithDownload(async (request) => {
+    destinations.push(request.downloadDestination);
+    return [];
   });
+  const download = createScanSciDownloadPapers({
+    runtime,
+    setup: setupController(() => state),
+  });
+  const request = {
+    papers: [],
+    signal: new AbortController().signal,
+    onProgress() {},
+  };
 
-  assert.equal(dependencies.downloadSetup, setup);
-  assert.equal(typeof dependencies.downloadPapers, "function");
+  await download(request);
+  state = readyState("D:\\Current\\Papers");
+  await download(request);
+
+  assert.deepEqual(destinations, ["E:\\paper", "D:\\Current\\Papers"]);
 });
 
 test("production download adapter always delegates so every click re-probes the sidecar", async () => {

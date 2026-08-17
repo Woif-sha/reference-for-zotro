@@ -18,6 +18,10 @@
   user-select: text;
 }
 
+.reference-for-zotero-path-unconfigured {
+  font-weight: 700;
+}
+
 #reference-for-zotero-preferences-download-error,
 #reference-for-zotero-preferences-cache-error {
   margin-block: 8px 0;

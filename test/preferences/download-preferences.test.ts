@@ -12,6 +12,10 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
     new URL("../../addon/chrome/content/preferences.xhtml", import.meta.url),
     "utf8",
   );
+  const stylesheet = readFileSync(
+    new URL("../../addon/chrome/content/preferences.css", import.meta.url),
+    "utf8",
+  );
   const dom = new JSDOM(`<!doctype html><body>${fragment}</body>`);
   const ownerWindow = dom.window as unknown as Window;
   const root = dom.window.document.querySelector(
@@ -66,14 +70,39 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
   );
   assert.equal(root.querySelector("[data-reset-cache-directory]"), null);
   assert.equal(root.querySelector("[data-cache-directory-description]"), null);
-  assert.match(root.textContent ?? "", /请先配置下载目录/u);
-  assert.match(root.textContent ?? "", /请先配置 Cache 路径/u);
+  assert.equal(
+    path.classList.contains("reference-for-zotero-path-unconfigured"),
+    true,
+  );
+  assert.equal(
+    root
+      .querySelector("[data-cache-directory-path]")
+      ?.classList.contains("reference-for-zotero-path-unconfigured"),
+    true,
+  );
+  assert.equal(
+    root.querySelector("[data-download-directory-error]")?.hasAttribute("hidden"),
+    true,
+  );
+  assert.equal(
+    root.querySelector("[data-cache-directory-error]")?.hasAttribute("hidden"),
+    true,
+  );
+  assert.doesNotMatch(root.textContent ?? "", /请先配置/u);
+  assert.match(
+    stylesheet,
+    /\.reference-for-zotero-path-unconfigured\s*\{[^}]*font-weight:\s*700/su,
+  );
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(pickerOwner, ownerWindow);
   assert.equal(path.textContent, "D:\\Selected\\Papers");
+  assert.equal(
+    path.classList.contains("reference-for-zotero-path-unconfigured"),
+    false,
+  );
   assert.equal(writes.length, 1);
 
   root
@@ -84,6 +113,12 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
   assert.equal(
     root.querySelector("[data-cache-directory-path]")?.textContent,
     "E:\\paper\\scanscicache",
+  );
+  assert.equal(
+    root
+      .querySelector("[data-cache-directory-path]")
+      ?.classList.contains("reference-for-zotero-path-unconfigured"),
+    false,
   );
   assert.equal(writes.length, 2);
 

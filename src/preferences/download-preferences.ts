@@ -1,4 +1,8 @@
-import type { DownloadSettingsController } from "../application/download-settings";
+import {
+  CACHE_DIRECTORY_REQUIRED_ERROR,
+  DOWNLOAD_DESTINATION_REQUIRED_ERROR,
+  type DownloadSettingsController,
+} from "../application/download-settings";
 import type { ModelPreferencesController } from "../application/model-settings";
 import { mountModelPreferences } from "./model-preferences";
 
@@ -41,11 +45,19 @@ export function mountDownloadPreferences(
   const render = (): void => {
     const state = settings.getState();
     renderPath(path, state.downloadDestination);
-    error.textContent = state.destinationError ?? "";
-    error.toggleAttribute("hidden", !state.destinationError);
+    renderError(
+      error,
+      state.destinationError === DOWNLOAD_DESTINATION_REQUIRED_ERROR
+        ? undefined
+        : state.destinationError,
+    );
     renderPath(cachePath, state.cacheDirectory);
-    cacheError.textContent = state.cacheDirectoryError ?? "";
-    cacheError.toggleAttribute("hidden", !state.cacheDirectoryError);
+    renderError(
+      cacheError,
+      state.cacheDirectoryError === CACHE_DIRECTORY_REQUIRED_ERROR
+        ? undefined
+        : state.cacheDirectoryError,
+    );
   };
   const onChange = (): void => {
     void settings.changeDownloadDestination(owner);
@@ -125,8 +137,14 @@ export async function registerReferenceForZoteroPreferences(options: {
 
 function renderPath(element: Element, value: string | undefined): void {
   element.textContent = value ?? "未配置";
+  element.classList.toggle("reference-for-zotero-path-unconfigured", !value);
   if (value) element.setAttribute("title", value);
   else element.removeAttribute("title");
+}
+
+function renderError(element: Element, value: string | undefined): void {
+  element.textContent = value ?? "";
+  element.toggleAttribute("hidden", !value);
 }
 
 function requiredElement(root: Element, selector: string): Element {

@@ -82,6 +82,15 @@ test("OpenAI Compatible requires SSE DONE and stops reading when it arrives", as
   assert.equal(cancelled, true);
 });
 
+test("OpenAI Compatible ignores every frame after DONE in the same chunk", () => {
+  const parser = new OpenAICompatibleStreamParser();
+  parser.feed(
+    'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\ndata: {"choices":[{"delta":{"content":"late"}}]}\n\n',
+  );
+
+  assert.equal(parser.finish().text, "OK");
+});
+
 test("OpenAI Compatible bounds error bodies and recursively redacts API keys", async () => {
   const apiKey = "private-key-that-must-not-leak";
   await assert.rejects(
@@ -143,4 +152,23 @@ test("draft connection test sends the fixed minimal plain-text request", async (
     ],
     stream: true,
   });
+});
+
+test("OpenAI Compatible classifies JSON object mode rejection", async () => {
+  await assert.rejects(
+    runOpenAICompatibleRequest({
+      endpoint: "https://api.example.com/v1/chat/completions",
+      apiKey: "secret",
+      model: "example-model",
+      instructions: "Return JSON.",
+      prompt: "{}",
+      responseFormat: "json_object",
+      fetch: async () =>
+        new Response(
+          '{"error":"response_format json_object is not supported"}',
+          { status: 400, statusText: "Bad Request" },
+        ),
+    }),
+    /analysis_structured_output_unsupported/u,
+  );
 });

@@ -1,3 +1,9 @@
+import { findSseFrameBoundary } from "./sse";
+import {
+  rejectsStructuredOutput,
+  StructuredOutputUnsupportedError,
+} from "./model-errors";
+
 export type ModelResponseFormat = "text" | "json_object";
 
 export type TextModelResult = Readonly<{ text: string }>;
@@ -38,6 +44,10 @@ export class OpenAICompatibleStreamParser {
     while (boundary) {
       this.parseFrame(this.buffer.slice(0, boundary.index));
       this.buffer = this.buffer.slice(boundary.index + boundary.length);
+      if (this.completed) {
+        this.buffer = "";
+        return;
+      }
       boundary = findSseFrameBoundary(this.buffer);
     }
   }
@@ -165,6 +175,12 @@ async function runValidatedRequest(
   });
   if (!response.ok) {
     const detail = await readBoundedBody(response, ERROR_RESPONSE_MAX_BYTES);
+    if (
+      request.responseFormat === "json_object" &&
+      rejectsStructuredOutput(response.status, detail)
+    ) {
+      throw new StructuredOutputUnsupportedError(new Error(detail));
+    }
     throw new Error(
       `OpenAI Compatible request failed: ${response.status} ${response.statusText} - ${detail}`,
     );
@@ -290,6 +306,11 @@ function redactError(error: unknown, secret: string): unknown {
       ? value.split(normalized).join("[API KEY REDACTED]")
       : value;
   };
+  if (error instanceof StructuredOutputUnsupportedError) {
+    return new StructuredOutputUnsupportedError(
+      redactError(error.cause, secret),
+    );
+  }
   if (error instanceof AggregateError) {
     return new AggregateError(
       Array.from(error.errors, (entry) => redactError(entry, secret)),
@@ -309,23 +330,4 @@ function redactError(error: unknown, secret: string): unknown {
     return sanitized;
   }
   return redact(String(error));
-}
-
-function findSseFrameBoundary(
-  value: string,
-): { index: number; length: number } | undefined {
-  for (let index = 0; index < value.length; index += 1) {
-    const first = lineEndingLength(value, index);
-    if (!first) continue;
-    const second = lineEndingLength(value, index + first);
-    if (second) return { index, length: first + second };
-    index += first - 1;
-  }
-  return undefined;
-}
-
-function lineEndingLength(value: string, index: number): number {
-  if (value[index] === "\n") return 1;
-  if (value[index] !== "\r") return 0;
-  return value[index + 1] === "\n" ? 2 : 1;
 }

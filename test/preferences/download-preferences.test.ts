@@ -6,10 +6,10 @@ import { JSDOM } from "jsdom";
 import { DownloadSettingsCoordinator } from "../../src/application/download-settings";
 import {
   mountDownloadPreferences,
-  mountModelPreferences,
   registerReferenceForZoteroPreferences,
   type PreferencePanesPort,
 } from "../../src/preferences/download-preferences";
+import { mountModelPreferences } from "../../src/preferences/model-preferences";
 import type { ModelPreferencesController } from "../../src/application/model-settings";
 import {
   DEFAULT_MODEL_CONFIGURATION,

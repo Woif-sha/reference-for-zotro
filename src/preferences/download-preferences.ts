@@ -2,6 +2,9 @@ import type { DownloadSettingsController } from "../application/download-setting
 import type { ModelPreferencesController } from "../application/model-settings";
 import { mountModelPreferences } from "./model-preferences";
 
+export const REFERENCE_FOR_ZOTERO_PREFERENCES_ID =
+  "reference-for-zotero-preferences";
+
 export type PreferencePaneOptions = Readonly<{
   pluginID: string;
   id: string;
@@ -77,7 +80,7 @@ export async function registerReferenceForZoteroPreferences(options: {
 }): Promise<ReferenceForZoteroPreferencesHandle> {
   const paneID = await options.manager.register({
     pluginID: options.pluginID,
-    id: "reference-for-zotero-preferences",
+    id: REFERENCE_FOR_ZOTERO_PREFERENCES_ID,
     label: "Reference for Zotero",
     src: `${options.rootURI}chrome/content/preferences.xhtml`,
     stylesheets: [`${options.rootURI}chrome/content/preferences.css`],

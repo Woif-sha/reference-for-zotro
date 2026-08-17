@@ -17,6 +17,12 @@ export interface ReaderSectionRegistration {
     l10nID: string;
     icon: string;
   };
+  sectionButtons: readonly {
+    type: string;
+    icon: string;
+    l10nID: string;
+    onClick(): void;
+  }[];
   onInit(context: {
     tabType: string;
     setEnabled(enabled: boolean): void;
@@ -58,9 +64,15 @@ export function registerReaderSection(options: {
   pluginID: string;
   localeNamespace: string;
   controllerFactory: ReaderControllerFactory;
+  openPreferences(): void;
 }): () => void {
-  const { itemPaneManager, pluginID, localeNamespace, controllerFactory } =
-    options;
+  const {
+    itemPaneManager,
+    pluginID,
+    localeNamespace,
+    controllerFactory,
+    openPreferences,
+  } = options;
   const activeSections = new Map<HTMLElement, ActiveSection>();
 
   const destroyBody = (body: HTMLElement): void => {
@@ -102,6 +114,14 @@ export function registerReaderSection(options: {
       l10nID: `${localeNamespace}-reference-for-zotero-section-sidenav`,
       icon: "chrome://referenceforzotero/content/icons/related-papers.svg",
     },
+    sectionButtons: [
+      {
+        type: "open-preferences",
+        icon: "chrome://referenceforzotero/content/icons/reader-settings.svg",
+        l10nID: `${localeNamespace}-reference-for-zotero-section-settings`,
+        onClick: openPreferences,
+      },
+    ],
     onInit({ tabType, setEnabled }) {
       setEnabled(tabType === "reader");
     },

@@ -51,10 +51,17 @@ export type LegacyCodexRequest = Readonly<{
   effort?: string;
   instructions: string;
   prompt: string;
-  responseFormat: ModelResponseFormat;
+  responseFormat: ModelResponseFormat | "json_schema";
+  responseSchema?: LegacyCodexResponseSchema;
   signal?: AbortSignal;
   maxOutputCharacters?: number;
   maxResponseBytes?: number;
+}>;
+
+export type LegacyCodexResponseSchema = Readonly<{
+  name: string;
+  strict: true;
+  schema: Readonly<Record<string, unknown>>;
 }>;
 
 type CodexAuthDocument = {
@@ -109,7 +116,7 @@ export class LegacyCodexTransport {
           "Codex error response",
         );
         if (
-          request.responseFormat === "json_object" &&
+          request.responseFormat !== "text" &&
           rejectsStructuredOutput(response.status, detail)
         ) {
           throw new StructuredOutputUnsupportedError(new Error(detail));
@@ -367,10 +374,16 @@ export class LegacyCodexTransport {
 export function buildLegacyCodexPayload(
   request: Pick<
     LegacyCodexRequest,
-    "model" | "effort" | "instructions" | "prompt" | "responseFormat"
+    | "model"
+    | "effort"
+    | "instructions"
+    | "prompt"
+    | "responseFormat"
+    | "responseSchema"
   >,
 ): Record<string, unknown> {
   const effort = normalizeEffort(request.effort);
+  const textFormat = legacyTextFormat(request);
   return {
     model: request.model.trim(),
     instructions: request.instructions,
@@ -381,13 +394,22 @@ export function buildLegacyCodexPayload(
         content: [{ type: "input_text", text: request.prompt }],
       },
     ],
-    ...(request.responseFormat === "json_object"
-      ? { text: { format: { type: "json_object" } } }
-      : {}),
+    ...(textFormat ? { text: { format: textFormat } } : {}),
     store: false,
     stream: true,
     ...(effort ? { reasoning: { effort } } : {}),
   };
+}
+
+function legacyTextFormat(
+  request: Pick<LegacyCodexRequest, "responseFormat" | "responseSchema">,
+): Record<string, unknown> | undefined {
+  if (request.responseFormat === "text") return undefined;
+  if (request.responseFormat === "json_object") return { type: "json_object" };
+  if (!request.responseSchema) {
+    throw new Error("Codex JSON schema response format requires a schema");
+  }
+  return { type: "json_schema", ...request.responseSchema };
 }
 
 export function resolveCodexAuthPath(runtime: LegacyCodexRuntime): string {
@@ -426,6 +448,9 @@ function validateRequest(request: LegacyCodexRequest): void {
     if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
       throw new Error(`${name} must be a positive integer`);
     }
+  }
+  if (request.responseFormat === "json_schema" && !request.responseSchema) {
+    throw new Error("Codex JSON schema response format requires a schema");
   }
 }
 

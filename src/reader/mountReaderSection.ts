@@ -135,7 +135,6 @@ export interface ReaderSectionController {
   subscribe(listener: (state: ReaderSectionState) => void): () => void;
   selectTab(tab: ReaderTab): void;
   setCitationLimit(limit: 10 | 30 | 50): void;
-  generateRecommendations?(): Promise<void>;
   selectPaper(paperID: string): void;
   refresh(): void;
   openPaper(paperID: string): void;
@@ -397,10 +396,6 @@ export function mountReaderSection(options: {
       void controller.downloadSelected();
       return;
     }
-    if (target.closest("[data-generate-recommendations]")) {
-      void controller.generateRecommendations?.();
-      return;
-    }
     const referenceLink = target.closest<HTMLElement>("[data-reference-link]");
     if (referenceLink) {
       event.preventDefault();
@@ -512,11 +507,6 @@ export function mountReaderSection(options: {
     if (target.closest("[data-refresh]")) {
       event.preventDefault();
       controller.refresh();
-      return;
-    }
-    if (target.closest("[data-generate-recommendations]")) {
-      event.preventDefault();
-      void controller.generateRecommendations?.();
       return;
     }
     const tab = parseReaderTab(
@@ -870,22 +860,17 @@ function renderContent(
 
 function renderRecommendation(state: RecommendationState): string {
   if (state.status === "not-analyzed") {
-    return `<section class="rfz-status rfz-recommendation-status">
-      <strong>尚未分析当前论文</strong>
-      <p>使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p>
-      <button type="button" class="rfz-recommendation-button" data-generate-recommendations="" data-focus-key="generate-recommendations">生成 AI 推荐</button>
-    </section>`;
+    return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在检查缓存和分析条件…</strong><p>将使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p></section>`;
   }
   if (state.status === "analyzing") {
     return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在分析当前论文…</strong><p>请稍候；切换标签不会中断本次分析。</p></section>`;
   }
   if (state.status === "no-candidates") {
-    return `<section class="rfz-status rfz-recommendation-status"><strong>暂无可分析论文</strong><p>当前 References 与已加载 Citing papers 中没有已知的非空 Abstract。</p></section>`;
+    return `<section class="rfz-status rfz-recommendation-status"><strong>暂无可分析论文</strong><p>当前 References 与已加载 Citing papers 中没有已知的非空 Abstract。加载 Abstract 后再次点击 AI 推荐标签。</p></section>`;
   }
   if (state.status === "failed") {
     return `<section class="rfz-status rfz-recommendation-status" role="alert">
-      <strong>分析失败</strong><p>${escapeHTML(state.message)}</p>
-      <button type="button" class="rfz-recommendation-button" data-generate-recommendations="" data-focus-key="generate-recommendations">再次分析</button>
+      <strong>分析失败</strong><p>${escapeHTML(state.message)}</p><p>再次点击 AI 推荐标签可重试。</p>
     </section>`;
   }
   return `<section class="rfz-recommendation-results">
@@ -1314,7 +1299,6 @@ const READER_STYLES = `
   .rfz-context-item[aria-disabled="true"] { color: var(--fill-tertiary, #9a9aa0); cursor: default; }
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
-  .rfz-recommendation-button { border: 1px solid #1f5fbe; border-radius: 5px; padding: 6px 10px; color: #fff; background: var(--rfz-accent); font: inherit; font-weight: 650; cursor: pointer; }
   .rfz-recommendation-results { padding: 16px 12px 24px; }
   .rfz-recommendation-results h2 { margin: 0 0 16px; font-size: 15px; }
   .rfz-recommendation-group + .rfz-recommendation-group { margin-top: 20px; }

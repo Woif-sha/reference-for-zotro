@@ -75,7 +75,7 @@ test("opening a Current paper restores its recommendation cache without calling 
   });
 });
 
-test("clicking analyze checks the cache before deciding that no Abstract is available", async () => {
+test("entering AI recommendation checks the cache and starts analysis automatically", async () => {
   const order: string[] = [];
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
@@ -96,11 +96,36 @@ test("clicking analyze checks the cache before deciding that no Abstract is avai
   await controller.refreshAsync();
   order.length = 0;
 
-  await controller.generateRecommendations();
+  controller.selectTab("ai-recommendation");
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "analyzing",
+  });
+  await waitFor(
+    () => controller.getState().recommendation.status === "no-candidates",
+  );
 
   assert.deepEqual(order, ["cache", "model-boundary"]);
   assert.deepEqual(controller.getState().recommendation, {
     status: "no-candidates",
+  });
+});
+
+test("entering AI recommendation explains when no recommendation model is available", async () => {
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  controller.selectTab("ai-recommendation");
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "AI 推荐模型不可用，请在插件设置中配置并测试模型。",
   });
 });
 

@@ -58,7 +58,6 @@ test("AI recommendation is the third tab and renders every analysis state withou
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = readyState();
   let listener: ((next: ReaderSectionState) => void) | undefined;
-  let generateCalls = 0;
   mountReaderSection({
     body: dom.window.document.body,
     controller: {
@@ -75,9 +74,6 @@ test("AI recommendation is the third tab and renders every analysis state withou
         listener?.(state);
       },
       setCitationLimit() {},
-      async generateRecommendations() {
-        generateCalls += 1;
-      },
       selectPaper() {},
       refresh() {},
       openPaper() {},
@@ -96,13 +92,14 @@ test("AI recommendation is the third tab and renders every analysis state withou
       '[data-tab="ai-recommendation"]',
     ) as HTMLElement | null
   )?.click();
-  assert.match(dom.window.document.body.textContent ?? "", /生成 AI 推荐/u);
-  (
-    dom.window.document.querySelector(
-      "[data-generate-recommendations]",
-    ) as HTMLButtonElement | null
-  )?.click();
-  assert.equal(generateCalls, 1);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /正在检查缓存和分析条件/u,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
 
   state = { ...state, recommendation: { status: "analyzing" } };
   listener?.(state);
@@ -172,13 +169,22 @@ test("AI recommendation is the third tab and renders every analysis state withou
   listener?.(state);
   assert.match(dom.window.document.body.textContent ?? "", /分析失败/u);
   assert.match(dom.window.document.body.textContent ?? "", /模型输出无效/u);
-  assert.ok(
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /再次点击 AI 推荐标签可重试/u,
+  );
+  assert.equal(
     dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
   );
 
   state = { ...state, recommendation: { status: "no-candidates" } };
   listener?.(state);
   assert.match(dom.window.document.body.textContent ?? "", /暂无可分析论文/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /加载 Abstract 后再次点击 AI 推荐标签/u,
+  );
 });
 
 test("Citations distinguish an active lookup from a completed empty result", () => {

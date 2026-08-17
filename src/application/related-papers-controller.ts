@@ -167,8 +167,15 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   selectTab(tab: ReaderTab): void {
-    if (this.state.activeTab === tab) return;
-    this.update({ activeTab: tab, selectedPaperID: undefined });
+    const changed = this.state.activeTab !== tab;
+    if (changed) {
+      this.update({ activeTab: tab, selectedPaperID: undefined });
+    }
+    if (tab === "ai-recommendation") {
+      void this.generateRecommendations();
+      return;
+    }
+    if (!changed) return;
     if (
       tab === "citations" &&
       this.context &&
@@ -190,10 +197,18 @@ export class RelatedPapersController implements ReaderSectionController {
     const context = this.context;
     if (
       !context ||
-      !this.ports.recommendPapers ||
       this.recommendationRun ||
       this.state.recommendation.status === "completed"
     ) {
+      return;
+    }
+    if (!this.ports.recommendPapers) {
+      this.update({
+        recommendation: {
+          status: "failed",
+          message: "AI 推荐模型不可用，请在插件设置中配置并测试模型。",
+        },
+      });
       return;
     }
     const run = {

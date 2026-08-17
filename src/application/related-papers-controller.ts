@@ -17,6 +17,7 @@ import {
   parseReferenceQuery,
   UNPARSED_REFERENCE_TITLE,
 } from "../literature/reference-query";
+import { normalizeDoi } from "../literature/identifiers";
 import type {
   RecommendationRequest,
   RecommendationResult,
@@ -74,7 +75,9 @@ export interface RelatedPapersPorts {
   loadAbstract?(
     paper: ReaderPaper,
     context: ResolutionContext,
-  ): Promise<Readonly<{ text: string; source: string }>>;
+  ): Promise<
+    Readonly<{ text: string; source: string; sourceRecordID: string }>
+  >;
   recommendPapers?(
     request: RecommendationRequest,
   ): Promise<RecommendationResult>;
@@ -506,6 +509,7 @@ export class RelatedPapersController implements ReaderSectionController {
             },
           });
           await this.restoreCachedRecommendation(context);
+          this.startBackgroundEnrichment(context);
           return;
         }
       } catch (error) {
@@ -552,6 +556,7 @@ export class RelatedPapersController implements ReaderSectionController {
       await this.persistResults(context);
       await this.restoreCachedRecommendation(context);
     }
+    this.startBackgroundEnrichment(context);
   }
 
   private async restoreCachedRecommendation(
@@ -685,7 +690,10 @@ export class RelatedPapersController implements ReaderSectionController {
     this.context = undefined;
   }
 
-  private async loadCitingPapers(limit: 10 | 30 | 50): Promise<void> {
+  private async loadCitingPapers(
+    limit: 10 | 30 | 50,
+    prefetchAbstracts = true,
+  ): Promise<void> {
     const context = this.context;
     if (!context || !this.sessions.canCommit(context.token)) return;
     const requestGeneration = ++this.citingRequestGeneration;
@@ -708,6 +716,9 @@ export class RelatedPapersController implements ReaderSectionController {
       });
       await this.persistResults(context);
       await this.restoreCachedRecommendation(context);
+      if (prefetchAbstracts) {
+        await this.prefetchMissingAbstracts(context, cumulativePapers);
+      }
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
       if (requestGeneration !== this.citingRequestGeneration) return;
@@ -729,15 +740,18 @@ export class RelatedPapersController implements ReaderSectionController {
       !context ||
       !this.ports.loadAbstract ||
       paper?.status !== "resolved" ||
+      !paper.doi ||
       paper.abstract ||
       paper.abstractLoading
     ) {
       return;
     }
-    const requestKey = `${context.token.generation}:${paperID}`;
+    const doi = normalizeDoi(paper.doi);
+    if (!doi) return;
+    const requestKey = `${context.token.generation}:${doi}`;
     if (this.abstractLoads.has(requestKey)) return;
     this.abstractLoads.add(requestKey);
-    this.replacePaper(paperID, {
+    this.replacePapersByDoi(doi, {
       abstractLoading: true,
       abstractError: undefined,
     });
@@ -745,9 +759,11 @@ export class RelatedPapersController implements ReaderSectionController {
       const loaded = await this.ports.loadAbstract(paper, context);
       if (!this.sessions.canCommit(context.token)) return;
       this.invalidateRecommendation();
-      this.replacePaper(paperID, {
+      this.replacePapersByDoi(doi, {
         abstract: loaded.text,
         abstractSource: loaded.source,
+        abstractSourceRecordID: loaded.sourceRecordID,
+        abstractRetrievedAt: new Date().toISOString(),
         abstractLoading: false,
         abstractError: undefined,
       });
@@ -755,12 +771,49 @@ export class RelatedPapersController implements ReaderSectionController {
       await this.restoreCachedRecommendation(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
-      this.replacePaper(paperID, {
+      this.replacePapersByDoi(doi, {
         abstractLoading: false,
         abstractError: conciseError(error),
       });
     } finally {
       this.abstractLoads.delete(requestKey);
+    }
+  }
+
+  private startBackgroundEnrichment(context: ResolutionContext): void {
+    if (!this.ports.loadAbstract || this.state.status !== "ready") return;
+    void this.enrichRelatedPapers(context);
+  }
+
+  private async enrichRelatedPapers(context: ResolutionContext): Promise<void> {
+    if (!this.sessions.canCommit(context.token)) return;
+    if (
+      this.state.citingPapersLoaded < 10 &&
+      this.state.citingPapersStatus.status === "idle"
+    ) {
+      await this.loadCitingPapers(10, false);
+    }
+    if (!this.sessions.canCommit(context.token)) return;
+    await this.prefetchMissingAbstracts(context, [
+      ...this.state.references,
+      ...this.state.citingPapers,
+    ]);
+  }
+
+  private async prefetchMissingAbstracts(
+    context: ResolutionContext,
+    papers: readonly ReaderPaper[],
+  ): Promise<void> {
+    if (!this.ports.loadAbstract) return;
+    const pending = new Map<string, ReaderPaper>();
+    for (const paper of papers) {
+      if (paper.status !== "resolved" || paper.abstract) continue;
+      const doi = normalizeDoi(paper.doi);
+      if (doi && !pending.has(doi)) pending.set(doi, paper);
+    }
+    for (const paper of pending.values()) {
+      if (!this.sessions.canCommit(context.token)) return;
+      await this.loadPaperAbstract(paper.id);
     }
   }
 
@@ -824,6 +877,17 @@ export class RelatedPapersController implements ReaderSectionController {
   private replacePaper(paperID: string, patch: Partial<ReaderPaper>): void {
     const replace = (paper: ReaderPaper): ReaderPaper =>
       paper.id === paperID ? ({ ...paper, ...patch } as ReaderPaper) : paper;
+    this.update({
+      references: this.state.references.map(replace),
+      citingPapers: this.state.citingPapers.map(replace),
+    });
+  }
+
+  private replacePapersByDoi(doi: string, patch: Partial<ReaderPaper>): void {
+    const replace = (paper: ReaderPaper): ReaderPaper =>
+      normalizeDoi(paper.doi) === doi
+        ? ({ ...paper, ...patch } as ReaderPaper)
+        : paper;
     this.update({
       references: this.state.references.map(replace),
       citingPapers: this.state.citingPapers.map(replace),

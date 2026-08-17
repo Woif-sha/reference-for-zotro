@@ -110,6 +110,7 @@ export function createZoteroCacheStorage(): CacheStorage {
         const commitOrder: readonly LiteratureCacheFileName[] = [
           "references.json",
           "citations.json",
+          "abstract.json",
           "manifest.json",
         ];
         const stagedPaths = new Map<LiteratureCacheFileName, string>();

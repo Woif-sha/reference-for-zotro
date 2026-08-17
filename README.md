@@ -21,12 +21,12 @@ Reference for Zotero 在 Reader 侧栏中补上了这层关系：它读取已有
 
 - 在 Zotero Reader 侧栏中按原始顺序展示当前论文的 References。
 - 使用 DOI、可信学术 URL、题名、作者和年份解析论文身份；没有精确结果时保留规范化后的原始条目，方便人工判断。
-- 查询 Citations，查看引用当前论文的后续研究，并按 10、30、50 条逐步加载。
+- 打开相关论文区域后自动查询前 10 篇 Citations，并支持按 30、50 条继续加载。
 - 点击论文题名打开详情卡，查看作者、期刊或会议、年份、DOI、引用数、参考文献数和摘要。
-- 摘要缺失时，在打开详情卡后按 DOI 查询 OpenAlex 或 Semantic Scholar，避免为整份列表批量请求。
+- References 与已加载 Citations 缺少摘要时，后台按 DOI 依次查询 OpenAlex 或 Semantic Scholar，无需逐篇打开详情卡。
 - 使用 `Ctrl + 左键` 打开已核验的论文落地页；未解析条目会按题名转到 Google Scholar 搜索。
 - 通过题名的右键菜单复制可用书目信息，或显式发起 Google 搜索。
-- 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations 和落地页信息。
+- 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations、OpenAlex 或 Semantic Scholar 摘要和落地页信息；蓝色斜体题名表示摘要已就绪，普通蓝色题名表示仍在补全摘要。
 - 可选调用 Paper Translate 的公开接口，翻译插件界面中选中的文字。
 - 规范化 MinerU Reference 的编号、断行、转义字符和 URL，并同步共享的 Markdown 数据，减少其他插件重复处理同一条目。
 
@@ -35,7 +35,7 @@ Reference for Zotero 在 Reader 侧栏中补上了这层关系：它读取已有
 1. 插件读取当前 Reader 附件对应的 MinerU Markdown，不重新上传或解析 PDF。
 2. Reference 条目经过规范化后，使用 DOI、Crossref、DataCite 和可信学术页面进行匹配。
 3. 候选结果会比较标识符、题名、作者、年份和来源；只有身份得到确认的论文才会显示为已解析结果。
-4. OpenCitations 提供 Citations，OpenAlex 和 Semantic Scholar 只在需要补全摘要时调用。
+4. OpenCitations 提供 Citations；OpenAlex 和 Semantic Scholar 在后台依次补全已确认 DOI 的论文摘要。
 
 Reference for Zotero 专注于阅读过程中的论文关系探索。它关心的是当前论文与相关研究之间的联系，以及每个匹配结果能否被可靠核验；Zotero 原有的文献管理方式不会因此改变。
 
@@ -68,7 +68,7 @@ npm run build
 打开已经生成 MinerU Markdown 的 PDF，然后展开 Reader 右侧的“相关论文 / Related Papers”：
 
 - “References”显示当前论文引用的文献。
-- “Citations”显示引用当前论文的文献。
+- “Citations”显示引用当前论文的文献；默认前 10 篇会自动加载，选择 30 或 50 时继续加载新增结果。
 - 单击论文题名可以打开或关闭详情卡。
 - `Ctrl + 左键`可以打开已核验的学术落地页；未解析条目会转到 Google Scholar 搜索。
 - 右键单击题名可以复制书目信息或发起 Google 搜索。
@@ -92,7 +92,7 @@ npm run build
 
 ### 摘要不可用
 
-详情卡会保留具体的服务错误。稍后重新打开卡片即可重试，不会影响已经解析出的书目信息。
+后台补全失败不会影响已经解析出的书目信息。详情卡会保留具体的服务错误；刷新或下次打开论文时会重试未缓存的摘要。
 
 ### 安装新版本后界面没有变化
 

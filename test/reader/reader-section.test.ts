@@ -133,6 +133,44 @@ function downloadControllerStubs(): Pick<
   };
 }
 
+test("Reader section renders supported text for LaTeX-formatted Abstracts", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const state: ReaderSectionState = {
+    ...readyState(),
+    selectedPaperID: "ref-1",
+    references: readyState().references.map((paper) =>
+      paper.id === "ref-1"
+        ? {
+            ...paper,
+            abstract:
+              "speedups of$2.08\\times\\sim 8.57\\times~({\\rm on~the~geometric~mean})$, compared with KLU.",
+          }
+        : paper,
+    ),
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.equal(
+    abstract?.textContent,
+    "speedups of 2.08× ∼ 8.57× (on the geometric mean), compared with KLU.",
+  );
+  mounted.destroy();
+});
+
 test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:div xmlns:html="http://www.w3.org/1999/xhtml"/></window>',

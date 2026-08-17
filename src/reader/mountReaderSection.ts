@@ -703,6 +703,23 @@ function escapeHTML(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeAbstractForDisplay(value: string): string {
+  return value
+    .replace(/\$([^$\r\n]+)\$/gu, (_match, expression: string) => {
+      const plainExpression = expression
+        .replace(/\\times\b/gu, "×")
+        .replace(/\\sim\b/gu, " ∼ ")
+        .replace(/\{\\rm\s+([^{}]*)\}/gu, "$1")
+        .replace(/~/gu, " ")
+        .replace(/\s+/gu, " ")
+        .trim();
+      return ` ${plainExpression} `;
+    })
+    .replace(/\s+([,.;:!?])/gu, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function escapeAttribute(value: string): string {
   return escapeHTML(value);
 }
@@ -917,12 +934,13 @@ function renderDetailCard(
         : ""
     }
     <section class="rfz-abstract"><strong>Abstract</strong><p${paper.abstract ? ' data-translation-text=""' : ""}>${escapeHTML(
-      paper.abstract ??
-        (paper.abstractLoading
+      paper.abstract
+        ? normalizeAbstractForDisplay(paper.abstract)
+        : paper.abstractLoading
           ? "Loading abstract…"
           : paper.abstractError
             ? `Abstract unavailable: ${paper.abstractError}`
-            : "Current metadata source did not provide an abstract."),
+            : "Current metadata source did not provide an abstract.",
     )}</p></section>
   </aside>`;
 }

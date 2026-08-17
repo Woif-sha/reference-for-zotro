@@ -5,10 +5,8 @@ import {
   type ModelProviderConfiguration,
   type RuntimeModel,
 } from "./model-configuration";
-import type {
-  OpenAICompatibleRequest,
-  TextModelResult,
-} from "./openai-compatible-transport";
+import type { OpenAICompatibleRequest } from "./openai-compatible-transport";
+import type { TextModelResult } from "./model-transport";
 
 export type RecommendationModelIdentity = Readonly<{
   authMode: ModelAuthMode;

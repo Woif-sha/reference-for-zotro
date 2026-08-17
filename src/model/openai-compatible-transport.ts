@@ -3,10 +3,14 @@ import {
   rejectsStructuredOutput,
   StructuredOutputUnsupportedError,
 } from "./model-errors";
-
-export type ModelResponseFormat = "text" | "json_object";
-
-export type TextModelResult = Readonly<{ text: string }>;
+import {
+  DEFAULT_OUTPUT_MAX_CHARACTERS,
+  DEFAULT_STREAM_MAX_BYTES,
+  ERROR_RESPONSE_MAX_BYTES,
+  readBoundedBody,
+  type ModelResponseFormat,
+  type TextModelResult,
+} from "./model-transport";
 
 export type OpenAICompatibleRequest = Readonly<{
   endpoint: string;
@@ -20,10 +24,6 @@ export type OpenAICompatibleRequest = Readonly<{
   maxResponseBytes?: number;
   fetch?: typeof fetch;
 }>;
-
-const ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
-const DEFAULT_STREAM_MAX_BYTES = 128 * 1024;
-const DEFAULT_OUTPUT_MAX_CHARACTERS = 32_768;
 
 export class OpenAICompatibleStreamParser {
   private buffer = "";
@@ -174,7 +174,11 @@ async function runValidatedRequest(
     signal: request.signal,
   });
   if (!response.ok) {
-    const detail = await readBoundedBody(response, ERROR_RESPONSE_MAX_BYTES);
+    const detail = await readBoundedBody(
+      response,
+      ERROR_RESPONSE_MAX_BYTES,
+      "OpenAI Compatible error response",
+    );
     if (
       request.responseFormat === "json_object" &&
       rejectsStructuredOutput(response.status, detail)
@@ -260,42 +264,6 @@ function validateRequest(request: OpenAICompatibleRequest): void {
     if (value !== undefined && (!Number.isInteger(value) || value <= 0)) {
       throw new Error(`${name} must be a positive integer`);
     }
-  }
-}
-
-async function readBoundedBody(
-  response: Response,
-  maxBytes: number,
-): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let bytes = 0;
-  let text = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > maxBytes) {
-        throw new Error(
-          `OpenAI Compatible error response exceeded the ${maxBytes}-byte limit`,
-        );
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch (cancelError) {
-      throw new AggregateError(
-        [error, cancelError],
-        "OpenAI Compatible error response and cancellation both failed",
-        { cause: cancelError },
-      );
-    }
-    throw error;
   }
 }
 

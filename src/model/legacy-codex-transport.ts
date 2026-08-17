@@ -1,20 +1,21 @@
-import type {
-  ModelResponseFormat,
-  TextModelResult,
-} from "./openai-compatible-transport";
 import { LEGACY_CODEX_RESPONSES_ENDPOINT } from "./model-configuration";
 import {
   rejectsStructuredOutput,
   StructuredOutputUnsupportedError,
 } from "./model-errors";
+import {
+  DEFAULT_OUTPUT_MAX_CHARACTERS,
+  DEFAULT_STREAM_MAX_BYTES,
+  ERROR_RESPONSE_MAX_BYTES,
+  readBoundedBody,
+  type ModelResponseFormat,
+  type TextModelResult,
+} from "./model-transport";
 import { findSseFrameBoundary } from "./sse";
 
 const CODEX_REFRESH_TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
-const DEFAULT_STREAM_MAX_BYTES = 128 * 1024;
-const DEFAULT_OUTPUT_MAX_CHARACTERS = 32_768;
-const ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
 const LOGIN_REQUIRED_MESSAGE =
   "Codex 登录状态已失效或无法自动更新，请在终端运行 codex login 重新登录后再试。";
 
@@ -105,6 +106,7 @@ export class LegacyCodexTransport {
         const detail = await readBoundedBody(
           response,
           ERROR_RESPONSE_MAX_BYTES,
+          "Codex error response",
         );
         if (
           request.responseFormat === "json_object" &&
@@ -267,7 +269,11 @@ export class LegacyCodexTransport {
       signal,
     });
     if (!response.ok) {
-      const detail = await readBoundedBody(response, ERROR_RESPONSE_MAX_BYTES);
+      const detail = await readBoundedBody(
+        response,
+        ERROR_RESPONSE_MAX_BYTES,
+        "Codex error response",
+      );
       if (refreshTokenWasRejected(response.status, detail)) {
         const currentAfterFailure = await readAuthDocument(
           this.runtime.io,
@@ -642,42 +648,6 @@ function waitForSharedRefresh<T>(
       .then(resolve, reject)
       .finally(() => signal.removeEventListener("abort", onAbort));
   });
-}
-
-async function readBoundedBody(
-  response: Response,
-  maxBytes: number,
-): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let bytes = 0;
-  let text = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > maxBytes) {
-        throw new Error(
-          `Codex error response exceeded the ${maxBytes}-byte limit`,
-        );
-      }
-      text += decoder.decode(value, { stream: true });
-    }
-    return text + decoder.decode();
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch (cancelError) {
-      throw new AggregateError(
-        [error, cancelError],
-        "Codex error response and cancellation both failed",
-        { cause: cancelError },
-      );
-    }
-    throw error;
-  }
 }
 
 function redactSecrets(detail: string, auth: CodexAuthState): string {

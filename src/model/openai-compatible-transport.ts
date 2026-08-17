@@ -90,14 +90,28 @@ export class OpenAICompatibleStreamParser {
     }
     const record = event as {
       error?: unknown;
-      choices?: Array<{ delta?: { content?: unknown } }>;
+      choices?: Array<{
+        delta?: { content?: unknown };
+        finish_reason?: unknown;
+      }>;
     };
     if (record.error) {
       throw new Error(
         `OpenAI Compatible endpoint error: ${JSON.stringify(record.error)}`,
       );
     }
-    const delta = record.choices?.[0]?.delta?.content;
+    const choice = record.choices?.[0];
+    const finishReason = choice?.finish_reason;
+    if (
+      finishReason !== undefined &&
+      finishReason !== null &&
+      finishReason !== "stop"
+    ) {
+      throw new Error(
+        `OpenAI Compatible response ended with finish_reason ${String(finishReason)}`,
+      );
+    }
+    const delta = choice?.delta?.content;
     if (delta === undefined || delta === null || delta === "") return;
     if (typeof delta !== "string") {
       throw new Error("OpenAI Compatible output delta is not text");

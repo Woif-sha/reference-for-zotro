@@ -91,6 +91,33 @@ test("cancelling model tasks aborts every in-flight request and shutdown rejects
   );
 });
 
+test("a transport result arriving after active-model cancellation is rejected", async () => {
+  const late = deferred<{ text: string }>();
+  let signal: AbortSignal | undefined;
+  const model = new ConfiguredRecommendationModel(
+    () => configuration("model-api"),
+    {
+      async legacy() {
+        throw new Error("not used");
+      },
+      openAICompatible(request) {
+        signal = request.signal;
+        return late.promise;
+      },
+    },
+  );
+
+  const pending = model.generate({
+    instructions: "Return JSON.",
+    prompt: "{}",
+  });
+  model.cancelActiveRequests();
+  late.resolve({ text: '{"schemaVersion":1,"priority":[],"optional":[]}' });
+
+  await assert.rejects(pending, /configuration changed/u);
+  assert.equal(signal?.aborted, true);
+});
+
 function transports(calls: string[]): RecommendationModelTransports {
   return {
     async legacy(request) {
@@ -127,4 +154,12 @@ function configuration(activeModelId: string): ModelProviderConfiguration {
       },
     ],
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }

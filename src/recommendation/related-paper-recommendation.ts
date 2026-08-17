@@ -5,7 +5,6 @@ import {
 } from "../literature/identifiers";
 import type { ReaderPaper } from "../reader/mountReaderSection";
 
-export const RECOMMENDATION_PROMPT_VERSION = "related-paper-recommendation-v1";
 export const RECOMMENDATION_INPUT_MAX_BYTES = 384 * 1024;
 export const RECOMMENDATION_OUTPUT_MAX_CHARACTERS = 32_768;
 export const RECOMMENDATION_TIMEOUT_MS = 180_000;

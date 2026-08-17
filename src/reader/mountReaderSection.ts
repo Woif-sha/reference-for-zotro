@@ -419,12 +419,10 @@ export function mountReaderSection(options: {
       dismissSelectedPaper();
       return;
     }
-    const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
-    if (
-      tab === "references" ||
-      tab === "citations" ||
-      tab === "ai-recommendation"
-    ) {
+    const tab = parseReaderTab(
+      target.closest<HTMLElement>("[data-tab]")?.dataset.tab,
+    );
+    if (tab) {
       controller.selectTab(tab);
       return;
     }
@@ -520,12 +518,10 @@ export function mountReaderSection(options: {
       void controller.generateRecommendations?.();
       return;
     }
-    const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
-    if (
-      tab === "references" ||
-      tab === "citations" ||
-      tab === "ai-recommendation"
-    ) {
+    const tab = parseReaderTab(
+      target.closest<HTMLElement>("[data-tab]")?.dataset.tab,
+    );
+    if (tab) {
       event.preventDefault();
       controller.selectTab(tab);
       return;
@@ -1090,6 +1086,14 @@ function isReaderPaperAction(
   return (
     value === "copy-title" || value === "copy-doi" || value === "google-search"
   );
+}
+
+function parseReaderTab(value: string | undefined): ReaderTab | undefined {
+  return value === "references" ||
+    value === "citations" ||
+    value === "ai-recommendation"
+    ? value
+    : undefined;
 }
 
 function clearTranslation(...containers: HTMLElement[]): void {

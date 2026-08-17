@@ -65,6 +65,7 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
     this.active.add(controller);
     try {
       const result = await this.runSelected(model, request, controller.signal);
+      if (controller.signal.aborted) throw controller.signal.reason;
       return { text: result.text, identity: modelIdentity(model) };
     } finally {
       request.signal?.removeEventListener("abort", onExternalAbort);

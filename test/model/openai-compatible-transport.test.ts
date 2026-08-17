@@ -91,6 +91,17 @@ test("OpenAI Compatible ignores every frame after DONE in the same chunk", () =>
   assert.equal(parser.finish().text, "OK");
 });
 
+test("OpenAI Compatible rejects a length-truncated stream even when its text is valid JSON", () => {
+  const parser = new OpenAICompatibleStreamParser();
+  assert.throws(
+    () =>
+      parser.feed(
+        'data: {"choices":[{"delta":{"content":"{}"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n',
+      ),
+    /finish_reason length/u,
+  );
+});
+
 test("OpenAI Compatible bounds error bodies and recursively redacts API keys", async () => {
   const apiKey = "private-key-that-must-not-leak";
   await assert.rejects(

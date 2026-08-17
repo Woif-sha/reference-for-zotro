@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PROTOTYPE — 统一阅读推荐与插件设置</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --accent: #2f6fdb;
+        --accent-soft: #eaf1ff;
+        --ink: #202124;
+        --muted: #686b73;
+        --line: #dfe1e5;
+        --panel: #fff;
+        --side: #f5f5f6;
+        --ok: #21713b;
+        --ok-soft: #eaf6ee;
+        --warn: #98630b;
+        --warn-soft: #fff7df;
+        --danger: #ae342e;
+        --danger-soft: #fff0ef;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        background: #e8eaee;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.52;
+      }
+      .prototype-banner {
+        position: fixed;
+        top: 12px;
+        left: 16px;
+        z-index: 30;
+        padding: 6px 9px;
+        border-radius: 6px;
+        color: #fff;
+        background: #24262b;
+        font-size: 11px;
+        letter-spacing: 0.05em;
+      }
+      .lab {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 260px;
+        gap: 24px;
+        align-items: start;
+        width: min(1120px, calc(100vw - 48px));
+        margin: 56px auto 106px;
+      }
+      .stage {
+        min-width: 0;
+        display: grid;
+        place-items: start center;
+      }
+      .lab-panel {
+        position: sticky;
+        top: 22px;
+        padding: 15px;
+        border: 1px solid #cfd2d8;
+        border-radius: 10px;
+        background: #f9fafb;
+        box-shadow: 0 10px 30px #24304412;
+      }
+      .lab-panel h2 {
+        margin: 0 0 12px;
+        font-size: 14px;
+      }
+      .lab-panel label {
+        display: grid;
+        gap: 5px;
+        margin: 11px 0;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .lab-panel select {
+        width: 100%;
+        min-height: 32px;
+        padding: 5px 8px;
+        border: 1px solid #c8cbd1;
+        border-radius: 6px;
+        background: #fff;
+      }
+      .state-monitor {
+        margin: 14px 0 0;
+        padding: 10px;
+        border-radius: 7px;
+        color: #d7f8e1;
+        background: #1f2522;
+        font:
+          10px/1.55 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        white-space: pre-wrap;
+      }
+      .prototype-switcher {
+        position: fixed;
+        bottom: 22px;
+        left: 50%;
+        z-index: 50;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 350px;
+        padding: 8px 10px;
+        border: 1px solid #111;
+        border-radius: 999px;
+        color: #fff;
+        background: #202226;
+        box-shadow: 0 12px 35px #0005;
+        transform: translateX(-50%);
+      }
+      .prototype-switcher button {
+        width: 34px;
+        height: 34px;
+        border: 0;
+        border-radius: 50%;
+        color: #fff;
+        background: #3b3e44;
+        font-size: 18px;
+      }
+      .prototype-switcher strong {
+        flex: 1;
+        text-align: center;
+        font-size: 12px;
+      }
+
+      .reader-shell {
+        width: var(--pane-width, 360px);
+        min-height: 760px;
+        border: 1px solid #c9cbd0;
+        background: var(--side);
+        box-shadow: 0 18px 50px #24304420;
+        transition: width 160ms ease;
+      }
+      .section-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        height: 46px;
+        padding: 0 13px;
+        border-bottom: 1px solid var(--line);
+        color: #666970;
+        background: #f1f1f2;
+        font-size: 16px;
+        font-weight: 650;
+      }
+      .section-head .chevron {
+        margin-left: auto;
+      }
+      .reader-pane {
+        position: relative;
+        min-height: 713px;
+        padding-bottom: 62px;
+        background: #fff;
+      }
+      .source-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .source-bar strong {
+        color: var(--ink);
+      }
+      .source-bar .spacer {
+        flex: 1;
+      }
+      .text-action {
+        padding: 2px;
+        border: 0;
+        color: var(--accent);
+        background: transparent;
+        font-size: 10px;
+      }
+      .tabs {
+        display: flex;
+        border-bottom: 1px solid var(--line);
+        background: #fff;
+      }
+      .tabs button {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        padding: 11px 4px 9px;
+        border: 0;
+        color: var(--muted);
+        background: transparent;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .tabs button[aria-selected="true"] {
+        color: var(--ink);
+      }
+      .tabs button[aria-selected="true"]::after {
+        position: absolute;
+        right: 12px;
+        bottom: -1px;
+        left: 12px;
+        height: 2px;
+        background: var(--accent);
+        content: "";
+      }
+      .count {
+        margin-left: 2px;
+        color: var(--muted);
+        font-size: 9px;
+      }
+      .primary {
+        min-height: 32px;
+        padding: 6px 10px;
+        border: 1px solid #1f5db7;
+        border-radius: 6px;
+        color: #fff;
+        background: var(--accent);
+        font-weight: 650;
+      }
+      .secondary {
+        min-height: 30px;
+        padding: 5px 9px;
+        border: 1px solid #c7cad0;
+        border-radius: 6px;
+        color: var(--ink);
+        background: #fff;
+      }
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        width: fit-content;
+        padding: 3px 7px;
+        border-radius: 999px;
+        color: #3d587e;
+        background: var(--accent-soft);
+        font-size: 9px;
+        font-weight: 650;
+      }
+      .status-chip.cache {
+        color: var(--ok);
+        background: var(--ok-soft);
+      }
+      .status-chip.error {
+        color: var(--danger);
+        background: var(--danger-soft);
+      }
+      .spinner {
+        width: 15px;
+        height: 15px;
+        border: 2px solid #c7d6f2;
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .empty {
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        padding: 80px 22px 28px;
+        text-align: center;
+      }
+      .empty .glyph {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        color: var(--accent);
+        background: var(--accent-soft);
+        font-size: 20px;
+      }
+      .empty h3 {
+        margin: 0;
+        font-size: 14px;
+      }
+      .empty p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 10.5px;
+        line-height: 1.55;
+      }
+      .result-head {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      .result-head h3 {
+        margin: 2px 0 3px;
+        font-size: 13px;
+      }
+      .result-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.4;
+      }
+      .result-head .status-chip {
+        margin-left: auto;
+        flex: none;
+      }
+      .group-title {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 13px 12px 6px;
+        font-size: 11px;
+      }
+      .group-title span {
+        color: var(--muted);
+        font-size: 9px;
+        font-weight: 400;
+      }
+      .paper {
+        padding: 10px 12px;
+        border-top: 1px solid #eceef1;
+      }
+      .paper-title {
+        color: #205fbe;
+        font-size: 11.5px;
+        font-weight: 680;
+        line-height: 1.35;
+        overflow-wrap: break-word;
+      }
+      .paper-meta {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.35;
+      }
+      .reason {
+        margin-top: 6px;
+        padding-left: 8px;
+        border-left: 2px solid #8cb0ed;
+        color: #393c42;
+        font-size: 10px;
+        line-height: 1.45;
+      }
+      .source-tags {
+        display: flex;
+        gap: 4px;
+        margin-top: 6px;
+      }
+      .source-tags span {
+        padding: 2px 5px;
+        border-radius: 4px;
+        color: #52606f;
+        background: #eef0f3;
+        font-size: 8.5px;
+      }
+      .analysis-card {
+        margin: 10px 12px;
+        padding: 12px;
+        border: 1px solid #cad8ef;
+        border-radius: 8px;
+        background: #f8fbff;
+      }
+      .analysis-card h3 {
+        margin: 0 0 5px;
+        font-size: 12px;
+      }
+      .analysis-card p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 9.5px;
+        line-height: 1.5;
+      }
+      .header-action {
+        margin-left: auto;
+        min-height: 27px;
+        padding: 4px 8px;
+        border: 1px solid #b7c6dd;
+        border-radius: 5px;
+        color: #205fbe;
+        background: #fff;
+        font-size: 10px;
+        font-weight: 650;
+      }
+      .plain-list .paper {
+        border-left: 3px solid transparent;
+      }
+      .plain-list .paper.priority {
+        border-left-color: var(--accent);
+      }
+      .queue {
+        padding: 4px 12px 14px;
+      }
+      .queue-row {
+        display: grid;
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 8px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .queue-number {
+        display: grid;
+        place-items: center;
+        width: 23px;
+        height: 23px;
+        border-radius: 50%;
+        color: #fff;
+        background: var(--accent);
+        font-size: 10px;
+        font-weight: 700;
+      }
+      .queue-row.optional .queue-number {
+        color: var(--muted);
+        background: #eceef1;
+      }
+      .queue-kind {
+        margin-bottom: 3px;
+        color: var(--accent);
+        font-size: 8.5px;
+        font-weight: 750;
+        letter-spacing: 0.04em;
+      }
+      .queue-row.optional .queue-kind {
+        color: var(--muted);
+      }
+      .bottom-dock {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 54px;
+        padding: 9px 12px;
+        border-top: 1px solid #cfd2d8;
+        background: #fafafaee;
+        box-shadow: 0 -6px 18px #25304710;
+      }
+      .bottom-dock .primary {
+        flex: 1;
+      }
+      .dock-copy {
+        flex: 1;
+        min-width: 0;
+      }
+      .dock-copy strong {
+        display: block;
+        font-size: 10px;
+      }
+      .dock-copy small {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 8.5px;
+      }
+      .failure {
+        margin: 16px 12px;
+        padding: 13px;
+        border: 1px solid #efc2be;
+        border-radius: 7px;
+        background: var(--danger-soft);
+      }
+      .failure h3 {
+        margin: 0 0 5px;
+        color: var(--danger);
+        font-size: 12px;
+      }
+      .failure p {
+        margin: 0 0 10px;
+        color: #6f3733;
+        font-size: 9.5px;
+        line-height: 1.5;
+      }
+
+      .prefs-window {
+        width: min(790px, 100%);
+        min-height: 630px;
+        border: 1px solid #bfc2c8;
+        border-radius: 7px;
+        background: #fff;
+        box-shadow: 0 20px 60px #24304428;
+        overflow: hidden;
+      }
+      .prefs-titlebar {
+        display: flex;
+        align-items: center;
+        height: 40px;
+        padding: 0 14px;
+        border-bottom: 1px solid #cfd1d5;
+        background: linear-gradient(#fafafa, #ececef);
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .prefs-titlebar span {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 400;
+      }
+      .prefs-content {
+        min-height: 589px;
+        background: #f7f7f8;
+      }
+      .prefs-scroll {
+        max-width: 690px;
+        margin: 0 auto;
+        padding: 26px 24px 34px;
+      }
+      .prefs-heading h1 {
+        margin: 0 0 5px;
+        font-size: 20px;
+      }
+      .prefs-heading p {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .settings-section {
+        margin: 0 0 16px;
+        border: 1px solid #d5d7dc;
+        border-radius: 8px;
+        background: #fff;
+        overflow: hidden;
+      }
+      .settings-section h2 {
+        margin: 0;
+        padding: 10px 13px;
+        border-bottom: 1px solid var(--line);
+        background: #f4f4f5;
+        font-size: 12px;
+      }
+      .setting-row {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        padding: 11px 13px;
+        border-top: 1px solid #eceef1;
+      }
+      .setting-row:first-of-type {
+        border-top: 0;
+      }
+      .setting-label strong {
+        display: block;
+        font-size: 11px;
+      }
+      .setting-label small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.35;
+      }
+      .field {
+        min-width: 0;
+        height: 29px;
+        padding: 5px 8px;
+        border: 1px solid #bfc3ca;
+        border-radius: 5px;
+        color: #34363a;
+        background: #fff;
+        font-size: 10px;
+      }
+      input.field {
+        width: 100%;
+      }
+      .field.path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .settings-note {
+        padding: 0 13px 11px 155px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+      .provider-toggle {
+        display: flex;
+        width: fit-content;
+        padding: 2px;
+        border: 1px solid #c6c9cf;
+        border-radius: 6px;
+        background: #eeeef0;
+      }
+      .provider-toggle button {
+        padding: 5px 9px;
+        border: 0;
+        border-radius: 4px;
+        color: var(--muted);
+        background: transparent;
+        font-size: 9px;
+      }
+      .provider-toggle button.active {
+        color: var(--ink);
+        background: #fff;
+        box-shadow: 0 1px 3px #0002;
+      }
+      .connection {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .connection small {
+        color: var(--ok);
+        font-size: 9px;
+      }
+      .prefs-split {
+        display: grid;
+        grid-template-columns: 180px minmax(0, 1fr);
+        min-height: 589px;
+      }
+      .prefs-nav {
+        padding: 18px 10px;
+        border-right: 1px solid #d2d4d8;
+        background: #ededee;
+      }
+      .prefs-nav h2 {
+        margin: 0 10px 13px;
+        font-size: 12px;
+      }
+      .prefs-nav button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 8px 10px;
+        border: 0;
+        border-radius: 6px;
+        color: #3c3e42;
+        background: transparent;
+        text-align: left;
+        font-size: 11px;
+      }
+      .prefs-nav button.active {
+        color: #fff;
+        background: var(--accent);
+      }
+      .prefs-detail {
+        padding: 28px 30px;
+        background: #fafafa;
+      }
+      .prefs-detail h1 {
+        margin: 0 0 5px;
+        font-size: 18px;
+      }
+      .prefs-detail > p {
+        margin: 0 0 22px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .flat-row {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 48px;
+        border-bottom: 1px solid var(--line);
+      }
+      .flat-row label {
+        font-size: 10px;
+        font-weight: 650;
+      }
+      .setup-flow {
+        max-width: 650px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .setup-flow h1 {
+        margin: 0 0 5px;
+        font-size: 19px;
+      }
+      .setup-flow > p {
+        margin: 0 0 19px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .step {
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr);
+        gap: 10px;
+        padding: 14px 0;
+        border-top: 1px solid var(--line);
+      }
+      .step-number {
+        display: grid;
+        place-items: center;
+        width: 25px;
+        height: 25px;
+        border-radius: 50%;
+        color: #fff;
+        background: var(--accent);
+        font-size: 10px;
+        font-weight: 700;
+      }
+      .step h2 {
+        margin: 2px 0 4px;
+        font-size: 12px;
+      }
+      .step p {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+      .inline-fields {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .inline-fields .field {
+        flex: 1;
+      }
+
+      @media (max-width: 820px) {
+        .lab {
+          grid-template-columns: 1fr;
+          width: min(790px, calc(100vw - 24px));
+        }
+        .lab-panel {
+          position: static;
+          order: -1;
+        }
+        .prefs-split {
+          grid-template-columns: 145px minmax(0, 1fr);
+        }
+        .setting-row {
+          grid-template-columns: 110px minmax(0, 1fr);
+        }
+        .setting-row > button {
+          grid-column: 2;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-banner">THROWAWAY PROTOTYPE · ISSUE 52</div>
+    <main class="lab">
+      <section class="stage" id="stage"></section>
+      <aside class="lab-panel">
+        <h2>评审控制台</h2>
+        <label
+          >界面<select id="surface">
+            <option value="reader">Reader 窄栏</option>
+            <option value="settings">Preferences 设置页</option>
+          </select></label
+        >
+        <label
+          >推荐状态<select id="status">
+            <option value="idle">尚未分析</option>
+            <option value="cache">缓存命中</option>
+            <option value="analyzing">分析中</option>
+            <option value="ready">分析完成</option>
+            <option value="error">分析失败</option>
+            <option value="empty">无可分析论文</option>
+          </select></label
+        >
+        <label
+          >Reader 宽度<select id="width">
+            <option value="320">320 px</option>
+            <option value="360">360 px</option>
+            <option value="420">420 px</option>
+          </select></label
+        >
+        <pre class="state-monitor" id="monitor"></pre>
+      </aside>
+    </main>
+    <nav class="prototype-switcher" aria-label="Prototype variants">
+      <button type="button" data-cycle="-1" aria-label="上一方案">←</button>
+      <strong id="variant-label"></strong>
+      <button type="button" data-cycle="1" aria-label="下一方案">→</button>
+    </nav>
+    <script>
+      const variants = {
+        A: "专属推荐标签 + 单页分组",
+        B: "标题栏分析 + 分类设置",
+        C: "阅读队列 + 配置清单",
+      };
+      const params = new URLSearchParams(location.search);
+      const model = {
+        variant: variants[params.get("variant")] ? params.get("variant") : "A",
+        surface: params.get("surface") === "settings" ? "settings" : "reader",
+        status: [
+          "idle",
+          "cache",
+          "analyzing",
+          "ready",
+          "error",
+          "empty",
+        ].includes(params.get("status"))
+          ? params.get("status")
+          : "idle",
+        width: ["320", "360", "420"].includes(params.get("width"))
+          ? params.get("width")
+          : "360",
+        prefsPage: ["download", "cache", "model"].includes(params.get("page"))
+          ? params.get("page")
+          : "model",
+      };
+      const stage = document.querySelector("#stage");
+      const surface = document.querySelector("#surface");
+      const status = document.querySelector("#status");
+      const width = document.querySelector("#width");
+      const monitor = document.querySelector("#monitor");
+      const variantLabel = document.querySelector("#variant-label");
+
+      const priority = [
+        [
+          "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+          "Lewis et al. · NeurIPS 2020",
+          "它提出的检索—生成框架正是当前论文方法部分的直接理论起点，可先用来核对核心假设。",
+          ["Reference", "Citation"],
+        ],
+        [
+          "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+          "Wei et al. · NeurIPS 2022",
+          "它与当前论文的分步推理策略最接近，并给出可直接对照的消融设计。",
+          ["Citation"],
+        ],
+        [
+          "Dense Passage Retrieval for Open-Domain Question Answering",
+          "Karpukhin et al. · EMNLP 2020",
+          "当前论文的候选召回模块沿用了它的双编码器思路，适合先补齐方法背景。",
+          ["Reference"],
+        ],
+      ];
+      const optional = [
+        [
+          "REALM: Retrieval-Augmented Language Model Pre-Training",
+          "Guu et al. · ICML 2020",
+          "提供另一种预训练期引入检索的路线，可用于理解当前方案为何选择推理期检索。",
+          ["Reference"],
+        ],
+        [
+          "Self-RAG: Learning to Retrieve, Generate, and Critique",
+          "Asai et al. · ICLR 2024",
+          "把检索时机交给模型决定，与当前论文的固定触发策略形成有价值的对照。",
+          ["Citation"],
+        ],
+      ];
+
+      function tags(values) {
+        return `<div class="source-tags">${values.map((value) => `<span>${value}</span>`).join("")}</div>`;
+      }
+      function paper(item, extra = "") {
+        return `<article class="paper ${extra}"><div class="paper-title">${item[0]}</div><div class="paper-meta">${item[1]}</div><div class="reason">${item[2]}</div>${tags(item[3])}</article>`;
+      }
+      function statusChip() {
+        if (model.status === "cache")
+          return `<span class="status-chip cache">✓ 缓存恢复</span>`;
+        return `<span class="status-chip">刚刚分析</span>`;
+      }
+      function resultGroups() {
+        return `<div class="result-head"><div><h3>当前论文的阅读推荐</h3><p>合并 7 篇 References 与 5 篇 Citations</p></div>${statusChip()}</div><h4 class="group-title">优先看 <span>最相关 · ${priority.length} 篇</span></h4>${priority.map((item) => paper(item)).join("")}<h4 class="group-title">可选看 <span>补充视角 · ${optional.length} 篇</span></h4>${optional.map((item) => paper(item)).join("")}`;
+      }
+      function stateBody(layout) {
+        if (model.status === "idle") {
+          const hint =
+            layout === "B"
+              ? "从标题栏开始分析"
+              : layout === "C"
+                ? "从底部动作坞开始分析"
+                : "";
+          const action =
+            layout === "A"
+              ? `<button class="primary" data-analyze>分析当前论文</button>`
+              : "";
+          return `<div class="empty"><div class="glyph">✦</div><h3>从当前论文开始推荐</h3><p>使用 MinerU 全文理解主题，并只排序目前已有 Abstract 的 12 篇候选论文。${hint}</p>${action}</div>`;
+        }
+        if (model.status === "analyzing")
+          return `<div class="empty"><div class="spinner"></div><h3>正在分析 12 篇候选论文</h3><p>使用 GPT-5.2 · medium。完成前不会写入推荐缓存。</p><button class="secondary" data-finish>显示模拟结果</button></div>`;
+        if (model.status === "error")
+          return `<div class="failure"><h3>未能生成阅读推荐</h3><p>模型输出未通过完整集合校验。本次结果未缓存，也没有自动重试或切换模型。${layout === "B" ? "可从标题栏再次分析。" : ""}</p>${layout === "B" ? "" : `<button class="secondary" data-analyze>再次分析</button>`}</div>`;
+        if (model.status === "empty")
+          return `<div class="empty"><div class="glyph">∅</div><h3>暂无可分析论文</h3><p>当前 References 与 Citations 中没有 Abstract 已就绪的论文，因此没有调用模型。</p><button class="primary" disabled>暂无可分析论文</button></div>`;
+        if (layout === "B")
+          return `<div class="analysis-card"><div style="display:flex;align-items:center;gap:7px"><strong style="font-size:11px">✦ 阅读推荐</strong>${statusChip()}</div><p style="margin-top:6px">统一排序当前可见的 References 与 Citations，理由直接放在每篇论文下方。</p></div><div class="plain-list"><h4 class="group-title">优先看 <span>${priority.length} 篇</span></h4>${priority.map((item) => paper(item, "priority")).join("")}<h4 class="group-title">可选看 <span>${optional.length} 篇</span></h4>${optional.map((item) => paper(item)).join("")}</div>`;
+        if (layout === "C")
+          return `<div class="result-head"><div><h3>建议阅读顺序</h3><p>一个队列，不再按来源切换</p></div>${statusChip()}</div><div class="queue">${[...priority, ...optional].map((item, index) => `<article class="queue-row ${index >= priority.length ? "optional" : ""}"><span class="queue-number">${index + 1}</span><div><div class="queue-kind">${index < priority.length ? "优先看" : "可选看"}</div><div class="paper-title">${item[0]}</div><div class="reason">${item[2]}</div>${tags(item[3])}</div></article>`).join("")}</div>`;
+        return resultGroups();
+      }
+      function tabs(active) {
+        return `<nav class="tabs"><button>References <span class="count">19</span></button><button>Citations <span class="count">10</span></button>${active ? `<button aria-selected="true">推荐</button>` : ""}</nav>`;
+      }
+      function readerA() {
+        return `<div class="reader-shell" style="--pane-width:${model.width}px"><div class="section-head">📚 Reference for Zotero <span class="chevron">⌃</span></div><div class="reader-pane"><div class="source-bar"><strong>MinerU MD</strong><span>…\\full.md</span><span class="spacer"></span><button class="text-action">↻ 刷新</button></div>${tabs(true)}${stateBody("A")}</div></div>`;
+      }
+      function readerB() {
+        const action =
+          model.status === "analyzing"
+            ? "分析中…"
+            : model.status === "cache"
+              ? "✓ 已恢复"
+              : model.status === "ready"
+                ? "✓ 已推荐"
+                : model.status === "empty"
+                  ? "暂无候选"
+                  : "✦ 分析";
+        const disabled = ["analyzing", "cache", "ready", "empty"].includes(
+          model.status,
+        );
+        return `<div class="reader-shell" style="--pane-width:${model.width}px"><div class="section-head">📚 Reference for Zotero <button class="header-action" data-analyze ${disabled ? "disabled" : ""}>${action}</button><span class="chevron">⌃</span></div><div class="reader-pane"><div class="source-bar"><strong>MinerU MD</strong><span>…\\full.md</span><span class="spacer"></span><button class="text-action">↻</button></div>${tabs(false)}${stateBody("B")}</div></div>`;
+      }
+      function readerC() {
+        const ready = ["ready", "cache"].includes(model.status);
+        const dock = ready
+          ? `<div class="bottom-dock"><div class="dock-copy"><strong>${model.status === "cache" ? "缓存已恢复" : "推荐已生成"}</strong><small>12 篇候选 · GPT-5.2 · 有效结果不重复分析</small></div></div>`
+          : model.status === "idle"
+            ? `<div class="bottom-dock"><button class="primary" data-analyze>✦ 分析当前论文</button></div>`
+            : "";
+        return `<div class="reader-shell" style="--pane-width:${model.width}px"><div class="section-head">📚 Reference for Zotero <span class="chevron">⌃</span></div><div class="reader-pane"><div class="source-bar"><strong>MinerU MD</strong><span>…\\full.md</span><span class="spacer"></span><button class="text-action">↻ 刷新</button></div>${tabs(false)}${stateBody("C")}${dock}</div></div>`;
+      }
+
+      const pathRow = (label, help, value) =>
+        `<div class="setting-row"><div class="setting-label"><strong>${label}</strong><small>${help}</small></div><input class="field path" value="${value}" readonly /><button class="secondary">选择…</button></div>`;
+      const modelRows = () =>
+        `<div class="setting-row"><div class="setting-label"><strong>提供方</strong><small>本插件独立保存</small></div><div class="provider-toggle"><button class="active">Legacy auth.json</button><button>OpenAI Compatible</button></div><span></span></div><div class="setting-row"><div class="setting-label"><strong>模型</strong><small>用于统一推荐</small></div><select class="field"><option>gpt-5.2</option><option>gpt-5-mini</option></select><select class="field"><option>medium</option><option>low</option></select></div><div class="setting-row"><div class="setting-label"><strong>连接</strong><small>保存前可验证草稿</small></div><div class="connection"><button class="secondary">测试连接</button><small>✓ 已连接</small></div><span></span></div>`;
+      function prefsA() {
+        return `<div class="prefs-window"><div class="prefs-titlebar">Zotero 设置 <span>Reference for Zotero</span></div><div class="prefs-content"><div class="prefs-scroll"><header class="prefs-heading"><h1>Reference for Zotero</h1><p>下载、缓存和模型配置都在这里；Reader 只保留论文任务。</p></header><section class="settings-section"><h2>文件</h2>${pathRow("下载路径", "PDF 保存位置", "E:\\paper")}${pathRow("Cache 路径", "本插件持久缓存根目录", "C:\\Users\\sha\\Zotero\\reference-for-zotero-cache")}<div class="settings-note">切换 Cache 路径不会迁移、复制或删除旧缓存；新路径不可用时会明确失败。</div></section><section class="settings-section"><h2>推荐模型</h2>${modelRows()}</section></div></div></div>`;
+      }
+      function prefsBDetail() {
+        if (model.prefsPage === "download")
+          return `<h1>下载</h1><p>选择用户明确下载的 PDF 保存位置。</p><div class="flat-row"><label>下载路径</label><input class="field path" value="E:\\paper" readonly /><button class="secondary">选择…</button></div>`;
+        if (model.prefsPage === "cache")
+          return `<h1>Cache</h1><p>管理 Reference for Zotero 自己的持久缓存根目录。</p><div class="flat-row"><label>Cache 路径</label><input class="field path" value="C:\\Users\\sha\\Zotero\\reference-for-zotero-cache" readonly /><button class="secondary">选择…</button></div><p style="margin-top:16px;color:var(--muted);font-size:9px;line-height:1.5">切换路径不会迁移、复制或删除旧缓存；新路径不可用时明确失败，不回退默认目录。</p>`;
+        return `<h1>推荐模型</h1><p>选择分析提供方并在保存前测试当前草稿。</p><div class="flat-row"><label>提供方</label><div class="provider-toggle"><button class="active">Legacy auth.json</button><button>OpenAI Compatible</button></div><span></span></div><div class="flat-row"><label>模型</label><select class="field"><option>gpt-5.2</option></select><select class="field"><option>medium</option></select></div><div class="flat-row"><label>连接状态</label><div class="connection"><small>✓ 已连接</small></div><button class="secondary">测试连接</button></div>`;
+      }
+      function prefsB() {
+        return `<div class="prefs-window"><div class="prefs-titlebar">Zotero 设置 <span>Reference for Zotero</span></div><div class="prefs-split"><nav class="prefs-nav"><h2>Reference for Zotero</h2><button data-page="download" class="${model.prefsPage === "download" ? "active" : ""}">📁 下载</button><button data-page="cache" class="${model.prefsPage === "cache" ? "active" : ""}">🗄 Cache</button><button data-page="model" class="${model.prefsPage === "model" ? "active" : ""}">✦ 推荐模型</button></nav><main class="prefs-detail">${prefsBDetail()}</main></div></div>`;
+      }
+      function prefsC() {
+        return `<div class="prefs-window"><div class="prefs-titlebar">Zotero 设置 <span>Reference for Zotero</span></div><div class="prefs-content"><main class="setup-flow"><h1>完成插件配置</h1><p>按实际使用顺序确认保存位置，再连接推荐模型。</p><section class="step"><span class="step-number">1</span><div><h2>论文下载到哪里</h2><p>用户明确选择的 PDF 将保存到这个文件夹。</p><div class="inline-fields"><input class="field path" value="E:\\paper" readonly /><button class="secondary">选择…</button></div></div></section><section class="step"><span class="step-number">2</span><div><h2>插件缓存放在哪里</h2><p>管理 References、Citations 与 recommendation.json。改路径不移动或删除旧数据。</p><div class="inline-fields"><input class="field path" value="C:\\Users\\sha\\Zotero\\reference-for-zotero-cache" readonly /><button class="secondary">选择…</button></div></div></section><section class="step"><span class="step-number">3</span><div><h2>连接推荐模型</h2><p>配置只属于 Reference for Zotero；不启用翻译、OCR、Web Search 或 App Server。</p><div class="inline-fields"><select class="field"><option>Legacy auth.json</option><option>OpenAI Compatible</option></select><select class="field"><option>gpt-5.2</option></select><select class="field"><option>medium</option></select></div><div class="connection" style="margin-top:9px"><button class="secondary">测试连接</button><small>✓ 已连接</small></div></div></section></main></div></div>`;
+      }
+
+      function syncURL() {
+        const next = new URLSearchParams({
+          variant: model.variant,
+          surface: model.surface,
+          status: model.status,
+          width: model.width,
+          page: model.prefsPage,
+        });
+        history.replaceState(null, "", `?${next}`);
+      }
+      function render() {
+        const reader = { A: readerA, B: readerB, C: readerC }[model.variant];
+        const prefs = { A: prefsA, B: prefsB, C: prefsC }[model.variant];
+        stage.innerHTML = model.surface === "reader" ? reader() : prefs();
+        surface.value = model.surface;
+        status.value = model.status;
+        width.value = model.width;
+        status.disabled = model.surface === "settings";
+        width.disabled = model.surface === "settings";
+        variantLabel.textContent = `${model.variant} — ${variants[model.variant]}`;
+        monitor.textContent = JSON.stringify(
+          {
+            ...model,
+            candidates: 12,
+            priority: 3,
+            optional: 2,
+            persistence: "none",
+          },
+          null,
+          2,
+        );
+        syncURL();
+      }
+      function cycle(delta) {
+        const keys = Object.keys(variants);
+        const current = keys.indexOf(model.variant);
+        model.variant = keys[(current + delta + keys.length) % keys.length];
+        render();
+      }
+      document.addEventListener("click", (event) => {
+        const target = event.target.closest("button");
+        if (!target) return;
+        if (target.dataset.cycle) cycle(Number(target.dataset.cycle));
+        if (target.matches("[data-analyze]")) {
+          model.status = "analyzing";
+          render();
+        }
+        if (target.matches("[data-finish]")) {
+          model.status = "ready";
+          render();
+        }
+        if (target.dataset.page) {
+          model.prefsPage = target.dataset.page;
+          render();
+        }
+      });
+      surface.addEventListener("change", () => {
+        model.surface = surface.value;
+        render();
+      });
+      status.addEventListener("change", () => {
+        model.status = status.value;
+        render();
+      });
+      width.addEventListener("change", () => {
+        model.width = width.value;
+        render();
+      });
+      document.addEventListener("keydown", (event) => {
+        if (
+          ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName) ||
+          event.target.isContentEditable
+        )
+          return;
+        if (event.key === "ArrowLeft") cycle(-1);
+        if (event.key === "ArrowRight") cycle(1);
+      });
+      render();
+    </script>
+  </body>
+</html>

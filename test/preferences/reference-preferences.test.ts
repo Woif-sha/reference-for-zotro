@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { DownloadSettingsCoordinator } from "../../src/application/download-settings";
 import type { ModelPreferencesController } from "../../src/application/model-settings";
 import { DEFAULT_MODEL_CONFIGURATION } from "../../src/model/model-configuration";
+import { OpenAlexSettingsStore } from "../../src/application/openalex-settings";
 import {
   registerReferenceForZoteroPreferences,
   type PreferencePanesPort,
@@ -46,6 +47,11 @@ test("Reference for Zotero registers and explicitly unregisters its Preferences 
     pluginID: "referenceforzotero@woif-sha.github.io",
     rootURI: "resource://reference-for-zotero/",
     settings,
+    openAlexSettings: new OpenAlexSettingsStore({
+      get: () => undefined,
+      set() {},
+    }),
+    openExternalURL() {},
     modelSettings: unusedModelSettingsController(),
   });
 

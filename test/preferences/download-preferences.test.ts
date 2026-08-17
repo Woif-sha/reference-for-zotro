@@ -50,7 +50,7 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
   assert.ok(row && label && path && button);
   assert.equal(label.textContent?.trim(), "下载目录：");
   assert.match(path.localName, /(?:^|:)span$/u);
-  assert.equal(root.querySelector("input, textarea"), null);
+  assert.equal(row.querySelector("input, textarea"), null);
   assert.equal(path.textContent, "未配置");
   assert.equal(label.parentElement, row);
   assert.equal(path.parentElement, row);
@@ -96,6 +96,10 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
     /\.reference-for-zotero-path-unconfigured\s*\{[^}]*font-weight:\s*700/su,
   );
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
+  assert.equal(
+    root.querySelector("[data-cache-directory-error]")?.nextElementSibling,
+    root.querySelector("[data-openalex-api-row]"),
+  );
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise<void>((resolve) => setImmediate(resolve));

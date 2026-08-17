@@ -53,6 +53,7 @@ const GATEWAY_REQUEST_KEY = "reader-related-papers";
 export type ReaderRuntimeDependencies = Readonly<{
   downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
   recommendationModel?: RecommendationModelPort;
+  openAlexApiKey?: () => string | undefined;
 }>;
 
 export function zoteroReaderInteractionDocuments(
@@ -163,6 +164,7 @@ export function createReaderControllerFactory(
             paper.doi,
             providerPorts,
             context.signal,
+            dependencies.openAlexApiKey?.(),
           );
         },
         ...(recommendation

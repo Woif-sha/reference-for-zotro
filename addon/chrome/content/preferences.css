@@ -9,6 +9,30 @@
   align-items: center;
 }
 
+.reference-for-zotero-openalex-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.reference-for-zotero-openalex-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reference-for-zotero-openalex-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 6px;
+}
+
+.reference-for-zotero-openalex-help {
+  color: var(--fill-secondary, #666);
+}
+
 #reference-for-zotero-preferences-download-path,
 .reference-for-zotero-directory-path {
   min-width: 0;

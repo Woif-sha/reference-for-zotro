@@ -51,6 +51,42 @@
       role="alert"
       hidden="hidden"
     ></html:p>
+    <html:div
+      id="reference-for-zotero-preferences-openalex-row"
+      class="reference-for-zotero-openalex-row"
+      data-openalex-api-row=""
+    >
+      <html:label
+        for="reference-for-zotero-preferences-openalex-key"
+        data-openalex-api-label=""
+        >OpenAlex API：</html:label
+      >
+      <html:div class="reference-for-zotero-openalex-control">
+        <html:div class="reference-for-zotero-openalex-input">
+          <html:input
+            id="reference-for-zotero-preferences-openalex-key"
+            type="password"
+            data-openalex-api-key=""
+            aria-label="OpenAlex API Key"
+          />
+          <html:button
+            type="button"
+            data-toggle-openalex-api-key=""
+            aria-label="显示 OpenAlex API Key"
+          >
+            <html:span aria-hidden="true">👁</html:span>
+          </html:button>
+        </html:div>
+        <html:span class="reference-for-zotero-openalex-help"
+          >可前往
+          <html:a
+            href="https://openalex.org/settings/api"
+            data-openalex-api-registration=""
+            >OpenAlex 免费注册/获取 API Key</html:a
+          >；Key 仅保存在本地，用于提高摘要查询可用性。</html:span
+        >
+      </html:div>
+    </html:div>
   </groupbox>
   <groupbox
     id="reference-for-zotero-preferences-model-group"

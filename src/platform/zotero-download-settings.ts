@@ -1,4 +1,5 @@
 import type { DownloadSettingsPorts } from "../application/download-settings";
+import { OpenAlexSettingsStore } from "../application/openalex-settings";
 import type { ScanSciPort } from "../scansci/scan-sci-port";
 import { chooseZoteroDirectory } from "./zotero-directory-picker";
 
@@ -29,6 +30,18 @@ export function createZoteroDownloadSettingsPorts(options: {
       });
     },
   };
+}
+
+export function createZoteroOpenAlexSettings(): OpenAlexSettingsStore {
+  return new OpenAlexSettingsStore({
+    get(key) {
+      const value = Zotero.Prefs.get(key, true);
+      return typeof value === "string" ? value : undefined;
+    },
+    set(key, value) {
+      Zotero.Prefs.set(key, value, true);
+    },
+  });
 }
 
 export function zoteroSidecarDataRoot(): string {

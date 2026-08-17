@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_DOWNLOAD_DESTINATION,
+  CACHE_DIRECTORY_REQUIRED_ERROR,
+  DOWNLOAD_CACHE_DIRECTORY_PREFERENCE,
   DOWNLOAD_DESTINATION_PREFERENCE,
+  DOWNLOAD_DESTINATION_REQUIRED_ERROR,
   DownloadSettingsCoordinator,
   type DownloadSettingsPorts,
 } from "../../src/application/download-settings";
@@ -11,7 +13,7 @@ import type {
   ScanSciPort,
 } from "../../src/scansci/scan-sci-port";
 
-test("download settings keep only the destination and automatically probed capability", async () => {
+test("download settings require explicit destination and Cache paths", async () => {
   const preferenceWrites: Array<readonly [string, string]> = [];
   let probes = 0;
   const runtime: ScanSciPort = {
@@ -34,16 +36,18 @@ test("download settings keep only the destination and automatically probed capab
     setPreference(key, value) {
       preferenceWrites.push([key, value]);
     },
-    clearPreference() {},
     async chooseDownloadDestination() {
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       return undefined;
     },
   };
   const settings = new DownloadSettingsCoordinator(ports);
 
   assert.deepEqual(settings.getState(), {
-    downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-    usingDefaultDestination: true,
+    destinationError: DOWNLOAD_DESTINATION_REQUIRED_ERROR,
+    cacheDirectoryError: CACHE_DIRECTORY_REQUIRED_ERROR,
     runtime: { status: "unchecked" },
   });
 
@@ -74,8 +78,10 @@ test("a failed automatic probe becomes an explicit unavailable state", async () 
       return undefined;
     },
     setPreference() {},
-    clearPreference() {},
     async chooseDownloadDestination() {
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       return undefined;
     },
   });
@@ -88,9 +94,9 @@ test("a failed automatic probe becomes an explicit unavailable state", async () 
   });
 });
 
-test("confirming a destination persists the absolute path and publishes it immediately", async () => {
+test("confirming destination and Cache paths persists both absolute paths", async () => {
   const writes: Array<readonly [string, string]> = [];
-  const states: string[] = [];
+  const states: Array<readonly [string | undefined, string | undefined]> = [];
   const settings = new DownloadSettingsCoordinator({
     runtime: unusedRuntime(),
     getPreference() {
@@ -99,21 +105,35 @@ test("confirming a destination persists the absolute path and publishes it immed
     setPreference(key, value) {
       writes.push([key, value]);
     },
-    clearPreference() {},
     async chooseDownloadDestination(current) {
-      assert.equal(current, DEFAULT_DOWNLOAD_DESTINATION);
+      assert.equal(current, undefined);
       return "D:/Research/Papers/";
     },
+    async chooseCacheDirectory(current) {
+      assert.equal(current, undefined);
+      return "D:/Research/ScanSciCache/";
+    },
   });
-  settings.subscribe((state) => states.push(state.downloadDestination));
+  settings.subscribe((state) =>
+    states.push([state.downloadDestination, state.cacheDirectory]),
+  );
 
   await settings.changeDownloadDestination();
+  await settings.changeCacheDirectory();
 
   assert.deepEqual(writes, [
     [DOWNLOAD_DESTINATION_PREFERENCE, "D:\\Research\\Papers"],
+    [DOWNLOAD_CACHE_DIRECTORY_PREFERENCE, "D:\\Research\\ScanSciCache"],
   ]);
   assert.equal(settings.getState().downloadDestination, "D:\\Research\\Papers");
-  assert.deepEqual(states, ["D:\\Research\\Papers"]);
+  assert.equal(
+    settings.getState().cacheDirectory,
+    "D:\\Research\\ScanSciCache",
+  );
+  assert.deepEqual(states, [
+    ["D:\\Research\\Papers", undefined],
+    ["D:\\Research\\Papers", "D:\\Research\\ScanSciCache"],
+  ]);
 });
 
 test("cancelling destination selection leaves the path and preference unchanged", async () => {
@@ -127,9 +147,11 @@ test("cancelling destination selection leaves the path and preference unchanged"
     setPreference() {
       writes += 1;
     },
-    clearPreference() {},
     async chooseDownloadDestination(current) {
       assert.equal(current, "C:\\Saved\\Papers");
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       return undefined;
     },
   });

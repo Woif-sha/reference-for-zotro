@@ -76,7 +76,6 @@ export class RelatedPaperRecommendationService {
     private readonly options: Readonly<{
       timeoutMs?: number;
       cache?: RecommendationCacheRepository;
-      subscribeCacheRootChange?: (listener: () => void) => () => void;
     }> = {},
   ) {}
 
@@ -100,13 +99,7 @@ export class RelatedPaperRecommendationService {
   }
 
   subscribeIdentityChange(listener: () => void): () => void {
-    const unsubscribes = [
-      this.model.subscribeIdentityChange?.(listener),
-      this.options.subscribeCacheRootChange?.(listener),
-    ].filter((unsubscribe): unsubscribe is () => void => Boolean(unsubscribe));
-    return () => {
-      for (const unsubscribe of unsubscribes) unsubscribe();
-    };
+    return this.model.subscribeIdentityChange?.(listener) ?? (() => undefined);
   }
 
   async recommend(

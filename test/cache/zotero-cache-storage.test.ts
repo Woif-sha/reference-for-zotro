@@ -6,33 +6,6 @@ import {
   createZoteroRecommendationCacheStorage,
 } from "../../src/platform/zotero-runtime";
 
-test("cache storage resolves the configured root for each operation", async () => {
-  const reads: string[] = [];
-  let root = "D:\\FirstCache";
-  const previousIOUtils = globalThis.IOUtils;
-  Object.assign(globalThis, {
-    IOUtils: {
-      async exists(path: string) {
-        reads.push(path);
-        return false;
-      },
-    },
-  });
-
-  try {
-    const storage = createZoteroRecommendationCacheStorage(() => root);
-    assert.equal(await storage.read("1-ABCD1234"), undefined);
-    root = "E:\\SecondCache";
-    assert.equal(await storage.read("1-ABCD1234"), undefined);
-    assert.deepEqual(reads, [
-      "D:\\FirstCache\\v2\\papers\\1-ABCD1234\\recommendation.json",
-      "E:\\SecondCache\\v2\\papers\\1-ABCD1234\\recommendation.json",
-    ]);
-  } finally {
-    Object.assign(globalThis, { IOUtils: previousIOUtils });
-  }
-});
-
 test("an aborted staged write cannot overwrite the next generation cache", async () => {
   const files = new Map<string, Uint8Array>();
   const recommendationPath =

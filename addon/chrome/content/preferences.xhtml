@@ -11,7 +11,7 @@
       class="reference-for-zotero-directory-row"
       data-download-directory-row=""
     >
-      <html:span data-download-directory-label="">下载目录</html:span>
+      <html:span data-download-directory-label="">下载目录：</html:span>
       <html:span
         id="reference-for-zotero-preferences-download-path"
         data-download-directory-path=""
@@ -33,29 +33,18 @@
       class="reference-for-zotero-directory-row"
       data-cache-directory-row=""
     >
-      <html:span data-cache-directory-label="">Cache 路径</html:span>
+      <html:span data-cache-directory-label="">Cache 路径：</html:span>
       <html:span
         id="reference-for-zotero-preferences-cache-path"
         class="reference-for-zotero-directory-path"
         data-cache-directory-path=""
         aria-label="当前 Cache 路径"
       ></html:span>
-      <html:div class="reference-for-zotero-directory-actions">
-        <html:button type="button" data-change-cache-directory="">
-          <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
-          <html:span>更改目录</html:span>
-        </html:button>
-        <html:button type="button" data-reset-cache-directory="">
-          恢复默认
-        </html:button>
-      </html:div>
+      <html:button type="button" data-change-cache-directory="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
     </html:div>
-    <html:p
-      id="reference-for-zotero-preferences-cache-description"
-      data-cache-directory-description=""
-    >
-      切换路径不会迁移、复制或删除旧缓存；路径不可用时不会回退默认目录。
-    </html:p>
     <html:p
       id="reference-for-zotero-preferences-cache-error"
       data-cache-directory-error=""

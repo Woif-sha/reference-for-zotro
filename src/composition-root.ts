@@ -53,8 +53,6 @@ const GATEWAY_REQUEST_KEY = "reader-related-papers";
 export type ReaderRuntimeDependencies = Readonly<{
   downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
   recommendationModel?: RecommendationModelPort;
-  cacheRoot?: () => string;
-  subscribeCacheRootChange?: (listener: () => void) => () => void;
 }>;
 
 export function zoteroReaderInteractionDocuments(
@@ -80,16 +78,13 @@ export function createReaderControllerFactory(
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
-  const cache = new LiteratureCacheRepository(
-    createZoteroCacheStorage(dependencies.cacheRoot),
-  );
+  const cache = new LiteratureCacheRepository(createZoteroCacheStorage());
   const recommendationCache = new RecommendationCacheRepository(
-    createZoteroRecommendationCacheStorage(dependencies.cacheRoot),
+    createZoteroRecommendationCacheStorage(),
   );
   const recommendation = dependencies.recommendationModel
     ? new RelatedPaperRecommendationService(dependencies.recommendationModel, {
         cache: recommendationCache,
-        subscribeCacheRootChange: dependencies.subscribeCacheRootChange,
       })
     : undefined;
 

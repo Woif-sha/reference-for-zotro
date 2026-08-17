@@ -2,7 +2,7 @@ import { FilePickerHelper } from "zotero-plugin-toolkit";
 
 export async function chooseZoteroDirectory(options: {
   title: string;
-  current: string;
+  current?: string;
   owner?: Window;
 }): Promise<string | undefined> {
   const selected = await new FilePickerHelper(

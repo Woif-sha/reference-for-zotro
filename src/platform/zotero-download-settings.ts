@@ -14,12 +14,16 @@ export function createZoteroDownloadSettingsPorts(options: {
     setPreference(key, value) {
       Zotero.Prefs.set(key, value, true);
     },
-    clearPreference(key) {
-      Zotero.Prefs.clear(key, true);
-    },
     chooseDownloadDestination(current, owner) {
       return chooseZoteroDirectory({
         title: "Choose download destination",
+        current,
+        owner,
+      });
+    },
+    chooseCacheDirectory(current, owner) {
+      return chooseZoteroDirectory({
+        title: "Choose ScanSci Cache directory",
         current,
         owner,
       });

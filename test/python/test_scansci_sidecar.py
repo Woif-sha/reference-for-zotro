@@ -197,6 +197,15 @@ class ScanSciSidecarTest(unittest.TestCase):
 
         self.assertEqual(validated, canonical)
 
+    def test_output_directory_accepts_a_user_configured_cache_parent(self):
+        with tempfile.TemporaryDirectory() as root:
+            output = Path(root) / "custom-cache" / "request-1"
+            output.mkdir(parents=True)
+
+            validated = sidecar._validate_output_dir(str(output), "request-1")
+
+        self.assertEqual(validated, output.resolve())
+
     def test_download_batch_is_bounded_and_streams_each_final_result(self):
         workers_started = threading.Event()
         state_lock = threading.Lock()

@@ -89,6 +89,7 @@ const [download] = await port.downloadPapers({
     },
   ],
   downloadDestination: destination,
+  cacheDirectory: path.join(destination, "ScanSciCache"),
 });
 if (!download) throw new Error("ScanSci returned no smoke-test result");
 const result = download.result;

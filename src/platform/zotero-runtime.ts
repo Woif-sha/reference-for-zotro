@@ -85,16 +85,13 @@ export function createProviderPorts(): ProviderPorts {
   };
 }
 
-export function createZoteroCacheStorage(
-  cacheRoot: () => string = defaultCacheRoot,
-): CacheStorage {
+export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
+  const root = paperCacheRoot();
   const queue = createDirectoryWriteQueue();
   return {
     async read(directory, file) {
-      const root = paperCacheRoot(cacheRoot());
-      const queueKey = joinPath(root, directory);
-      await queue.wait(queueKey);
+      await queue.wait(directory);
       const path = joinPath(root, directory, file);
       if (!(await io.exists(path))) return undefined;
       const raw = await io.read(path);
@@ -102,9 +99,7 @@ export function createZoteroCacheStorage(
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
     write(directory, files, signal) {
-      const root = paperCacheRoot(cacheRoot());
-      const queueKey = joinPath(root, directory);
-      return queue.enqueue(queueKey, async () => {
+      return queue.enqueue(directory, async () => {
         if (signal?.aborted) throw abortError();
         const paperDirectory = joinPath(root, directory);
         await io.makeDirectory(paperDirectory, {
@@ -147,16 +142,13 @@ export function createZoteroCacheStorage(
   };
 }
 
-export function createZoteroRecommendationCacheStorage(
-  cacheRoot: () => string = defaultCacheRoot,
-): RecommendationCacheStorage {
+export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
   const io = getIOUtils();
+  const root = paperCacheRoot();
   const queue = createDirectoryWriteQueue();
   return {
     async read(directory) {
-      const root = paperCacheRoot(cacheRoot());
-      const queueKey = joinPath(root, directory);
-      await queue.wait(queueKey);
+      await queue.wait(directory);
       const path = joinPath(root, directory, "recommendation.json");
       if (!(await io.exists(path))) return undefined;
       const raw = await io.read(path);
@@ -164,9 +156,7 @@ export function createZoteroRecommendationCacheStorage(
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
     write(directory, value, signal) {
-      const root = paperCacheRoot(cacheRoot());
-      const queueKey = joinPath(root, directory);
-      return queue.enqueue(queueKey, async () => {
+      return queue.enqueue(directory, async () => {
         if (signal?.aborted) throw abortError();
         const paperDirectory = joinPath(root, directory);
         await io.makeDirectory(paperDirectory, {
@@ -237,12 +227,13 @@ function getDataDirectory(): string {
   return value.trim();
 }
 
-function defaultCacheRoot(): string {
-  return joinPath(getDataDirectory(), "reference-for-zotero-cache");
-}
-
-function paperCacheRoot(cacheRoot: string): string {
-  return joinPath(cacheRoot, "v2", "papers");
+function paperCacheRoot(): string {
+  return joinPath(
+    getDataDirectory(),
+    "reference-for-zotero-cache",
+    "v2",
+    "papers",
+  );
 }
 
 function createDirectoryWriteQueue(): Readonly<{

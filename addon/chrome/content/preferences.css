@@ -24,16 +24,6 @@
   color: var(--fill-error, #c33);
 }
 
-.reference-for-zotero-directory-actions {
-  display: flex;
-  gap: 6px;
-}
-
-#reference-for-zotero-preferences-cache-description {
-  margin-block: 4px 10px;
-  color: var(--fill-secondary, #666);
-}
-
 #reference-for-zotero-preferences [data-model-provider-cards] {
   display: flex;
   flex-direction: column;

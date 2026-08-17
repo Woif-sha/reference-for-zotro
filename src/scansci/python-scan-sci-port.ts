@@ -232,6 +232,9 @@ class PythonScanSciPort implements ScanSciPort {
       const destination = await this.resolveDownloadDestination(
         request.downloadDestination,
       );
+      const cacheDirectory = await this.resolveCacheDirectory(
+        request.cacheDirectory,
+      );
       const prepared: Array<
         Readonly<{
           item: PaperDownloadRequest["items"][number];
@@ -263,9 +266,7 @@ class PythonScanSciPort implements ScanSciPort {
         }));
       }
       const requestID = this.nextRequestID();
-      const cacheRoot = joinWindows(destination, "ScanSciCache");
-      requestDirectory = joinWindows(cacheRoot, requestID);
-      await this.runtime.files.createDirectory(cacheRoot);
+      requestDirectory = joinWindows(cacheDirectory, requestID);
       await this.runtime.files.createDirectoryExclusive(requestDirectory);
       requestDirectoryOwned = true;
       const canonicalRequestDirectory =
@@ -662,6 +663,17 @@ class PythonScanSciPort implements ScanSciPort {
       await this.runtime.files.createDirectory(requestedDestination);
     }
     return this.runtime.files.canonicalizeExisting(requestedDestination);
+  }
+
+  private async resolveCacheDirectory(cacheDirectory: string): Promise<string> {
+    if (!isAbsoluteWindowsPath(cacheDirectory)) {
+      throw new Error("Cache path must be an absolute Windows path");
+    }
+    const requestedCacheDirectory = normalizeWindowsPath(cacheDirectory);
+    if (!(await this.runtime.files.pathExists(requestedCacheDirectory))) {
+      await this.runtime.files.createDirectory(requestedCacheDirectory);
+    }
+    return this.runtime.files.canonicalizeExisting(requestedCacheDirectory);
   }
 
   private async resolveFinalTarget(

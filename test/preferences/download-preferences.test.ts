@@ -7,7 +7,7 @@ import { DownloadSettingsCoordinator } from "../../src/application/download-sett
 import { mountDownloadPreferences } from "../../src/preferences/download-preferences";
 import type { ScanSciPort } from "../../src/scansci/scan-sci-port";
 
-test("Preferences exposes one read-only download row and updates it only after confirmation", async () => {
+test("Preferences requires both paths, uses colon labels, and has no reset or helper copy", async () => {
   const fragment = readFileSync(
     new URL("../../addon/chrome/content/preferences.xhtml", import.meta.url),
     "utf8",
@@ -22,6 +22,7 @@ test("Preferences exposes one read-only download row and updates it only after c
   let selected: string | undefined = "D:\\Selected\\Papers";
   let pickerCalls = 0;
   let pickerOwner: Window | undefined;
+  let cachePickerOwner: Window | undefined;
   const settings = settingsController({
     setPreference(key, value) {
       writes.push([key, value]);
@@ -31,6 +32,10 @@ test("Preferences exposes one read-only download row and updates it only after c
       pickerOwner = owner;
       return selected;
     },
+    async chooseCacheDirectory(_current, owner) {
+      cachePickerOwner = owner;
+      return "E:\\paper\\scanscicache";
+    },
   });
   const mounted = mountDownloadPreferences(root, settings);
 
@@ -39,10 +44,10 @@ test("Preferences exposes one read-only download row and updates it only after c
   const path = row?.querySelector("[data-download-directory-path]");
   const button = row?.querySelector("[data-change-download-directory]");
   assert.ok(row && label && path && button);
-  assert.equal(label.textContent?.trim(), "下载目录");
+  assert.equal(label.textContent?.trim(), "下载目录：");
   assert.match(path.localName, /(?:^|:)span$/u);
   assert.equal(root.querySelector("input, textarea"), null);
-  assert.equal(path.textContent, "E:\\paper");
+  assert.equal(path.textContent, "未配置");
   assert.equal(label.parentElement, row);
   assert.equal(path.parentElement, row);
   assert.equal(button.parentElement, row);
@@ -51,7 +56,18 @@ test("Preferences exposes one read-only download row and updates it only after c
     true,
   );
   assert.match(button.textContent ?? "", /^\s*📁\s*更改目录\s*$/u);
-  assert.equal(root.textContent?.includes("Cache 路径"), true);
+  assert.equal(
+    root.querySelector("[data-cache-directory-label]")?.textContent?.trim(),
+    "Cache 路径：",
+  );
+  assert.equal(
+    root.querySelector("[data-cache-directory-path]")?.textContent,
+    "未配置",
+  );
+  assert.equal(root.querySelector("[data-reset-cache-directory]"), null);
+  assert.equal(root.querySelector("[data-cache-directory-description]"), null);
+  assert.match(root.textContent ?? "", /请先配置下载目录/u);
+  assert.match(root.textContent ?? "", /请先配置 Cache 路径/u);
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -60,11 +76,22 @@ test("Preferences exposes one read-only download row and updates it only after c
   assert.equal(path.textContent, "D:\\Selected\\Papers");
   assert.equal(writes.length, 1);
 
+  root
+    .querySelector("[data-change-cache-directory]")
+    ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(cachePickerOwner, ownerWindow);
+  assert.equal(
+    root.querySelector("[data-cache-directory-path]")?.textContent,
+    "E:\\paper\\scanscicache",
+  );
+  assert.equal(writes.length, 2);
+
   selected = undefined;
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(path.textContent, "D:\\Selected\\Papers");
-  assert.equal(writes.length, 1);
+  assert.equal(writes.length, 2);
 
   mounted.destroy();
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -76,7 +103,11 @@ function settingsController(
   overrides: Partial<{
     setPreference(key: string, value: string): void;
     chooseDownloadDestination(
-      current: string,
+      current: string | undefined,
+      owner?: Window,
+    ): Promise<string | undefined>;
+    chooseCacheDirectory(
+      current: string | undefined,
       owner?: Window,
     ): Promise<string | undefined>;
   }> = {},
@@ -87,9 +118,10 @@ function settingsController(
       return undefined;
     },
     setPreference: overrides.setPreference ?? (() => undefined),
-    clearPreference() {},
     chooseDownloadDestination:
       overrides.chooseDownloadDestination ?? (async () => undefined),
+    chooseCacheDirectory:
+      overrides.chooseCacheDirectory ?? (async () => undefined),
   });
 }
 

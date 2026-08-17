@@ -86,6 +86,7 @@ export type PaperDownloadItemResult = Readonly<{
 export type PaperDownloadRequest = Readonly<{
   items: readonly PaperDownloadItem[];
   downloadDestination: string;
+  cacheDirectory: string;
   timeoutMilliseconds?: number;
   signal?: AbortSignal;
   onProgress?(result: PaperDownloadItemResult): void;

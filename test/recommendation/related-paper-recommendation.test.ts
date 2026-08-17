@@ -21,6 +21,7 @@ test("one global model call ranks every abstract-bearing candidate and merges sh
         identity: {
           authMode: "openai_compatible",
           providerId: "provider-api",
+          providerName: "Example API",
           modelId: "model-api",
           model: "example-model",
           apiBase: "https://api.example.com/v1/chat/completions",
@@ -189,6 +190,7 @@ test("the complete model output is rejected when any strict schema rule fails", 
           identity: {
             authMode: "codex_auth",
             providerId: "legacy",
+            providerName: "Legacy Codex",
             modelId: "codex",
             model: "gpt-5.4",
             apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -309,6 +311,7 @@ test("visible model output over 32,768 characters fails as a whole", async () =>
         identity: {
           authMode: "codex_auth",
           providerId: "legacy",
+          providerName: "Legacy Codex",
           modelId: "codex",
           model: "gpt-5.4",
           apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -351,6 +354,7 @@ test("identity merging requires a shared non-conflicting stable identifier and r
         identity: {
           authMode: "codex_auth",
           providerId: "legacy",
+          providerName: "Legacy Codex",
           modelId: "codex",
           model: "gpt-5.4",
           apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -443,6 +447,7 @@ test("a duplicate in one source remains eligible when any copy has a non-empty A
         identity: {
           authMode: "codex_auth",
           providerId: "legacy",
+          providerName: "Legacy Codex",
           modelId: "codex",
           model: "gpt-5.4",
           apiBase: "https://chatgpt.com/backend-api/codex/responses",

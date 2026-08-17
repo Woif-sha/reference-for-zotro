@@ -7,6 +7,7 @@ import {
   normalizeScholarlyIdentifier,
   relateScholarlyIdentities,
 } from "../literature/identifiers";
+import type { PaperIdentity } from "../domain/literature";
 import type { ReaderPaper } from "../reader/mountReaderSection";
 
 export const RECOMMENDATION_INPUT_MAX_BYTES = 384 * 1024;
@@ -14,7 +15,7 @@ export const RECOMMENDATION_OUTPUT_MAX_CHARACTERS = 32_768;
 export const RECOMMENDATION_TIMEOUT_MS = 180_000;
 export const RECOMMENDATION_PROMPT_VERSION = 1;
 
-type RecommendationSource = "reference" | "citation";
+export type RecommendationSource = "reference" | "citation";
 
 export type RecommendationItem = Readonly<{
   candidateKey: string;
@@ -33,15 +34,12 @@ export type RecommendationResult =
     }>;
 
 export type RecommendationRequest = Readonly<{
-  currentPaper: Readonly<{
-    libraryID: number;
-    attachmentID: number;
-    attachmentKey: string;
-    parentItemKey: string;
-    fullMarkdown: string;
-    fullMdSha256: string;
-    sourceFingerprint: string;
-  }>;
+  currentPaper: Readonly<
+    PaperIdentity & {
+      fullMarkdown: string;
+      fullMdSha256: string;
+    }
+  >;
   references: readonly ReaderPaper[];
   citingPapers: readonly ReaderPaper[];
   signal?: AbortSignal;

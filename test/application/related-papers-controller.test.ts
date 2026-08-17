@@ -118,6 +118,7 @@ test("a complete recommendation survives a Controller restart without a second m
   const modelIdentity = {
     authMode: "codex_auth" as const,
     providerId: "provider-codex",
+    providerName: "Legacy Codex",
     modelId: "model-codex",
     model: "gpt-5.4",
     apiBase: "https://chatgpt.com/backend-api/codex/responses",

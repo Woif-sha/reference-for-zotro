@@ -24,6 +24,7 @@ test("recommendation model routes once to the selected provider and returns a se
   assert.deepEqual(result.identity, {
     authMode: "openai_compatible",
     providerId: "provider-api",
+    providerName: "Example API",
     modelId: "model-api",
     model: "example-model",
     apiBase: "https://api.example.com/v1/chat/completions",
@@ -31,7 +32,7 @@ test("recommendation model routes once to the selected provider and returns a se
   });
   assert.doesNotMatch(
     JSON.stringify(result.identity),
-    /private-key|access_token|refresh_token|auth\.json|Example API/u,
+    /private-key|access_token|refresh_token|auth\.json/u,
   );
 });
 

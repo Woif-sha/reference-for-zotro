@@ -50,6 +50,7 @@ const identity: RecommendationCacheIdentity = {
   model: {
     authMode: "codex_auth",
     providerId: "provider-codex",
+    providerName: "Legacy Codex",
     modelId: "model-codex",
     model: "gpt-5.4",
     apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -139,6 +140,13 @@ test("illegal fields and damaged result sets are explicit cache read errors", as
           file.priority = [];
         },
       ],
+      [
+        "empty completed placeholder",
+        (file) => {
+          file.analyzedCandidates = [];
+          file.priority = [];
+        },
+      ],
     ];
 
   for (const [name, mutate] of invalidFiles) {
@@ -225,6 +233,13 @@ test("every recommendation identity field invalidates while secrets, generation 
     [
       "active model",
       { ...identity, model: { ...identity.model, model: "gpt-next" } },
+    ],
+    [
+      "provider name",
+      {
+        ...identity,
+        model: { ...identity.model, providerName: "Renamed provider" },
+      },
     ],
     ["effort", { ...identity, model: { ...identity.model, effort: "high" } }],
     ["prompt version", { ...identity, promptVersion: 2 }],

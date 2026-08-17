@@ -1,23 +1,22 @@
 import type { RecommendationModelIdentity } from "../model/configured-recommendation-model";
-import type { RecommendationItem } from "../recommendation/related-paper-recommendation";
+import type { PaperIdentity } from "../domain/literature";
+import type {
+  RecommendationItem,
+  RecommendationSource,
+} from "../recommendation/related-paper-recommendation";
 import { createLiteratureCacheDirectory } from "./cache-key";
 
-export type RecommendationCandidateSource = "reference" | "citation";
-
 export type RecommendationCacheIdentity = Readonly<{
-  currentPaper: Readonly<{
-    libraryID: number;
-    attachmentID: number;
-    attachmentKey: string;
-    parentItemKey: string;
-    sourceFingerprint: string;
-    fullMdSha256: string;
-  }>;
+  currentPaper: Readonly<
+    PaperIdentity & {
+      fullMdSha256: string;
+    }
+  >;
   visibleCandidates: readonly Readonly<{
     candidateKey: string;
     paperID: string;
     title: string;
-    sources: readonly RecommendationCandidateSource[];
+    sources: readonly RecommendationSource[];
   }>[];
   analyzedCandidates: readonly Readonly<{
     candidateKey: string;
@@ -164,6 +163,9 @@ function parseCacheFile(value: unknown): RecommendationCacheFile {
   const analyzedCandidates = value.analyzedCandidates.map(
     validateAnalyzedCandidate,
   );
+  if (analyzedCandidates.length === 0) {
+    return invalidCache("completed result is an empty placeholder");
+  }
   const analyzedByKey = uniqueByCandidateKey(
     analyzedCandidates,
     "analyzed candidate identities are invalid",
@@ -249,6 +251,7 @@ function validateModel(value: unknown): void {
     !hasExactKeys(value, [
       "authMode",
       "providerId",
+      "providerName",
       "modelId",
       "model",
       "apiBase",
@@ -257,6 +260,7 @@ function validateModel(value: unknown): void {
     (value.authMode !== "codex_auth" &&
       value.authMode !== "openai_compatible") ||
     !isNonEmptyString(value.providerId) ||
+    !isNonEmptyString(value.providerName) ||
     !isNonEmptyString(value.modelId) ||
     !isNonEmptyString(value.model) ||
     !isNonEmptyString(value.apiBase) ||
@@ -304,9 +308,7 @@ function uniqueByCandidateKey<T extends { candidateKey: string }>(
   return result;
 }
 
-function isSources(
-  value: unknown,
-): value is readonly RecommendationCandidateSource[] {
+function isSources(value: unknown): value is readonly RecommendationSource[] {
   return (
     Array.isArray(value) &&
     value.length > 0 &&

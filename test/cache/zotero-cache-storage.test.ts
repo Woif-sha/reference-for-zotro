@@ -159,6 +159,66 @@ test("an aborted recommendation stage preserves the previous complete file", asy
   }
 });
 
+test("a recommendation invalidated during atomic move rolls back the previous file", async () => {
+  const finalPath =
+    "C:\\Zotero\\reference-for-zotero-cache\\v2\\papers\\1-ABCD1234\\recommendation.json";
+  const files = new Map<string, Uint8Array>([
+    [finalPath, new TextEncoder().encode("previous")],
+  ]);
+  const moveStarted = deferred<void>();
+  const releaseMove = deferred<void>();
+  const previousZotero = globalThis.Zotero;
+  const previousIOUtils = globalThis.IOUtils;
+  Object.assign(globalThis, {
+    Zotero: { DataDirectory: { dir: "C:\\Zotero" } },
+    IOUtils: {
+      exists: async (path: string) => files.has(path),
+      read: async (path: string) => files.get(path)!,
+      async write(path: string, data: Uint8Array) {
+        files.set(path, data);
+      },
+      async copy(sourcePath: string, destinationPath: string) {
+        files.set(destinationPath, files.get(sourcePath)!);
+      },
+      async makeDirectory() {},
+      async move(sourcePath: string, destinationPath: string) {
+        if (sourcePath.includes(".pending-")) {
+          moveStarted.resolve();
+          await releaseMove.promise;
+        }
+        files.set(destinationPath, files.get(sourcePath)!);
+        files.delete(sourcePath);
+      },
+      async remove(path: string) {
+        files.delete(path);
+      },
+    },
+  });
+
+  try {
+    const storage = createZoteroRecommendationCacheStorage();
+    const controller = new AbortController();
+    const write = storage.write("1-ABCD1234", "replacement", controller.signal);
+    await moveStarted.promise;
+    controller.abort();
+    releaseMove.resolve();
+
+    await assert.rejects(write, { name: "AbortError" });
+    assert.equal(new TextDecoder().decode(files.get(finalPath)), "previous");
+    assert.equal(
+      [...files.keys()].some(
+        (path) => path.includes(".pending-") || path.includes(".previous-"),
+      ),
+      false,
+    );
+  } finally {
+    Object.assign(globalThis, {
+      Zotero: previousZotero,
+      IOUtils: previousIOUtils,
+    });
+  }
+});
+
 function cacheFiles(value: string) {
   return {
     "manifest.json": value,

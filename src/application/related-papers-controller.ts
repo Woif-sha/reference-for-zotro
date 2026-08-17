@@ -208,19 +208,12 @@ export class RelatedPapersController implements ReaderSectionController {
         run.controller.signal,
       );
       if (this.ports.readCachedRecommendation) {
-        const cached = await this.ports.readCachedRecommendation(request);
-        if (!this.recommendationIsCurrent(run, context.token)) return;
-        if (cached) {
-          this.update({
-            recommendation: {
-              status: "completed",
-              priority: cached.priority,
-              optional: cached.optional,
-              restoredFromCache: true,
-            },
-          });
-          return;
-        }
+        const cacheResult = await this.tryRestoreCachedRecommendation(
+          request,
+          run,
+          context.token,
+        );
+        if (cacheResult !== "miss") return;
       }
       const result = await this.ports.recommendPapers(request);
       if (!this.recommendationIsCurrent(run, context.token)) return;
@@ -556,20 +549,11 @@ export class RelatedPapersController implements ReaderSectionController {
     };
     this.recommendationRun = run;
     try {
-      const cached = await this.ports.readCachedRecommendation(
+      await this.tryRestoreCachedRecommendation(
         this.recommendationRequest(context, run.controller.signal),
+        run,
+        context.token,
       );
-      if (!this.recommendationIsCurrent(run, context.token)) return;
-      if (cached) {
-        this.update({
-          recommendation: {
-            status: "completed",
-            priority: cached.priority,
-            optional: cached.optional,
-            restoredFromCache: true,
-          },
-        });
-      }
     } catch (error) {
       if (!this.recommendationIsCurrent(run, context.token)) return;
       this.update({
@@ -578,6 +562,25 @@ export class RelatedPapersController implements ReaderSectionController {
     } finally {
       if (this.recommendationRun === run) this.recommendationRun = undefined;
     }
+  }
+
+  private async tryRestoreCachedRecommendation(
+    request: RecommendationRequest,
+    run: { generation: number; controller: AbortController },
+    token: SessionToken,
+  ): Promise<"miss" | "restored" | "stale"> {
+    const cached = await this.ports.readCachedRecommendation!(request);
+    if (!this.recommendationIsCurrent(run, token)) return "stale";
+    if (!cached) return "miss";
+    this.update({
+      recommendation: {
+        status: "completed",
+        priority: cached.priority,
+        optional: cached.optional,
+        restoredFromCache: true,
+      },
+    });
+    return "restored";
   }
 
   private recommendationRequest(

@@ -14,12 +14,12 @@ import type {
   ScanSciPort,
 } from "../../src/scansci/scan-sci-port";
 
-test("production download adapter snapshots the configured destination and preserves legal-source identifiers", async () => {
-  let state = readyState("E:\\paper");
+test("production download adapter snapshots both configured directories and preserves legal-source identifiers", async () => {
+  let state = readyState("E:\\paper", "E:\\paper\\scanscicache");
   let request: PaperDownloadRequest | undefined;
   const runtime = runtimeWithDownload(async (value) => {
     request = value;
-    state = readyState("D:\\later");
+    state = readyState("D:\\later", "D:\\later-cache");
     return value.items.map((item) => ({
       itemID: item.itemID,
       result: {
@@ -59,6 +59,7 @@ test("production download adapter snapshots the configured destination and prese
     },
   ]);
   assert.equal(request?.downloadDestination, "E:\\paper");
+  assert.equal(request?.cacheDirectory, "E:\\paper\\scanscicache");
   assert.deepEqual(request?.items, [
     {
       itemID: "paper",
@@ -74,11 +75,11 @@ test("production download adapter snapshots the configured destination and prese
   ]);
 });
 
-test("each Download request starts with the latest saved destination", async () => {
-  let state = readyState("E:\\paper");
-  const destinations: string[] = [];
+test("each Download request starts with the latest saved destination and Cache path", async () => {
+  let state = readyState("E:\\paper", "E:\\paper\\scanscicache");
+  const directories: Array<readonly [string, string]> = [];
   const runtime = runtimeWithDownload(async (request) => {
-    destinations.push(request.downloadDestination);
+    directories.push([request.downloadDestination, request.cacheDirectory]);
     return [];
   });
   const download = createScanSciDownloadPapers({
@@ -92,10 +93,49 @@ test("each Download request starts with the latest saved destination", async () 
   };
 
   await download(request);
-  state = readyState("D:\\Current\\Papers");
+  state = readyState("D:\\Current\\Papers", "D:\\Current\\ScanSciCache");
   await download(request);
 
-  assert.deepEqual(destinations, ["E:\\paper", "D:\\Current\\Papers"]);
+  assert.deepEqual(directories, [
+    ["E:\\paper", "E:\\paper\\scanscicache"],
+    ["D:\\Current\\Papers", "D:\\Current\\ScanSciCache"],
+  ]);
+});
+
+test("download is blocked with an explicit reminder until both paths are configured", async () => {
+  let called = false;
+  const download = createScanSciDownloadPapers({
+    runtime: runtimeWithDownload(async () => {
+      called = true;
+      return [];
+    }),
+    setup: setupController(() => ({
+      destinationError: "请先配置下载目录。",
+      cacheDirectoryError: "请先配置 Cache 路径。",
+      runtime: { status: "unchecked" },
+    })),
+  });
+
+  const result = await download({
+    papers: [
+      {
+        id: "paper",
+        ordinal: 0,
+        title: "Paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/example",
+        doi: "10.1000/example",
+      },
+    ],
+    signal: new AbortController().signal,
+    onProgress() {},
+  });
+
+  assert.equal(called, false);
+  assert.deepEqual(result[0]?.result, {
+    status: "failed",
+    error: "请先配置下载目录和 Cache 路径。",
+  });
 });
 
 test("production download adapter always delegates so every click re-probes the sidecar", async () => {
@@ -113,7 +153,7 @@ test("production download adapter always delegates so every click re-probes the 
   const download = createScanSciDownloadPapers({
     runtime,
     setup: setupController(() => ({
-      ...readyState("E:\\paper"),
+      ...readyState("E:\\paper", "E:\\paper\\scanscicache"),
       runtime: { status: "unchecked" },
     })),
   });
@@ -144,10 +184,13 @@ test("Windows filename generation rejects device names and trims unsafe suffixes
   assert.equal(safeWindowsFilenameStem("  title...  "), "title");
 });
 
-function readyState(destination: string): DownloadSettingsState {
+function readyState(
+  destination: string,
+  cacheDirectory: string,
+): DownloadSettingsState {
   return {
     downloadDestination: destination,
-    usingDefaultDestination: destination === "E:\\paper",
+    cacheDirectory,
     runtime: {
       status: "ready",
       capability: {
@@ -197,7 +240,7 @@ function setupController(
     getState,
     subscribe: () => () => undefined,
     async changeDownloadDestination() {},
-    resetDownloadDestination() {},
+    async changeCacheDirectory() {},
     async probeRuntime() {},
     dispose() {},
   };

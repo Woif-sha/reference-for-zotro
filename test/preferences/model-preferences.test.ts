@@ -13,7 +13,7 @@ import {
 } from "../../src/model/model-configuration";
 import { mountModelPreferences } from "../../src/preferences/model-preferences";
 
-test("Preferences renders provider cards, tests unsaved drafts, and cancels tests on unmount", async () => {
+test("Preferences matches Paper Translate provider cards without visible Legacy UI", async () => {
   const fragment = readFileSync(
     new URL("../../addon/chrome/content/preferences.xhtml", import.meta.url),
     "utf8",
@@ -26,31 +26,44 @@ test("Preferences renders provider cards, tests unsaved drafts, and cancels test
   const harness = modelSettingsController();
   const mounted = mountModelPreferences(root, harness.value);
 
-  const active = root.querySelector<HTMLSelectElement>(
-    "[data-active-model-select]",
-  );
-  assert.ok(active);
-  assert.deepEqual(
-    Array.from(active.options, (option) => option.textContent),
-    ["Legacy Codex / gpt-5.4"],
-  );
-  active.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-  assert.deepEqual(harness.selected, ["model-codex"]);
+  assert.equal(root.querySelector("[data-active-model-select]"), null);
+  assert.doesNotMatch(root.textContent ?? "", /legacy/iu);
 
   const defaultCard = root.querySelector("[data-provider-card]");
   assert.ok(defaultCard);
+  assert.equal(
+    defaultCard.querySelector<HTMLInputElement>("[data-provider-name]")?.value,
+    "服务商 A",
+  );
   assert.deepEqual(
     Array.from(
       defaultCard.querySelectorAll<HTMLOptionElement>(
         "[data-provider-auth-mode] option",
       ),
+      (option) => [option.value, option.textContent],
+    ),
+    [
+      ["codex_auth", "Codex Auth"],
+      ["openai_compatible", "OpenAI Compatible"],
+    ],
+  );
+  assert.deepEqual(
+    Array.from(
+      defaultCard.querySelectorAll<HTMLOptionElement>(
+        "[data-model-effort] option",
+      ),
       (option) => option.value,
     ),
-    ["codex_auth", "openai_compatible"],
+    ["auto", "low", "medium", "high", "xhigh"],
   );
   assert.equal(
     defaultCard.querySelector<HTMLSelectElement>("[data-model-effort]")?.value,
     "medium",
+  );
+  assert.equal(
+    defaultCard.querySelector<HTMLButtonElement>("[data-use-model]")
+      ?.textContent,
+    "当前",
   );
 
   root
@@ -59,6 +72,10 @@ test("Preferences renders provider cards, tests unsaved drafts, and cancels test
   const cards = root.querySelectorAll<HTMLElement>("[data-provider-card]");
   assert.equal(cards.length, 2);
   const draft = cards[1];
+  assert.equal(
+    draft.querySelector<HTMLInputElement>("[data-provider-name]")?.value,
+    "服务商 B",
+  );
   setInput(dom, draft, "[data-provider-name]", "Draft API");
   setInput(
     dom,
@@ -95,7 +112,7 @@ test("Preferences renders provider cards, tests unsaved drafts, and cancels test
     ],
   );
   assert.match(draft.textContent ?? "", /连接成功：OK/u);
-  assert.equal(root.textContent?.includes("Cache"), false);
+  assert.equal(root.textContent?.includes("Cache 路径"), true);
 
   mounted.destroy();
   assert.equal(harness.cancelled, 1);

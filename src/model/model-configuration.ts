@@ -45,7 +45,7 @@ export const DEFAULT_MODEL_CONFIGURATION: ModelProviderConfiguration = {
   providers: [
     {
       id: "provider-codex",
-      name: "Legacy Codex",
+      name: "服务商 A",
       authMode: "codex_auth",
       apiBase: LEGACY_CODEX_RESPONSES_ENDPOINT,
       apiKey: "",
@@ -72,10 +72,11 @@ export class ModelSettingsStore {
   getConfiguration(): ModelProviderConfiguration {
     if (!this.configuration) {
       const stored = this.preferences.get(RECOMMENDATION_MODEL_PREFERENCE);
-      const configuration = stored
+      const parsed = stored
         ? parseStoredConfiguration(stored)
         : cloneConfiguration(DEFAULT_MODEL_CONFIGURATION);
-      if (!stored) this.persist(configuration);
+      const configuration = migrateDefaultProviderName(parsed);
+      if (!stored || configuration !== parsed) this.persist(configuration);
       this.configuration = configuration;
     }
     return cloneConfiguration(this.configuration);
@@ -318,6 +319,22 @@ function cloneConfiguration(
       models: provider.models.map((model) => ({ ...model })),
     })),
   };
+}
+
+function migrateDefaultProviderName(
+  configuration: ModelProviderConfiguration,
+): ModelProviderConfiguration {
+  const providers = configuration.providers.map((provider) =>
+    provider.id === "provider-codex" &&
+    (provider.name === "Legacy Codex" || provider.name === "Codex")
+      ? { ...provider, name: "服务商 A" }
+      : provider,
+  );
+  return providers.some(
+    (provider, index) => provider !== configuration.providers[index],
+  )
+    ? { ...configuration, providers }
+    : configuration;
 }
 
 function requiredString(value: string, label: string): string {

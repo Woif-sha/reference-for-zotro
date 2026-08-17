@@ -8,9 +8,10 @@
     <label><html:h2>文件</html:h2></label>
     <html:div
       id="reference-for-zotero-preferences-download-row"
+      class="reference-for-zotero-directory-row"
       data-download-directory-row=""
     >
-      <html:span data-download-directory-label="">下载目录</html:span>
+      <html:span data-download-directory-label="">下载目录：</html:span>
       <html:span
         id="reference-for-zotero-preferences-download-path"
         data-download-directory-path=""
@@ -27,25 +28,42 @@
       role="alert"
       hidden="hidden"
     ></html:p>
+    <html:div
+      id="reference-for-zotero-preferences-cache-row"
+      class="reference-for-zotero-directory-row"
+      data-cache-directory-row=""
+    >
+      <html:span data-cache-directory-label="">Cache 路径：</html:span>
+      <html:span
+        id="reference-for-zotero-preferences-cache-path"
+        class="reference-for-zotero-directory-path"
+        data-cache-directory-path=""
+        aria-label="当前 Cache 路径"
+      ></html:span>
+      <html:button type="button" data-change-cache-directory="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
+    </html:div>
+    <html:p
+      id="reference-for-zotero-preferences-cache-error"
+      data-cache-directory-error=""
+      role="alert"
+      hidden="hidden"
+    ></html:p>
   </groupbox>
   <groupbox
     id="reference-for-zotero-preferences-model-group"
     data-recommendation-model-settings=""
   >
     <label><html:h2>推荐模型</html:h2></label>
-    <html:label class="reference-for-zotero-active-model">
-      活动模型
-      <html:span data-active-model-select-host=""></html:span>
-    </html:label>
     <html:div data-model-provider-cards=""></html:div>
-    <html:button type="button" data-add-model-provider="">
+    <html:button
+      type="button"
+      data-add-model-provider=""
+      style="margin-top: 10px; align-self: flex-start"
+    >
       添加服务商
     </html:button>
-    <html:p
-      data-model-settings-error=""
-      class="reference-for-zotero-model-error"
-      role="alert"
-      hidden="hidden"
-    ></html:p>
   </groupbox>
 </vbox>

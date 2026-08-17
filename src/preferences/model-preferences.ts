@@ -2,7 +2,6 @@ import type { ModelPreferencesController } from "../application/model-settings";
 import {
   createProvider,
   createProviderModel,
-  flattenRuntimeModels,
   type ModelAuthMode,
   type ModelProvider,
   type ModelProviderConfiguration,
@@ -19,46 +18,35 @@ export function mountModelPreferences(
 ): MountedModelPreferences {
   const cards = requiredElement(root, "[data-model-provider-cards]");
   const addProvider = requiredElement(root, "[data-add-model-provider]");
-  const activeSelectHost = requiredElement(
-    root,
-    "[data-active-model-select-host]",
-  );
-  const activeSelect = createHtml(root, "select") as HTMLSelectElement;
-  activeSelect.dataset.activeModelSelect = "";
-  activeSelectHost.replaceChildren(activeSelect);
-  const pageError = requiredElement(root, "[data-model-settings-error]");
   let configuration = settings.getConfiguration();
   let drafts = cloneProviders(configuration.providers);
   let active = true;
 
-  const showPageError = (error?: unknown): void => {
-    const message = error === undefined ? "" : errorMessage(error);
-    pageError.textContent = message;
-    pageError.toggleAttribute("hidden", !message);
-  };
-
   const render = (): void => {
     if (!active) return;
-    activeSelect.replaceChildren();
-    for (const model of flattenRuntimeModels(configuration)) {
-      const option = createHtml(root, "option") as HTMLOptionElement;
-      option.value = model.id;
-      option.textContent = `${model.providerName} / ${model.model}`;
-      option.selected = model.id === configuration.activeModelId;
-      activeSelect.append(option);
-    }
     cards.replaceChildren(
-      ...drafts.map((provider) =>
-        createProviderCard(root, provider, {
-          getConfiguration: () => configuration,
-          getDrafts: () => drafts,
-          setDrafts(next) {
+      ...drafts.map((provider, providerIndex) =>
+        createProviderCard({
+          root,
+          provider,
+          providerIndex,
+          configuration,
+          drafts,
+          settings,
+          onDraftsChanged(next) {
             drafts = next;
             render();
           },
-          settings,
-          showPageError,
-          render,
+          onSaved(saved, savedProviderId) {
+            configuration = saved;
+            drafts = cloneProviders(saved.providers);
+            render();
+            if (!savedProviderId) return;
+            const savedCard = Array.from(
+              cards.querySelectorAll<HTMLElement>("[data-provider-card]"),
+            ).find((entry) => entry.dataset.providerCard === savedProviderId);
+            if (savedCard) showCardStatus(savedCard, "已保存", false);
+          },
         }),
       ),
     );
@@ -66,27 +54,15 @@ export function mountModelPreferences(
 
   const onAddProvider = (): void => {
     const provider = createProvider("openai_compatible");
-    provider.name = `服务商 ${drafts.length + 1}`;
+    provider.name = nextProviderName(drafts);
     provider.models.push(createProviderModel());
     drafts = [...drafts, provider];
-    showPageError();
     render();
   };
-  const onSelect = (): void => {
-    try {
-      settings.selectActiveModel(activeSelect.value);
-      showPageError();
-    } catch (error) {
-      showPageError(error);
-      render();
-    }
-  };
   addProvider.addEventListener("click", onAddProvider);
-  activeSelect.addEventListener("change", onSelect);
   const unsubscribe = settings.subscribe(() => {
     configuration = settings.getConfiguration();
     drafts = cloneProviders(configuration.providers);
-    showPageError();
     render();
   });
   render();
@@ -96,7 +72,6 @@ export function mountModelPreferences(
       if (!active) return;
       active = false;
       addProvider.removeEventListener("click", onAddProvider);
-      activeSelect.removeEventListener("change", onSelect);
       unsubscribe();
       settings.cancelConnectionTests();
       cards.replaceChildren();
@@ -104,226 +79,350 @@ export function mountModelPreferences(
   };
 }
 
-type ProviderCardContext = {
-  getConfiguration(): ModelProviderConfiguration;
-  getDrafts(): ModelProvider[];
-  setDrafts(providers: ModelProvider[]): void;
+type ProviderCardParams = {
+  root: Element;
+  provider: ModelProvider;
+  providerIndex: number;
+  configuration: ModelProviderConfiguration;
+  drafts: ModelProvider[];
   settings: ModelPreferencesController;
-  showPageError(error?: unknown): void;
-  render(): void;
+  onDraftsChanged(providers: ModelProvider[]): void;
+  onSaved(
+    configuration: ModelProviderConfiguration,
+    savedProviderId?: string,
+  ): void;
 };
 
-function createProviderCard(
-  root: Element,
-  provider: ModelProvider,
-  context: ProviderCardContext,
-): HTMLElement {
+function createProviderCard(params: ProviderCardParams): HTMLElement {
+  const { root, provider } = params;
   const card = createHtml(root, "section");
-  card.className = "reference-for-zotero-provider-card";
   card.dataset.providerCard = provider.id;
+  card.dataset.providerIndex = String(params.providerIndex);
+  Object.assign(card.style, {
+    padding: "10px",
+    border: "1px solid var(--fill-quinary, #d2d2d2)",
+    borderRadius: "8px",
+    background: "var(--material-background, #fff)",
+  });
 
   const header = createHtml(root, "div");
-  header.className = "reference-for-zotero-provider-header";
-  const name = textInput(root, "服务商名称", provider.name);
-  name.input.dataset.providerName = "";
-  name.input.addEventListener("input", () => {
-    provider.name = name.input.value;
+  Object.assign(header.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginBottom: "10px",
   });
-  const removeProvider = actionButton(root, "删除服务商");
+  const name = createHtml(root, "input") as HTMLInputElement;
+  name.type = "text";
+  name.value = provider.name;
+  name.placeholder = "未命名服务商";
+  name.setAttribute("aria-label", "服务商名称");
+  name.dataset.providerName = "";
+  Object.assign(name.style, {
+    boxSizing: "border-box",
+    flex: "1",
+    minWidth: "0",
+    padding: "5px 8px",
+    fontWeight: "600",
+  });
+  name.addEventListener("input", () => {
+    provider.name = name.value;
+  });
+  const removeProvider = actionButton(root, "×");
+  removeProvider.title = "删除服务商";
+  removeProvider.setAttribute("aria-label", "删除服务商");
   removeProvider.dataset.removeProvider = "";
   removeProvider.addEventListener("click", () => {
     if (
       provider.models.some(
-        (model) => model.id === context.getConfiguration().activeModelId,
+        (model) => model.id === params.configuration.activeModelId,
       )
     ) {
-      context.showPageError("不能删除包含活动模型的服务商");
+      showCardStatus(card, "不能删除包含当前模型的服务商", true);
       return;
     }
-    context.setDrafts(
-      context.getDrafts().filter((entry) => entry.id !== provider.id),
-    );
+    const next = params.drafts.filter((entry) => entry.id !== provider.id);
+    if (
+      params.configuration.providers.some((entry) => entry.id === provider.id)
+    ) {
+      try {
+        const saved = params.settings.saveConfiguration({
+          schemaVersion: 1,
+          providers: next,
+          activeModelId: params.configuration.activeModelId,
+        });
+        params.onSaved(saved);
+      } catch (error) {
+        showCardStatus(card, errorMessage(error), true);
+      }
+      return;
+    }
+    params.onDraftsChanged(next);
   });
-  header.append(name.wrapper, removeProvider);
-  card.append(header);
+  header.append(name, removeProvider);
 
-  const modeField = createHtml(root, "label");
-  modeField.textContent = "认证方式";
-  const mode = createHtml(root, "select") as HTMLSelectElement;
-  mode.dataset.providerAuthMode = "";
-  for (const [value, label] of [
-    ["codex_auth", "Legacy auth.json"],
-    ["openai_compatible", "OpenAI Compatible"],
-  ] as const) {
-    const option = createHtml(root, "option") as HTMLOptionElement;
-    option.value = value;
-    option.textContent = label;
-    option.selected = provider.authMode === value;
-    mode.append(option);
-  }
-  mode.addEventListener("change", () => {
-    provider.authMode = mode.value as ModelAuthMode;
+  const auth = labeledSelect(
+    root,
+    "认证方式",
+    [
+      ["codex_auth", "Codex Auth"],
+      ["openai_compatible", "OpenAI Compatible"],
+    ],
+    provider.authMode,
+  );
+  auth.select.dataset.providerAuthMode = "";
+  auth.select.addEventListener("change", () => {
+    const next = auth.select.value as ModelAuthMode;
+    provider.authMode = next;
     provider.apiBase = "";
     provider.apiKey = "";
     for (const model of provider.models) {
-      model.effort = provider.authMode === "codex_auth" ? "medium" : "";
+      model.effort = next === "codex_auth" ? "medium" : "";
     }
-    context.render();
+    params.onDraftsChanged([...params.drafts]);
   });
-  modeField.append(mode);
-  card.append(modeField);
 
+  card.append(header, auth.wrap);
   if (provider.authMode === "openai_compatible") {
-    const apiBase = textInput(root, "HTTPS API Base", provider.apiBase);
+    const apiBase = labeledInput(root, "API Base", provider.apiBase);
+    apiBase.input.placeholder = "https://api.example.com/v1";
     apiBase.input.dataset.providerApiBase = "";
     apiBase.input.addEventListener("input", () => {
       provider.apiBase = apiBase.input.value;
     });
-    const apiKey = textInput(root, "API Key", provider.apiKey, "password");
-    apiKey.input.dataset.providerApiKey = "";
+    const apiKey = labeledInput(root, "API Key", provider.apiKey, "password");
+    apiKey.input.placeholder = "sk-…";
     apiKey.input.autocomplete = "off";
+    apiKey.input.dataset.providerApiKey = "";
     apiKey.input.addEventListener("input", () => {
       provider.apiKey = apiKey.input.value;
     });
-    card.append(apiBase.wrapper, apiKey.wrapper);
+    card.append(apiBase.wrap, apiKey.wrap);
   }
 
-  const modelList = createHtml(root, "div");
-  modelList.className = "reference-for-zotero-model-list";
-  for (const model of provider.models) {
-    modelList.append(createModelRow(root, provider, model, context, card));
-  }
-  card.append(modelList);
-
-  const footer = createHtml(root, "div");
-  footer.className = "reference-for-zotero-provider-actions";
-  const addModel = actionButton(root, "添加模型");
+  const modelHeading = createHtml(root, "div");
+  Object.assign(modelHeading.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginTop: "10px",
+    marginBottom: "6px",
+  });
+  const modelTitle = createHtml(root, "strong");
+  modelTitle.textContent = "模型";
+  modelTitle.style.flex = "1";
+  const addModel = actionButton(root, "+");
+  addModel.title = "添加模型";
+  addModel.setAttribute("aria-label", "添加模型");
   addModel.dataset.addProviderModel = "";
   addModel.addEventListener("click", () => {
     provider.models.push(createProviderModel());
-    context.render();
+    params.onDraftsChanged([...params.drafts]);
+  });
+  modelHeading.append(modelTitle, addModel);
+  card.append(modelHeading);
+
+  for (const model of provider.models) {
+    card.append(createModelRow(params, card, provider, model));
+  }
+
+  const footer = createHtml(root, "div");
+  Object.assign(footer.style, {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    marginTop: "10px",
   });
   const save = actionButton(root, "保存");
   save.dataset.saveProvider = "";
   save.addEventListener("click", () => {
     try {
-      context.settings.saveConfiguration({
+      const saved = params.settings.saveConfiguration({
         schemaVersion: 1,
-        providers: context.getDrafts(),
-        activeModelId: context.getConfiguration().activeModelId,
+        providers: params.drafts,
+        activeModelId: params.configuration.activeModelId,
       });
-      showCardStatus(card, "已保存", false);
-      context.showPageError();
+      params.onSaved(saved, provider.id);
     } catch (error) {
-      context.showPageError(error);
+      showCardStatus(card, errorMessage(error), true);
     }
   });
   const status = createHtml(root, "span");
   status.dataset.providerStatus = "";
-  footer.append(addModel, save, status);
+  status.hidden = true;
+  Object.assign(status.style, {
+    flex: "1",
+    overflowWrap: "anywhere",
+    fontSize: "0.9em",
+  });
+  footer.append(save, status);
   card.append(footer);
   return card;
 }
 
 function createModelRow(
-  root: Element,
+  params: ProviderCardParams,
+  card: HTMLElement,
   provider: ModelProvider,
   model: ProviderModel,
-  context: ProviderCardContext,
-  card: HTMLElement,
 ): HTMLElement {
-  const row = createHtml(root, "div");
-  row.className = "reference-for-zotero-model-row";
+  const row = createHtml(params.root, "div");
   row.dataset.modelRow = model.id;
-  const modelInput = textInput(root, "模型 ID", model.model);
-  modelInput.input.dataset.modelId = "";
-  modelInput.input.addEventListener("input", () => {
-    model.model = modelInput.input.value;
+  Object.assign(row.style, {
+    display: "grid",
+    gridTemplateColumns:
+      provider.authMode === "codex_auth"
+        ? "minmax(120px, 1fr) 110px auto auto auto"
+        : "minmax(120px, 1fr) auto auto auto",
+    gap: "6px",
+    alignItems: "center",
+    marginBottom: "6px",
   });
-  row.append(modelInput.wrapper);
+  const modelInput = createHtml(params.root, "input") as HTMLInputElement;
+  modelInput.type = "text";
+  modelInput.value = model.model;
+  modelInput.placeholder = "模型 ID";
+  modelInput.dataset.modelId = "";
+  applyInputStyle(modelInput);
+  modelInput.addEventListener("input", () => {
+    model.model = modelInput.value;
+  });
+  row.append(modelInput);
 
   if (provider.authMode === "codex_auth") {
-    const effortField = createHtml(root, "label");
-    effortField.textContent = "Effort";
-    const effort = createHtml(root, "select") as HTMLSelectElement;
+    const effort = createHtml(params.root, "select") as HTMLSelectElement;
     effort.dataset.modelEffort = "";
-    for (const value of ["low", "medium", "high", "xhigh"]) {
-      const option = createHtml(root, "option") as HTMLOptionElement;
+    for (const value of ["auto", "low", "medium", "high", "xhigh"]) {
+      const option = createHtml(params.root, "option") as HTMLOptionElement;
       option.value = value;
       option.textContent = value;
-      option.selected = model.effort === value;
       effort.append(option);
     }
+    effort.value = model.effort || "medium";
+    applyInputStyle(effort);
     effort.addEventListener("change", () => {
       model.effort = effort.value;
     });
-    effortField.append(effort);
-    row.append(effortField);
+    row.append(effort);
   }
 
   const use = actionButton(
-    root,
-    model.id === context.getConfiguration().activeModelId ? "当前" : "使用",
+    params.root,
+    model.id === params.configuration.activeModelId ? "当前" : "使用",
   );
   use.dataset.useModel = model.id;
-  use.disabled = model.id === context.getConfiguration().activeModelId;
+  use.disabled = model.id === params.configuration.activeModelId;
   use.addEventListener("click", () => {
     try {
-      context.settings.saveConfiguration({
+      const saved = params.settings.saveConfiguration({
         schemaVersion: 1,
-        providers: context.getDrafts(),
-        activeModelId: context.getConfiguration().activeModelId,
+        providers: params.drafts,
+        activeModelId: params.configuration.activeModelId,
       });
-      context.settings.selectActiveModel(model.id);
-      context.showPageError();
+      params.settings.selectActiveModel(model.id);
+      params.onSaved({ ...saved, activeModelId: model.id });
     } catch (error) {
-      context.showPageError(error);
+      showCardStatus(card, errorMessage(error), true);
     }
   });
-  const test = actionButton(root, "测试连接");
+  const test = actionButton(params.root, "测试连接");
   test.dataset.testModel = model.id;
   test.addEventListener("click", () => {
+    test.disabled = true;
     showCardStatus(card, "测试中…", false);
-    void context.settings
+    void params.settings
       .testDraftModel(provider, model)
       .then((reply) => showCardStatus(card, `连接成功：${reply}`, false))
       .catch((error: unknown) =>
         showCardStatus(card, `连接失败：${errorMessage(error)}`, true),
-      );
+      )
+      .finally(() => {
+        test.disabled = false;
+      });
   });
-  const remove = actionButton(root, "删除模型");
+  const remove = actionButton(params.root, "×");
+  remove.title = "删除模型";
+  remove.setAttribute("aria-label", "删除模型");
   remove.dataset.removeModel = model.id;
   remove.addEventListener("click", () => {
-    if (model.id === context.getConfiguration().activeModelId) {
-      context.showPageError("不能删除活动模型");
+    if (model.id === params.configuration.activeModelId) {
+      showCardStatus(card, "不能删除当前模型", true);
       return;
     }
     provider.models = provider.models.filter((entry) => entry.id !== model.id);
-    context.render();
+    params.onDraftsChanged([...params.drafts]);
   });
   row.append(use, test, remove);
   return row;
 }
 
-function textInput(
+function labeledInput(
   root: Element,
-  label: string,
+  labelText: string,
   value: string,
   type = "text",
-): { wrapper: HTMLLabelElement; input: HTMLInputElement } {
-  const wrapper = createHtml(root, "label") as HTMLLabelElement;
-  wrapper.textContent = label;
+): { wrap: HTMLLabelElement; input: HTMLInputElement } {
+  const wrap = fieldWrap(root, labelText);
   const input = createHtml(root, "input") as HTMLInputElement;
   input.type = type;
   input.value = value;
-  wrapper.append(input);
-  return { wrapper, input };
+  applyInputStyle(input);
+  wrap.append(input);
+  return { wrap, input };
+}
+
+function labeledSelect(
+  root: Element,
+  labelText: string,
+  options: readonly (readonly [string, string])[],
+  value: string,
+): { wrap: HTMLLabelElement; select: HTMLSelectElement } {
+  const wrap = fieldWrap(root, labelText);
+  const select = createHtml(root, "select") as HTMLSelectElement;
+  for (const [optionValue, text] of options) {
+    const option = createHtml(root, "option") as HTMLOptionElement;
+    option.value = optionValue;
+    option.textContent = text;
+    select.append(option);
+  }
+  select.value = value;
+  applyInputStyle(select);
+  wrap.append(select);
+  return { wrap, select };
+}
+
+function fieldWrap(root: Element, labelText: string): HTMLLabelElement {
+  const wrap = createHtml(root, "label") as HTMLLabelElement;
+  Object.assign(wrap.style, {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    marginBottom: "8px",
+  });
+  const label = createHtml(root, "span");
+  label.textContent = labelText;
+  label.style.fontWeight = "600";
+  wrap.append(label);
+  return wrap;
+}
+
+function applyInputStyle(input: HTMLInputElement | HTMLSelectElement): void {
+  Object.assign(input.style, {
+    boxSizing: "border-box",
+    width: "100%",
+    minWidth: "0",
+    padding: "6px 8px",
+  });
 }
 
 function actionButton(root: Element, label: string): HTMLButtonElement {
   const button = createHtml(root, "button") as HTMLButtonElement;
   button.type = "button";
   button.textContent = label;
+  Object.assign(button.style, {
+    padding: "4px 9px",
+    whiteSpace: "nowrap",
+  });
   return button;
 }
 
@@ -334,8 +433,18 @@ function showCardStatus(
 ): void {
   const status = card.querySelector<HTMLElement>("[data-provider-status]");
   if (!status) return;
+  status.hidden = false;
+  status.style.color = failed ? "#b42318" : "#168c68";
   status.textContent = message;
-  status.toggleAttribute("data-failed", failed);
+}
+
+function nextProviderName(providers: readonly ModelProvider[]): string {
+  const existing = new Set(providers.map((provider) => provider.name.trim()));
+  for (let index = 0; index < 26; index += 1) {
+    const candidate = `服务商 ${String.fromCharCode(65 + index)}`;
+    if (!existing.has(candidate)) return candidate;
+  }
+  return `服务商 ${providers.length + 1}`;
 }
 
 function cloneProviders(providers: ModelProvider[]): ModelProvider[] {

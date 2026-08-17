@@ -32,8 +32,11 @@ test("Reference for Zotero registers and explicitly unregisters its Preferences 
       return undefined;
     },
     setPreference() {},
-    clearPreference() {},
     async chooseDownloadDestination() {
+      pickerCalls += 1;
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       pickerCalls += 1;
       return undefined;
     },

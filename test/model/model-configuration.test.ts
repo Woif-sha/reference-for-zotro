@@ -10,11 +10,12 @@ import {
   type ModelSettingsPreferences,
 } from "../../src/model/model-configuration";
 
-test("fresh settings use one active Legacy Codex gpt-5.4 medium model", () => {
+test("fresh settings use one active Codex gpt-5.4 medium model without a Legacy display name", () => {
   const preferences = memoryPreferences();
   const settings = new ModelSettingsStore(preferences);
 
   assert.deepEqual(settings.getConfiguration(), DEFAULT_MODEL_CONFIGURATION);
+  assert.equal(settings.getConfiguration().providers[0].name, "服务商 A");
   assert.deepEqual(
     flattenRuntimeModels(settings.getConfiguration()).map((model) => ({
       authMode: model.authMode,
@@ -32,6 +33,17 @@ test("fresh settings use one active Legacy Codex gpt-5.4 medium model", () => {
     ],
   );
   assert.match(preferences.value ?? "", /"activeModelId":"model-codex"/u);
+});
+
+test("stored default Legacy display names are upgraded without changing the provider identity", () => {
+  const legacy = structuredClone(DEFAULT_MODEL_CONFIGURATION);
+  legacy.providers[0].name = "Legacy Codex";
+  const preferences = memoryPreferences();
+  preferences.value = JSON.stringify(legacy);
+  const settings = new ModelSettingsStore(preferences);
+
+  assert.equal(settings.getConfiguration().providers[0].name, "服务商 A");
+  assert.doesNotMatch(preferences.value ?? "", /Legacy/u);
 });
 
 test("model settings read only this plugin preference and never Paper Translate preferences", () => {

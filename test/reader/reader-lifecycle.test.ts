@@ -33,7 +33,7 @@ test("Reader registration completes before the sidecar probe settles", () => {
       return () => {};
     },
     async changeDownloadDestination() {},
-    resetDownloadDestination() {},
+    async changeCacheDirectory() {},
     probeRuntime() {
       events.push("probe");
       return new Promise<void>((resolve) => {

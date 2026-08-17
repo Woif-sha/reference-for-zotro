@@ -203,6 +203,7 @@ test("one paper uses one downloadOne operation and one isolated request director
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "D:\\scansci\\cache",
   });
 
   assert.equal(result[0]?.result.status, "downloaded");
@@ -212,9 +213,7 @@ test("one paper uses one downloadOne operation and one isolated request director
       .map((call) => protocolInput(call).operation),
     ["probe", "probe", "downloadOne"],
   );
-  assert.deepEqual(exclusiveDirectories, [
-    `E:\\paper\\ScanSciCache\\${requestID}`,
-  ]);
+  assert.deepEqual(exclusiveDirectories, [`D:\\scansci\\cache\\${requestID}`]);
 });
 
 test("one sidecar batch preserves per-paper progress, legal-source commit, and failure isolation", async () => {
@@ -314,6 +313,7 @@ test("one sidecar batch preserves per-paper progress, legal-source commit, and f
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
     onProgress: (current) => progress.push(current),
   });
 
@@ -420,6 +420,7 @@ test("an invalid canonical target fails only that paper while the remaining sele
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.equal(results[0]?.result.status, "failed");
@@ -489,6 +490,7 @@ test("prohibited source evidence never reaches the exclusive final commit", asyn
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.deepEqual(outcome?.result, {
@@ -547,6 +549,7 @@ test("unexpected source-rule routes fail before sidecar egress", async () => {
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.equal(outcome?.result.status, "failed");
@@ -608,6 +611,7 @@ test("non-standard HTTPS ports fail plugin source validation before final commit
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.equal(outcome?.result.status, "failed");
@@ -666,6 +670,7 @@ test("an in-request output link is rejected by the final commit seam", async () 
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.deepEqual(outcome?.result, {
@@ -724,6 +729,7 @@ test("a timed-out sidecar leaves only its request directory as inspectable crash
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   });
 
   assert.deepEqual(outcome?.result, {

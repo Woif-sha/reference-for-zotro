@@ -1,8 +1,11 @@
 import type { ScanSciCapability, ScanSciPort } from "../scansci/scan-sci-port";
 
-export const DEFAULT_DOWNLOAD_DESTINATION = "E:\\paper";
 export const DOWNLOAD_DESTINATION_PREFERENCE =
   "extensions.referenceforzotero.downloadDestination";
+export const DOWNLOAD_CACHE_DIRECTORY_PREFERENCE =
+  "extensions.referenceforzotero.cacheRoot";
+export const DOWNLOAD_DESTINATION_REQUIRED_ERROR = "请先配置下载目录。";
+export const CACHE_DIRECTORY_REQUIRED_ERROR = "请先配置 Cache 路径。";
 
 export type DownloadRuntimeState =
   | Readonly<{ status: "unchecked" }>
@@ -11,9 +14,10 @@ export type DownloadRuntimeState =
   | Readonly<{ status: "unavailable"; error: string }>;
 
 export type DownloadSettingsState = Readonly<{
-  downloadDestination: string;
-  usingDefaultDestination: boolean;
+  downloadDestination?: string;
+  cacheDirectory?: string;
   destinationError?: string;
+  cacheDirectoryError?: string;
   runtime: DownloadRuntimeState;
 }>;
 
@@ -21,15 +25,21 @@ export interface DownloadSettingsPorts {
   runtime: ScanSciPort;
   getPreference(key: string): string | undefined;
   setPreference(key: string, value: string): void;
-  clearPreference(key: string): void;
-  chooseDownloadDestination(current: string): Promise<string | undefined>;
+  chooseDownloadDestination(
+    current?: string,
+    owner?: Window,
+  ): Promise<string | undefined>;
+  chooseCacheDirectory(
+    current?: string,
+    owner?: Window,
+  ): Promise<string | undefined>;
 }
 
 export interface DownloadSettingsController {
   getState(): DownloadSettingsState;
   subscribe(listener: (state: DownloadSettingsState) => void): () => void;
-  changeDownloadDestination(): Promise<void>;
-  resetDownloadDestination(): void;
+  changeDownloadDestination(owner?: Window): Promise<void>;
+  changeCacheDirectory(owner?: Window): Promise<void>;
   probeRuntime(): Promise<void>;
   dispose(): void;
 }
@@ -44,26 +54,21 @@ export class DownloadSettingsCoordinator implements DownloadSettingsController {
   private disposed = false;
 
   constructor(private readonly ports: DownloadSettingsPorts) {
-    const configuredDestination = ports.getPreference(
-      DOWNLOAD_DESTINATION_PREFERENCE,
+    const destination = loadConfiguredPath(
+      ports.getPreference(DOWNLOAD_DESTINATION_PREFERENCE),
+      "Stored download destination",
+      DOWNLOAD_DESTINATION_REQUIRED_ERROR,
     );
-    let downloadDestination = DEFAULT_DOWNLOAD_DESTINATION;
-    let destinationError: string | undefined;
-    if (configuredDestination) {
-      try {
-        downloadDestination = validateWindowsAbsolutePath(
-          configuredDestination,
-          "Stored download destination",
-        );
-      } catch (error) {
-        destinationError = originalError(error);
-      }
-    }
+    const cache = loadConfiguredPath(
+      ports.getPreference(DOWNLOAD_CACHE_DIRECTORY_PREFERENCE),
+      "Stored Cache path",
+      CACHE_DIRECTORY_REQUIRED_ERROR,
+    );
     this.state = {
-      downloadDestination,
-      usingDefaultDestination:
-        !configuredDestination || Boolean(destinationError),
-      ...(destinationError ? { destinationError } : {}),
+      ...(destination.path ? { downloadDestination: destination.path } : {}),
+      ...(destination.error ? { destinationError: destination.error } : {}),
+      ...(cache.path ? { cacheDirectory: cache.path } : {}),
+      ...(cache.error ? { cacheDirectoryError: cache.error } : {}),
       runtime: { status: "unchecked" },
     };
   }
@@ -77,11 +82,12 @@ export class DownloadSettingsCoordinator implements DownloadSettingsController {
     return () => this.listeners.delete(listener);
   }
 
-  async changeDownloadDestination(): Promise<void> {
+  async changeDownloadDestination(owner?: Window): Promise<void> {
     if (this.disposed) return;
     try {
       const selected = await this.ports.chooseDownloadDestination(
         this.state.downloadDestination,
+        owner,
       );
       if (this.disposed || !selected) return;
       const downloadDestination = validateWindowsAbsolutePath(
@@ -92,27 +98,31 @@ export class DownloadSettingsCoordinator implements DownloadSettingsController {
         DOWNLOAD_DESTINATION_PREFERENCE,
         downloadDestination,
       );
-      this.update({
-        downloadDestination,
-        usingDefaultDestination: false,
-        destinationError: undefined,
-      });
+      this.update({ downloadDestination, destinationError: undefined });
     } catch (error) {
       this.update({ destinationError: originalError(error) });
     }
   }
 
-  resetDownloadDestination(): void {
+  async changeCacheDirectory(owner?: Window): Promise<void> {
     if (this.disposed) return;
     try {
-      this.ports.clearPreference(DOWNLOAD_DESTINATION_PREFERENCE);
-      this.update({
-        downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-        usingDefaultDestination: true,
-        destinationError: undefined,
-      });
+      const selected = await this.ports.chooseCacheDirectory(
+        this.state.cacheDirectory,
+        owner,
+      );
+      if (this.disposed || !selected) return;
+      const cacheDirectory = validateWindowsAbsolutePath(
+        selected,
+        "Cache path",
+      );
+      this.ports.setPreference(
+        DOWNLOAD_CACHE_DIRECTORY_PREFERENCE,
+        cacheDirectory,
+      );
+      this.update({ cacheDirectory, cacheDirectoryError: undefined });
     } catch (error) {
-      this.update({ destinationError: originalError(error) });
+      this.update({ cacheDirectoryError: originalError(error) });
     }
   }
 
@@ -148,7 +158,21 @@ export class DownloadSettingsCoordinator implements DownloadSettingsController {
 
   private update(patch: Partial<DownloadSettingsState>): void {
     if (this.disposed) return;
-    this.state = { ...this.state, ...patch };
+    const next = { ...this.state, ...patch };
+    const {
+      downloadDestination,
+      cacheDirectory,
+      destinationError,
+      cacheDirectoryError,
+      runtime,
+    } = next;
+    this.state = {
+      ...(downloadDestination ? { downloadDestination } : {}),
+      ...(cacheDirectory ? { cacheDirectory } : {}),
+      ...(destinationError ? { destinationError } : {}),
+      ...(cacheDirectoryError ? { cacheDirectoryError } : {}),
+      runtime,
+    };
     for (const listener of this.listeners) listener(this.state);
   }
 }
@@ -165,6 +189,19 @@ export function validateWindowsAbsolutePath(
     throw new Error(`${label} must be an absolute Windows path`);
   }
   return path.length > 3 ? path.replace(/\\+$/u, "") : path;
+}
+
+function loadConfiguredPath(
+  configured: string | undefined,
+  label: string,
+  requiredError: string,
+): Readonly<{ path?: string; error?: string }> {
+  if (!configured) return { error: requiredError };
+  try {
+    return { path: validateWindowsAbsolutePath(configured, label) };
+  } catch (error) {
+    return { path: configured.trim(), error: originalError(error) };
+  }
 }
 
 function originalError(error: unknown): string {

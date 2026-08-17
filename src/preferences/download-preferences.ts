@@ -1,4 +1,8 @@
-import type { DownloadSettingsController } from "../application/download-settings";
+import {
+  CACHE_DIRECTORY_REQUIRED_ERROR,
+  DOWNLOAD_DESTINATION_REQUIRED_ERROR,
+  type DownloadSettingsController,
+} from "../application/download-settings";
 import type { ModelPreferencesController } from "../application/model-settings";
 import { mountModelPreferences } from "./model-preferences";
 
@@ -34,18 +38,36 @@ export function mountDownloadPreferences(
   const path = requiredElement(root, "[data-download-directory-path]");
   const change = requiredElement(root, "[data-change-download-directory]");
   const error = requiredElement(root, "[data-download-directory-error]");
+  const cachePath = requiredElement(root, "[data-cache-directory-path]");
+  const changeCache = requiredElement(root, "[data-change-cache-directory]");
+  const cacheError = requiredElement(root, "[data-cache-directory-error]");
+  const owner = root.ownerDocument.defaultView ?? undefined;
   const render = (): void => {
     const state = settings.getState();
-    path.textContent = state.downloadDestination;
-    path.setAttribute("title", state.downloadDestination);
-    error.textContent = state.destinationError ?? "";
-    error.toggleAttribute("hidden", !state.destinationError);
+    renderPath(path, state.downloadDestination);
+    renderError(
+      error,
+      state.destinationError === DOWNLOAD_DESTINATION_REQUIRED_ERROR
+        ? undefined
+        : state.destinationError,
+    );
+    renderPath(cachePath, state.cacheDirectory);
+    renderError(
+      cacheError,
+      state.cacheDirectoryError === CACHE_DIRECTORY_REQUIRED_ERROR
+        ? undefined
+        : state.cacheDirectoryError,
+    );
   };
   const onChange = (): void => {
-    void settings.changeDownloadDestination();
+    void settings.changeDownloadDestination(owner);
+  };
+  const onChangeCache = (): void => {
+    void settings.changeCacheDirectory(owner);
   };
 
   change.addEventListener("click", onChange);
+  changeCache.addEventListener("click", onChangeCache);
   const unsubscribe = settings.subscribe(render);
   render();
   let active = true;
@@ -55,6 +77,7 @@ export function mountDownloadPreferences(
       if (!active) return;
       active = false;
       change.removeEventListener("click", onChange);
+      changeCache.removeEventListener("click", onChangeCache);
       unsubscribe();
     },
   };
@@ -110,6 +133,18 @@ export async function registerReferenceForZoteroPreferences(options: {
       options.manager.unregister(paneID);
     },
   };
+}
+
+function renderPath(element: Element, value: string | undefined): void {
+  element.textContent = value ?? "未配置";
+  element.classList.toggle("reference-for-zotero-path-unconfigured", !value);
+  if (value) element.setAttribute("title", value);
+  else element.removeAttribute("title");
+}
+
+function renderError(element: Element, value: string | undefined): void {
+  element.textContent = value ?? "";
+  element.toggleAttribute("hidden", !value);
 }
 
 function requiredElement(root: Element, selector: string): Element {

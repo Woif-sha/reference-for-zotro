@@ -117,7 +117,7 @@ export function registerReaderSection(options: {
     sectionButtons: [
       {
         type: "open-preferences",
-        icon: "chrome://zotero/skin/16/universal/dialog-options.svg",
+        icon: "chrome://referenceforzotero/content/icons/reader-settings.svg",
         l10nID: `${localeNamespace}-reference-for-zotero-section-settings`,
         onClick: openPreferences,
       },

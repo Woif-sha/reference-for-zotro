@@ -145,7 +145,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     [
       {
         type: "open-preferences",
-        icon: "chrome://zotero/skin/16/universal/dialog-options.svg",
+        icon: "chrome://referenceforzotero/content/icons/reader-settings.svg",
         l10nID: "referenceforzotero-reference-for-zotero-section-settings",
       },
     ],

@@ -2,9 +2,13 @@ import type {
   ModelResponseFormat,
   TextModelResult,
 } from "./openai-compatible-transport";
+import { LEGACY_CODEX_RESPONSES_ENDPOINT } from "./model-configuration";
+import {
+  rejectsStructuredOutput,
+  StructuredOutputUnsupportedError,
+} from "./model-errors";
+import { findSseFrameBoundary } from "./sse";
 
-export const LEGACY_CODEX_ENDPOINT =
-  "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_REFRESH_TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
@@ -102,6 +106,12 @@ export class LegacyCodexTransport {
           response,
           ERROR_RESPONSE_MAX_BYTES,
         );
+        if (
+          request.responseFormat === "json_object" &&
+          rejectsStructuredOutput(response.status, detail)
+        ) {
+          throw new StructuredOutputUnsupportedError(new Error(detail));
+        }
         throw new Error(
           `Codex legacy request failed: ${response.status} ${response.statusText} - ${detail}`,
         );
@@ -148,7 +158,7 @@ export class LegacyCodexTransport {
     request: LegacyCodexRequest,
     accessToken: string,
   ): Promise<Response> {
-    return this.runtime.fetch(LEGACY_CODEX_ENDPOINT, {
+    return this.runtime.fetch(LEGACY_CODEX_RESPONSES_ENDPOINT, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -170,7 +180,12 @@ export class LegacyCodexTransport {
       );
     }
     const auth = { authPath, accessToken, refreshToken, document };
-    return accessToken ? auth : this.refreshAccessToken(auth, signal);
+    if (accessToken) return auth;
+    try {
+      return await this.refreshAccessToken(auth, signal);
+    } catch (error) {
+      throw redactCodexError(error, auth);
+    }
   }
 
   private async refreshAccessToken(
@@ -460,6 +475,10 @@ class CodexResponsesStreamParser {
     while (boundary) {
       this.parseFrame(this.buffer.slice(0, boundary.index));
       this.buffer = this.buffer.slice(boundary.index + boundary.length);
+      if (this.completed) {
+        this.buffer = "";
+        return;
+      }
       boundary = findSseFrameBoundary(this.buffer);
     }
   }
@@ -670,6 +689,11 @@ function redactSecrets(detail: string, auth: CodexAuthState): string {
 }
 
 function redactCodexError(error: unknown, auth: CodexAuthState): unknown {
+  if (error instanceof StructuredOutputUnsupportedError) {
+    return new StructuredOutputUnsupportedError(
+      redactCodexError(error.cause, auth),
+    );
+  }
   if (error instanceof CodexLoginRequiredError) {
     return new CodexLoginRequiredError(redactCodexError(error.cause, auth));
   }
@@ -726,23 +750,4 @@ function extractResponseText(response: unknown): string {
     )
     .map((part) => String(part.text))
     .join("");
-}
-
-function findSseFrameBoundary(
-  value: string,
-): { index: number; length: number } | undefined {
-  for (let index = 0; index < value.length; index += 1) {
-    const first = lineEndingLength(value, index);
-    if (!first) continue;
-    const second = lineEndingLength(value, index + first);
-    if (second) return { index, length: first + second };
-    index += first - 1;
-  }
-  return undefined;
-}
-
-function lineEndingLength(value: string, index: number): number {
-  if (value[index] === "\n") return 1;
-  if (value[index] !== "\r") return 0;
-  return value[index + 1] === "\n" ? 2 : 1;
 }

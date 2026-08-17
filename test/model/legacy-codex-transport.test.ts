@@ -282,6 +282,35 @@ test("Legacy transport recursively removes access and refresh tokens from errors
   });
 });
 
+test("Legacy transport redacts refresh-only authentication failures", async () => {
+  const harness = transportHarness();
+  harness.document = authDocument("", "refresh-only-secret");
+  harness.fetch = async () => {
+    throw new Error("network request contained refresh-only-secret");
+  };
+
+  await assert.rejects(harness.transport.run(request()), (error: unknown) => {
+    assert.match(String(error), /\[TOKEN REDACTED\]/u);
+    assert.doesNotMatch(String(error), /refresh-only-secret/u);
+    return true;
+  });
+});
+
+test("Legacy transport classifies JSON object mode rejection", async () => {
+  const harness = transportHarness();
+  harness.fetchResponses.push(
+    new Response('{"error":"text.format json_object is not supported"}', {
+      status: 400,
+      statusText: "Bad Request",
+    }),
+  );
+
+  await assert.rejects(
+    harness.transport.run(request()),
+    /analysis_structured_output_unsupported/u,
+  );
+});
+
 function request() {
   return {
     model: "gpt-5.4",

@@ -108,6 +108,34 @@ test("configuration requires exactly one saved active model", () => {
   );
 });
 
+test("a failed preference write does not publish an unsaved model configuration", () => {
+  let stored: string | undefined;
+  let failWrites = false;
+  const settings = new ModelSettingsStore({
+    get: () => stored,
+    set(_key, value) {
+      if (failWrites) throw new Error("preference write failed");
+      stored = value;
+    },
+  });
+  settings.getConfiguration();
+  let notifications = 0;
+  settings.subscribe(() => {
+    notifications += 1;
+  });
+  failWrites = true;
+
+  assert.throws(
+    () =>
+      settings.saveConfiguration(
+        apiConfiguration("https://api.example.com/v1"),
+      ),
+    /preference write failed/u,
+  );
+  assert.deepEqual(settings.getConfiguration(), DEFAULT_MODEL_CONFIGURATION);
+  assert.equal(notifications, 0);
+});
+
 export function apiConfiguration(apiBase: string): ModelProviderConfiguration {
   return {
     schemaVersion: 1,

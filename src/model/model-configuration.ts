@@ -72,10 +72,11 @@ export class ModelSettingsStore {
   getConfiguration(): ModelProviderConfiguration {
     if (!this.configuration) {
       const stored = this.preferences.get(RECOMMENDATION_MODEL_PREFERENCE);
-      this.configuration = stored
+      const configuration = stored
         ? parseStoredConfiguration(stored)
         : cloneConfiguration(DEFAULT_MODEL_CONFIGURATION);
-      if (!stored) this.persist(this.configuration);
+      if (!stored) this.persist(configuration);
+      this.configuration = configuration;
     }
     return cloneConfiguration(this.configuration);
   }
@@ -84,8 +85,8 @@ export class ModelSettingsStore {
     configuration: ModelProviderConfiguration,
   ): ModelProviderConfiguration {
     const validated = validateProviderConfiguration(configuration);
-    this.configuration = validated;
     this.persist(validated);
+    this.configuration = validated;
     for (const listener of [...this.listeners]) {
       listener(cloneConfiguration(validated));
     }

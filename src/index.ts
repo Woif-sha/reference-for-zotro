@@ -115,6 +115,7 @@ function createRuntime() {
               runtime: scanSci,
               setup: downloadSetup,
             }),
+            recommendationModel: modelSubsystem.recommendationModel,
           }),
           downloadSetup,
         });
@@ -127,10 +128,10 @@ function createRuntime() {
       onShutdown(): void {
         preferences?.unregister();
         preferences = undefined;
-        modelSubsystem?.shutdown();
-        modelSubsystem = undefined;
         handle?.shutdown();
         handle = undefined;
+        modelSubsystem?.shutdown();
+        modelSubsystem = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

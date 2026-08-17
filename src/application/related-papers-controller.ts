@@ -17,10 +17,16 @@ import {
   parseReferenceQuery,
   UNPARSED_REFERENCE_TITLE,
 } from "../literature/reference-query";
+import type {
+  RecommendationRequest,
+  RecommendationResult,
+} from "../recommendation/related-paper-recommendation";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
   sourceFingerprint: string;
+  fullMarkdown: string;
+  fullMdSha256: string;
   mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
@@ -64,6 +70,9 @@ export interface RelatedPapersPorts {
     paper: ReaderPaper,
     context: ResolutionContext,
   ): Promise<Readonly<{ text: string; source: string }>>;
+  recommendPapers?(
+    request: RecommendationRequest,
+  ): Promise<RecommendationResult>;
   readCachedResults?(
     paper: LoadedPaper,
   ): Promise<CachedRelatedPapers | undefined>;
@@ -98,6 +107,7 @@ export class RelatedPapersController implements ReaderSectionController {
     citingPaperLimit: 10,
     citingPapersLoaded: 0,
     citingPapersStatus: { status: "idle" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
@@ -108,9 +118,14 @@ export class RelatedPapersController implements ReaderSectionController {
   private loadController?: AbortController;
   private persistController?: AbortController;
   private downloadRun?: { invalidated: boolean; controller: AbortController };
+  private recommendationRun?: {
+    generation: number;
+    controller: AbortController;
+  };
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private citingRequestGeneration = 0;
+  private recommendationGeneration = 0;
   private context?: ResolutionContext;
   private disposed = false;
 
@@ -149,6 +164,55 @@ export class RelatedPapersController implements ReaderSectionController {
     this.update({ citingPaperLimit: limit, selectedPaperID: undefined });
     if (this.context && limit > this.state.citingPapersLoaded) {
       void this.loadCitingPapers(limit);
+    }
+  }
+
+  async generateRecommendations(): Promise<void> {
+    this.assertActive();
+    const context = this.context;
+    if (
+      !context ||
+      !this.ports.recommendPapers ||
+      this.recommendationRun ||
+      this.state.recommendation.status === "completed"
+    ) {
+      return;
+    }
+    const run = {
+      generation: ++this.recommendationGeneration,
+      controller: new AbortController(),
+    };
+    this.recommendationRun = run;
+    this.update({ recommendation: { status: "analyzing" } });
+    try {
+      const result = await this.ports.recommendPapers({
+        currentPaper: {
+          fullMarkdown: context.paper.fullMarkdown,
+          fullMdSha256: context.paper.fullMdSha256,
+          sourceFingerprint: context.paper.sourceFingerprint,
+        },
+        references: [...this.state.references],
+        citingPapers: [...this.state.citingPapers],
+        signal: run.controller.signal,
+      });
+      if (!this.recommendationIsCurrent(run, context.token)) return;
+      this.update({
+        recommendation:
+          result.status === "no-candidates"
+            ? { status: "no-candidates" }
+            : {
+                status: "completed",
+                priority: result.priority,
+                optional: result.optional,
+              },
+      });
+    } catch (error) {
+      if (!this.recommendationIsCurrent(run, context.token)) return;
+      this.update({
+        recommendation: { status: "failed", message: conciseError(error) },
+      });
+    } finally {
+      if (this.recommendationRun === run) this.recommendationRun = undefined;
     }
   }
 
@@ -329,6 +393,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.loadController?.abort();
     this.loadController = new AbortController();
     this.persistController?.abort();
+    this.cancelRecommendation();
     this.cancelDownloads();
     this.sessions.cancelActive();
     this.context = undefined;
@@ -341,6 +406,7 @@ export class RelatedPapersController implements ReaderSectionController {
       citingPapers: [],
       citingPapersLoaded: 0,
       citingPapersStatus: { status: "idle" },
+      recommendation: { status: "not-analyzed" },
       selectedPaperID: undefined,
       downloadSelection: [],
       paperDownloads: [],
@@ -506,6 +572,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.disposed = true;
     this.loadController?.abort();
     this.persistController?.abort();
+    this.cancelRecommendation();
     this.cancelDownloads();
     this.sessions.dispose();
     this.ports.dispose?.();
@@ -668,13 +735,34 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   private visiblePapers(tab: ReaderTab): readonly ReaderPaper[] {
-    return tab === "references"
-      ? this.state.references
-      : this.state.citingPapers.slice(0, this.state.citingPaperLimit);
+    if (tab === "references") return this.state.references;
+    if (tab === "citations") {
+      return this.state.citingPapers.slice(0, this.state.citingPaperLimit);
+    }
+    return [];
   }
 
   private downloadIsCurrent(run: { invalidated: boolean }): boolean {
     return !this.disposed && this.downloadRun === run && !run.invalidated;
+  }
+
+  private recommendationIsCurrent(
+    run: { generation: number; controller: AbortController },
+    token: SessionToken,
+  ): boolean {
+    return (
+      !this.disposed &&
+      this.recommendationRun === run &&
+      run.generation === this.recommendationGeneration &&
+      !run.controller.signal.aborted &&
+      this.sessions.canCommit(token)
+    );
+  }
+
+  private cancelRecommendation(): void {
+    this.recommendationGeneration += 1;
+    this.recommendationRun?.controller.abort();
+    this.recommendationRun = undefined;
   }
 
   private cancelDownloads(): void {
@@ -694,7 +782,11 @@ export class RelatedPapersController implements ReaderSectionController {
     paperID: string,
   ): ReaderPaper | undefined {
     const papers =
-      tab === "references" ? this.state.references : this.state.citingPapers;
+      tab === "references"
+        ? this.state.references
+        : tab === "citations"
+          ? this.state.citingPapers
+          : [];
     return papers.find((candidate) => candidate.id === paperID);
   }
 

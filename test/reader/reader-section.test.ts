@@ -46,12 +46,125 @@ function readyState(): ReaderSectionState {
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
     citingPapersStatus: { status: "ready" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: true,
   };
 }
+
+test("AI recommendation is the third tab and renders every analysis state without scores", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  let generateCalls = 0;
+  mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab(tab) {
+        state = { ...state, activeTab: tab };
+        listener?.(state);
+      },
+      setCitationLimit() {},
+      async generateRecommendations() {
+        generateCalls += 1;
+      },
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll("[data-tab]")].map(
+      (tab) => (tab as HTMLElement).dataset.tab,
+    ),
+    ["references", "citations", "ai-recommendation"],
+  );
+  (
+    dom.window.document.querySelector(
+      '[data-tab="ai-recommendation"]',
+    ) as HTMLElement | null
+  )?.click();
+  assert.match(dom.window.document.body.textContent ?? "", /生成 AI 推荐/u);
+  (
+    dom.window.document.querySelector(
+      "[data-generate-recommendations]",
+    ) as HTMLButtonElement | null
+  )?.click();
+  assert.equal(generateCalls, 1);
+
+  state = { ...state, recommendation: { status: "analyzing" } };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /正在分析/u);
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  state = {
+    ...state,
+    recommendation: {
+      status: "completed",
+      priority: [
+        {
+          candidateKey: "doi:10.1000/priority",
+          paperID: "citation:0",
+          title: "Priority paper",
+          sources: ["reference", "citation"],
+          reason: "直接扩展当前论文的方法并在新数据上验证。",
+        },
+      ],
+      optional: [
+        {
+          candidateKey: "doi:10.1000/optional",
+          paperID: "reference:0",
+          title: "Optional paper",
+          sources: ["reference"],
+          reason: "提供当前论文采用的理论基础。",
+        },
+      ],
+    },
+  };
+  listener?.(state);
+  const completedText = dom.window.document.body.textContent ?? "";
+  assert.match(completedText, /当前论文的 AI 阅读建议/u);
+  assert.match(completedText, /优先看/u);
+  assert.match(completedText, /可选看/u);
+  assert.match(completedText, /Reference/u);
+  assert.match(completedText, /Citation/u);
+  assert.match(completedText, /直接扩展当前论文的方法/u);
+  assert.doesNotMatch(completedText, /score|相关度\s*[:：]?\s*\d/iu);
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  state = {
+    ...state,
+    recommendation: { status: "failed", message: "模型输出无效" },
+  };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /分析失败/u);
+  assert.match(dom.window.document.body.textContent ?? "", /模型输出无效/u);
+  assert.ok(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+  );
+
+  state = { ...state, recommendation: { status: "no-candidates" } };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /暂无可分析论文/u);
+});
 
 test("Citations distinguish an active lookup from a completed empty result", () => {
   const dom = new JSDOM("<!doctype html><body></body>");

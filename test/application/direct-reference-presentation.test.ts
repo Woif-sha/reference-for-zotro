@@ -30,6 +30,8 @@ test("trusted scholarly URLs display the parsed paper title instead of the full 
         parentItemKey: "PARENT",
       },
       sourceFingerprint: "fingerprint",
+      fullMarkdown: "Current paper",
+      fullMdSha256: "full-md-sha256",
       entries: [],
     },
     token: {
@@ -120,6 +122,8 @@ test("unresolved references display titles wrapped in MinerU right double quotes
         parentItemKey: "PARENT",
       },
       sourceFingerprint: "fingerprint",
+      fullMarkdown: "Current paper",
+      fullMdSha256: "full-md-sha256",
       entries: [],
     },
     token: {
@@ -176,6 +180,8 @@ test("a landing-page timeout is unreachable instead of a red fatal failure", asy
         parentItemKey: "PARENT",
       },
       sourceFingerprint: "fingerprint",
+      fullMarkdown: "Current paper",
+      fullMdSha256: "full-md-sha256",
       entries: [],
     },
     token: {
@@ -226,6 +232,8 @@ test("an unparsed bibliography never falls back to the complete reference", asyn
         parentItemKey: "PARENT",
       },
       sourceFingerprint: "fingerprint",
+      fullMarkdown: "Current paper",
+      fullMdSha256: "full-md-sha256",
       entries: [],
     },
     token: {

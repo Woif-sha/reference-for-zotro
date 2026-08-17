@@ -311,6 +311,22 @@ test("Legacy transport classifies JSON object mode rejection", async () => {
   );
 });
 
+test("Legacy recommendation responses enforce visible output and stream byte budgets", async () => {
+  const outputHarness = transportHarness();
+  outputHarness.fetchResponses.push(completedResponse("LONG"));
+  await assert.rejects(
+    outputHarness.transport.run({ ...request(), maxOutputCharacters: 3 }),
+    /3-character limit/u,
+  );
+
+  const streamHarness = transportHarness();
+  streamHarness.fetchResponses.push(completedResponse("OK"));
+  await assert.rejects(
+    streamHarness.transport.run({ ...request(), maxResponseBytes: 10 }),
+    /10-byte limit/u,
+  );
+});
+
 function request() {
   return {
     model: "gpt-5.4",

@@ -172,3 +172,40 @@ test("OpenAI Compatible classifies JSON object mode rejection", async () => {
     /analysis_structured_output_unsupported/u,
   );
 });
+
+test("OpenAI Compatible recommendation responses enforce visible output and stream byte budgets", async () => {
+  await assert.rejects(
+    runOpenAICompatibleRequest({
+      endpoint: "https://api.example.com/v1/chat/completions",
+      apiKey: "secret",
+      model: "example-model",
+      instructions: "Return JSON.",
+      prompt: "{}",
+      responseFormat: "json_object",
+      maxOutputCharacters: 3,
+      fetch: async () =>
+        new Response(
+          'data: {"choices":[{"delta":{"content":"LONG"}}]}\n\ndata: [DONE]\n\n',
+          { status: 200 },
+        ),
+    }),
+    /3-character limit/u,
+  );
+  await assert.rejects(
+    runOpenAICompatibleRequest({
+      endpoint: "https://api.example.com/v1/chat/completions",
+      apiKey: "secret",
+      model: "example-model",
+      instructions: "Return JSON.",
+      prompt: "{}",
+      responseFormat: "json_object",
+      maxResponseBytes: 10,
+      fetch: async () =>
+        new Response(
+          'data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',
+          { status: 200 },
+        ),
+    }),
+    /10-byte limit/u,
+  );
+});

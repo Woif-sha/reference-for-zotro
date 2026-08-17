@@ -39,6 +39,8 @@ import {
 } from "./platform/zotero-runtime";
 import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
+import type { RecommendationModelPort } from "./model/configured-recommendation-model";
+import { RelatedPaperRecommendationService } from "./recommendation/related-paper-recommendation";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
@@ -46,8 +48,9 @@ export const PROVIDER_QUERY_VERSION = 17;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
-export type ReaderDownloadDependencies = Readonly<{
+export type ReaderRuntimeDependencies = Readonly<{
   downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
+  recommendationModel?: RecommendationModelPort;
 }>;
 
 export function zoteroReaderInteractionDocuments(
@@ -68,12 +71,15 @@ export function zoteroReaderInteractionDocuments(
 }
 
 export function createReaderControllerFactory(
-  downloadDependencies: ReaderDownloadDependencies = {},
+  dependencies: ReaderRuntimeDependencies = {},
 ): ReaderControllerFactory {
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
   const cache = new LiteratureCacheRepository(createZoteroCacheStorage());
+  const recommendation = dependencies.recommendationModel
+    ? new RelatedPaperRecommendationService(dependencies.recommendationModel)
+    : undefined;
 
   return {
     create({ attachmentItemID }) {
@@ -94,6 +100,8 @@ export function createReaderControllerFactory(
           return {
             identity: loaded.identity,
             sourceFingerprint: loaded.sourceFingerprint,
+            fullMarkdown: loaded.fullMarkdown,
+            fullMdSha256: loaded.fullMdSha256,
             mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
@@ -150,6 +158,11 @@ export function createReaderControllerFactory(
             context.signal,
           );
         },
+        ...(recommendation
+          ? {
+              recommendPapers: (request) => recommendation.recommend(request),
+            }
+          : {}),
         async readCachedResults(paper) {
           return cache.read(cacheIdentity(paper));
         },
@@ -171,8 +184,8 @@ export function createReaderControllerFactory(
             itemID,
           });
         },
-        ...(downloadDependencies.downloadPapers
-          ? { downloadPapers: downloadDependencies.downloadPapers }
+        ...(dependencies.downloadPapers
+          ? { downloadPapers: dependencies.downloadPapers }
           : {}),
         revealDownloadedFile(savedPath) {
           void Zotero.File.reveal(savedPath).catch((error: unknown) => {

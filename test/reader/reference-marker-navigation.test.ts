@@ -214,6 +214,7 @@ function readerState(
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
     citingPapersStatus: { status: "ready" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,

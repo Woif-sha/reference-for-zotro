@@ -14,6 +14,8 @@ const loadedPaper: LoadedPaper = {
     parentItemKey: "PARENT01",
   },
   sourceFingerprint: "fingerprint",
+  fullMarkdown: "# Current paper\n\nComplete MinerU Markdown.",
+  fullMdSha256: "full-md-sha256",
   mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   entries: [
     {
@@ -23,6 +25,180 @@ const loadedPaper: LoadedPaper = {
     },
   ],
 };
+
+test("recommendation snapshots the retained Current paper and every Controller candidate once", async () => {
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const requests: unknown[] = [];
+  let paperLoads = 0;
+  let citingLoads = 0;
+  let abstractLoads = 0;
+  const references = [
+    {
+      ...resolvedPaper("Reference", "10.1000/reference"),
+      abstract: "Reference abstract",
+    },
+  ];
+  const citingPapers = papers(12).map((entry) => ({
+    ...entry,
+    abstract: `${entry.title} abstract`,
+  }));
+  const controller = new RelatedPapersController(42, {
+    async loadPaper() {
+      paperLoads += 1;
+      return loadedPaper;
+    },
+    async resolveReferences() {
+      throw new Error("cached results should be used");
+    },
+    async loadCitingPapers() {
+      citingLoads += 1;
+      return [];
+    },
+    async loadAbstract() {
+      abstractLoads += 1;
+      return { text: "unexpected", source: "unexpected" };
+    },
+    async readCachedResults() {
+      return { references, citingPapers, citingPapersLoaded: 10 };
+    },
+    recommendPapers(request) {
+      requests.push(request);
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const run = controller.generateRecommendations();
+  assert.equal(controller.getState().recommendation.status, "analyzing");
+  controller.selectTab("citations");
+  controller.selectTab("ai-recommendation");
+  void controller.generateRecommendations();
+  assert.equal(requests.length, 1);
+  const request = requests[0] as {
+    currentPaper: unknown;
+    references: readonly unknown[];
+    citingPapers: readonly unknown[];
+    signal: AbortSignal;
+  };
+  assert.deepEqual(request.currentPaper, {
+    fullMarkdown: loadedPaper.fullMarkdown,
+    fullMdSha256: loadedPaper.fullMdSha256,
+    sourceFingerprint: loadedPaper.sourceFingerprint,
+  });
+  assert.equal(request.references.length, 1);
+  assert.equal(request.citingPapers.length, 12);
+  assert.equal(request.signal.aborted, false);
+  assert.equal(paperLoads, 1);
+  assert.equal(citingLoads, 0);
+  assert.equal(abstractLoads, 0);
+
+  recommendation.resolve({ status: "completed", priority: [], optional: [] });
+  await run;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "completed",
+    priority: [],
+    optional: [],
+  });
+});
+
+test("recommendation exposes empty and isolated failure states and permits manual retry", async () => {
+  let calls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    async recommendPapers() {
+      calls += 1;
+      if (calls === 1) return { status: "no-candidates" };
+      throw new Error("recommendation provider failed");
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  const references = controller.getState().references;
+
+  await controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "no-candidates",
+  });
+  await controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "recommendation provider failed",
+  });
+  assert.equal(calls, 2);
+  assert.equal(controller.getState().references, references);
+  assert.equal(controller.getState().status, "ready");
+});
+
+test("refresh and dispose abort recommendation work and reject late commits", async () => {
+  const firstRecommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const secondRecommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const replacementLoad = deferred<LoadedPaper>();
+  const signals: AbortSignal[] = [];
+  let paperLoads = 0;
+  let recommendationCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper() {
+      paperLoads += 1;
+      return paperLoads === 1
+        ? Promise.resolve(loadedPaper)
+        : replacementLoad.promise;
+    },
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    recommendPapers(request) {
+      signals.push(request.signal!);
+      recommendationCalls += 1;
+      return recommendationCalls === 1
+        ? firstRecommendation.promise
+        : secondRecommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const firstRun = controller.generateRecommendations();
+  controller.refresh();
+  assert.equal(signals[0]?.aborted, true);
+  firstRecommendation.resolve({
+    status: "completed",
+    priority: [],
+    optional: [],
+  });
+  await firstRun;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+
+  replacementLoad.resolve({ ...loadedPaper, sourceFingerprint: "replacement" });
+  await waitFor(() => controller.getState().status === "ready");
+  const secondRun = controller.generateRecommendations();
+  controller.dispose();
+  assert.equal(signals[1]?.aborted, true);
+  secondRecommendation.resolve({
+    status: "completed",
+    priority: [],
+    optional: [],
+  });
+  await secondRun;
+  assert.equal(recommendationCalls, 2);
+});
 
 test("Reference entries show parsed titles before matching and after a failure", async () => {
   const paper: LoadedPaper = {

@@ -6,12 +6,13 @@ import {
   LegacyCodexTransport,
   buildLegacyCodexPayload,
   resolveCodexAuthPath,
+  type LegacyCodexResponseSchema,
   type LegacyCodexRuntime,
 } from "../../src/model/legacy-codex-transport";
 
 const encoder = new TextEncoder();
 
-test("Legacy Codex uses plain text for connection tests and fixed JSON object mode for recommendations", () => {
+test("Legacy Codex uses plain text for connection tests and strict JSON schema for recommendations", () => {
   assert.deepEqual(
     buildLegacyCodexPayload({
       model: "gpt-5.4",
@@ -41,7 +42,8 @@ test("Legacy Codex uses plain text for connection tests and fixed JSON object mo
       effort: "medium",
       instructions: "Return the requested schema.",
       prompt: "{}",
-      responseFormat: "json_object",
+      responseFormat: "json_schema",
+      responseSchema: recommendationResponseSchema(),
     }),
     {
       model: "gpt-5.4",
@@ -53,13 +55,44 @@ test("Legacy Codex uses plain text for connection tests and fixed JSON object mo
           content: [{ type: "input_text", text: "{}" }],
         },
       ],
-      text: { format: { type: "json_object" } },
+      text: {
+        format: {
+          type: "json_schema",
+          ...recommendationResponseSchema(),
+        },
+      },
       store: false,
       stream: true,
       reasoning: { effort: "medium" },
     },
   );
 });
+
+function recommendationResponseSchema(): LegacyCodexResponseSchema {
+  const item = {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "reason"],
+    properties: {
+      id: { type: "string" },
+      reason: { type: "string" },
+    },
+  };
+  return {
+    name: "related_paper_recommendation",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["schemaVersion", "priority", "optional"],
+      properties: {
+        schemaVersion: { type: "integer", enum: [1] },
+        priority: { type: "array", items: item },
+        optional: { type: "array", items: item },
+      },
+    },
+  };
+}
 
 test("Legacy auth path prefers CODEX_HOME, then home environment, then Zotero homes", () => {
   assert.equal(
@@ -296,17 +329,21 @@ test("Legacy transport redacts refresh-only authentication failures", async () =
   });
 });
 
-test("Legacy transport classifies JSON object mode rejection", async () => {
+test("Legacy transport classifies JSON schema rejection", async () => {
   const harness = transportHarness();
   harness.fetchResponses.push(
-    new Response('{"error":"text.format json_object is not supported"}', {
+    new Response('{"error":"text.format json_schema is not supported"}', {
       status: 400,
       statusText: "Bad Request",
     }),
   );
 
   await assert.rejects(
-    harness.transport.run(request()),
+    harness.transport.run({
+      ...request(),
+      responseFormat: "json_schema",
+      responseSchema: recommendationResponseSchema(),
+    }),
     /analysis_structured_output_unsupported/u,
   );
 });

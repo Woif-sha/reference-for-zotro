@@ -1,4 +1,7 @@
-import type { LegacyCodexRequest } from "./legacy-codex-transport";
+import type {
+  LegacyCodexRequest,
+  LegacyCodexResponseSchema,
+} from "./legacy-codex-transport";
 import {
   flattenRuntimeModels,
   type ModelAuthMode,
@@ -7,6 +10,21 @@ import {
 } from "./model-configuration";
 import type { OpenAICompatibleRequest } from "./openai-compatible-transport";
 import type { TextModelResult } from "./model-transport";
+
+const RECOMMENDATION_RESPONSE_SCHEMA: LegacyCodexResponseSchema = {
+  name: "related_paper_recommendation",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "priority", "optional"],
+    properties: {
+      schemaVersion: { type: "integer", enum: [1] },
+      priority: { type: "array", items: recommendationItemSchema() },
+      optional: { type: "array", items: recommendationItemSchema() },
+    },
+  },
+};
 
 export type RecommendationModelIdentity = Readonly<{
   authMode: ModelAuthMode;
@@ -113,7 +131,8 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
         effort: model.effort,
         instructions: request.instructions,
         prompt: request.prompt,
-        responseFormat: "json_object",
+        responseFormat: "json_schema",
+        responseSchema: RECOMMENDATION_RESPONSE_SCHEMA,
         signal,
       });
     }
@@ -127,6 +146,18 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
       signal,
     });
   }
+}
+
+function recommendationItemSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "reason"],
+    properties: {
+      id: { type: "string" },
+      reason: { type: "string" },
+    },
+  };
 }
 
 function activeModel(configuration: ModelProviderConfiguration): RuntimeModel {

@@ -36,6 +36,32 @@ test("recommendation model routes once to the selected provider and returns a se
   );
 });
 
+test("Legacy recommendations use a strict JSON schema instead of rejected JSON object mode", async () => {
+  let legacyRequest:
+    Parameters<RecommendationModelTransports["legacy"]>[0] | undefined;
+  const model = new ConfiguredRecommendationModel(
+    () => configuration("model-codex"),
+    {
+      async legacy(request) {
+        legacyRequest = request;
+        return { text: "legacy-result" };
+      },
+      async openAICompatible() {
+        throw new Error("not used");
+      },
+    },
+  );
+
+  await model.generate({ instructions: "Return JSON.", prompt: "{}" });
+
+  assert.equal(legacyRequest?.responseFormat, "json_schema");
+  assert.equal(
+    legacyRequest?.responseSchema?.name,
+    "related_paper_recommendation",
+  );
+  assert.equal(legacyRequest?.responseSchema?.strict, true);
+});
+
 test("provider failure never falls back to another provider or model", async () => {
   const calls: string[] = [];
   const model = new ConfiguredRecommendationModel(

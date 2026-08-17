@@ -232,7 +232,11 @@ test("a newly loaded Abstract invalidates a restored recommendation without auto
     ],
     loadCitingPapers: async () => [],
     async loadAbstract() {
-      return { text: "New Abstract", source: "crossref" };
+      return {
+        text: "New Abstract",
+        source: "crossref",
+        sourceRecordID: "10.1000/reference",
+      };
     },
     async readCachedRecommendation(request) {
       cacheReads += 1;
@@ -245,14 +249,15 @@ test("a newly loaded Abstract invalidates a restored recommendation without auto
     openURL() {},
   });
   await controller.refreshAsync();
-  assert.equal(controller.getState().recommendation.status, "completed");
 
-  controller.selectPaper("reference:0");
-  await waitFor(() => cacheReads === 2);
+  await waitFor(
+    () => controller.getState().references[0]?.abstract !== undefined,
+  );
 
   assert.deepEqual(controller.getState().recommendation, {
     status: "not-analyzed",
   });
+  assert.ok(cacheReads >= 2);
   assert.equal(modelCalls, 0);
 });
 
@@ -435,7 +440,11 @@ test("recommendation snapshots the retained Current paper and every Controller c
     },
     async loadAbstract() {
       abstractLoads += 1;
-      return { text: "unexpected", source: "unexpected" };
+      return {
+        text: "unexpected",
+        source: "unexpected",
+        sourceRecordID: "unexpected",
+      };
     },
     async readCachedResults() {
       return { references, citingPapers, citingPapersLoaded: 10 };
@@ -841,8 +850,9 @@ test("paper actions copy available metadata and open an explicit Google search",
   ]);
 });
 
-test("selecting a resolved DOI paper lazily loads and publishes its Abstract", async () => {
-  const abstract = deferred<{ text: string; source: string }>();
+test("opening a Current paper silently loads Citations and deduplicated Abstracts", async () => {
+  const abstractLoads: string[] = [];
+  let citationLimit: number | undefined;
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
     resolveReferences: async () => [
@@ -855,30 +865,59 @@ test("selecting a resolved DOI paper lazily loads and publishes its Abstract", a
         doi: "10.1000/one",
       },
     ],
-    loadCitingPapers: async () => [],
-    loadAbstract: () => abstract.promise,
+    loadCitingPapers: async (limit) => {
+      citationLimit = limit;
+      return [
+        {
+          id: "citation:0",
+          ordinal: 0,
+          title: "Same paper",
+          status: "resolved",
+          primaryResultURL: "https://doi.org/10.1000/one",
+          doi: "https://doi.org/10.1000/ONE",
+        },
+        {
+          id: "citation:1",
+          ordinal: 1,
+          title: "Another paper",
+          status: "resolved",
+          primaryResultURL: "https://doi.org/10.1000/two",
+          doi: "10.1000/two",
+        },
+      ];
+    },
+    async loadAbstract(paper) {
+      abstractLoads.push(paper.doi ?? "");
+      return {
+        text: `${paper.doi} Abstract`,
+        source: "openalex",
+        sourceRecordID: `openalex:${paper.doi}`,
+      };
+    },
     openURL() {},
   });
   await controller.refreshAsync();
 
-  controller.selectPaper("reference:0");
   await waitFor(
-    () => controller.getState().references[0]?.abstractLoading === true,
-  );
-  abstract.resolve({
-    text: "An abstract loaded only after the paper was selected.",
-    source: "semantic-scholar",
-  });
-  await waitFor(
-    () =>
-      controller.getState().references[0]?.abstract ===
-      "An abstract loaded only after the paper was selected.",
+    () => controller.getState().citingPapers[1]?.abstract !== undefined,
   );
 
+  assert.equal(citationLimit, 10);
+  assert.deepEqual(abstractLoads, ["10.1000/one", "10.1000/two"]);
   assert.equal(
-    controller.getState().references[0]?.abstractSource,
-    "semantic-scholar",
+    controller.getState().references[0]?.abstract,
+    "10.1000/one Abstract",
   );
+  assert.equal(
+    controller.getState().citingPapers[0]?.abstract,
+    "10.1000/one Abstract",
+  );
+  assert.equal(controller.getState().references[0]?.abstractSource, "openalex");
+  assert.equal(
+    controller.getState().references[0]?.abstractSourceRecordID,
+    "openalex:10.1000/one",
+  );
+  assert.ok(controller.getState().references[0]?.abstractRetrievedAt);
   assert.equal(controller.getState().references[0]?.abstractLoading, false);
 });
 

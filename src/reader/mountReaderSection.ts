@@ -65,6 +65,8 @@ type ReaderPaperBase = {
   pmcid?: string;
   abstract?: string;
   abstractSource?: string;
+  abstractSourceRecordID?: string;
+  abstractRetrievedAt?: string;
   abstractLoading?: boolean;
   abstractError?: string;
   citationCount?: number;

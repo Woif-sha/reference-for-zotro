@@ -224,6 +224,7 @@ function cacheFiles(value: string) {
     "manifest.json": value,
     "references.json": value,
     "citations.json": value,
+    "abstract.json": value,
   };
 }
 

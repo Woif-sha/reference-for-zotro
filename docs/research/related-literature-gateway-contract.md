@@ -168,7 +168,7 @@ type ScholarlyCandidate = {
 - 一个 HTTPS Paper landing page；
 - `reachability = reachable`。
 
-authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_metadata`。abstract 和 counts 是可选展示字段，不是身份确认字段。Crossref 明确说明 abstract 可能受 publisher/author copyright；不持久缓存来源为 Crossref 的 abstract，也不把 abstract 纳入 Primary result 得分。用户打开详情卡且已确认 DOI 的记录没有 abstract 时，才依次通过 OpenAlex、Semantic Scholar Academic Graph API 延迟补全并显示；每次返回都必须与请求 DOI 完全一致，该补全不参与身份确认或 Primary result 选择。[Crossref metadata rights](https://www.crossref.org/documentation/retrieve-metadata/)；[OpenAlex API](https://developers.openalex.org/)；[Semantic Scholar Academic Graph API](https://www.semanticscholar.org/product/api)
+authors、date/year、venue 缺失时可保留候选，但标记 `incomplete_metadata`。abstract 和 counts 是可选展示字段，不是身份确认字段。Crossref 明确说明 abstract 可能受 publisher/author copyright；不持久缓存来源为 Crossref 的 abstract，也不把 abstract 纳入 Primary result 得分。相关论文区域加载后，已确认 DOI 且缺少 abstract 的 References 与已加载 Citing papers 依次通过 OpenAlex、Semantic Scholar Academic Graph API 后台补全；每次返回都必须与请求 DOI 完全一致。OpenAlex 结果按 DOI 写入当前论文缓存目录的 `abstract.json`，Semantic Scholar 与 Crossref 结果只在当前会话显示。该补全不参与身份确认或 Primary result 选择。[Crossref metadata rights](https://www.crossref.org/documentation/retrieve-metadata/)；[OpenAlex API](https://developers.openalex.org/)；[Semantic Scholar Academic Graph API](https://www.semanticscholar.org/product/api)
 
 ## 规范化、去重与匹配
 

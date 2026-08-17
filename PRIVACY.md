@@ -8,15 +8,15 @@ Depending on the selected feature, the plugin may send:
 
 - reference title, first author and year to Crossref or DataCite;
 - DOI to the DOI resolver to verify a paper landing page;
-- DOI or other supported identifiers to OpenCitations for Citing papers;
-- DOI to OpenAlex and, if necessary, Semantic Scholar when the user opens a detail card whose resolved record has no Abstract;
+- DOI or other supported identifiers to OpenCitations when the Related Papers section automatically loads the first 10 Citing papers or the user requests more;
+- DOI to OpenAlex and, if necessary, Semantic Scholar while the plugin automatically fills missing Abstracts for resolved References and loaded Citing papers;
 - a trusted scholarly landing-page URL, such as ACL Anthology, to read public citation metadata.
 
 Returned records are accepted only through the plugin's identity, schema and reachability checks. Abstract fallback responses must contain the exact requested DOI.
 
 ## Local cache
 
-Resolved literature data is stored under Zotero's data directory in `reference-for-zotero-cache/v1`. Cache identities include the current attachment, MinerU fingerprint and provider contract versions. The plugin does not persist Crossref-sourced Abstract text.
+Resolved literature data is stored under Zotero's data directory in `reference-for-zotero-cache/v2/papers`. Cache identities include the current attachment, MinerU fingerprint and provider contract versions. Each paper directory may contain `abstract.json`; it stores only OpenAlex-sourced Abstracts together with their DOI, source record and retrieval time. The plugin does not persist Crossref- or Semantic Scholar-sourced Abstract text.
 
 ## Download setup
 

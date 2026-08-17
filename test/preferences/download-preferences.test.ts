@@ -81,7 +81,9 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
     true,
   );
   assert.equal(
-    root.querySelector("[data-download-directory-error]")?.hasAttribute("hidden"),
+    root
+      .querySelector("[data-download-directory-error]")
+      ?.hasAttribute("hidden"),
     true,
   );
   assert.equal(

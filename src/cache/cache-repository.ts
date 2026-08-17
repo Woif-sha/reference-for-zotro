@@ -5,9 +5,10 @@ import {
 } from "./cache-key";
 import type { CachedRelatedPapers } from "../application/related-papers-controller";
 import type { ReaderPaper } from "../reader/mountReaderSection";
+import { normalizeDoi } from "../literature/identifiers";
 
 export type LiteratureCacheFileName =
-  "manifest.json" | "references.json" | "citations.json";
+  "manifest.json" | "references.json" | "citations.json" | "abstract.json";
 
 export type LiteratureCacheFiles = Readonly<
   Record<LiteratureCacheFileName, string>
@@ -48,7 +49,22 @@ type CachedCitationsFile = CachedPaperFile & {
   loadedLimit: number;
 };
 
+type CachedAbstractRecord = {
+  doi: string;
+  text: string;
+  source: "openalex";
+  sourceRecordID: string;
+  retrievedAt: string;
+};
+
+type CachedAbstractFile = {
+  schemaVersion: 1;
+  updatedAt: string;
+  abstracts: readonly CachedAbstractRecord[];
+};
+
 const CACHE_SCHEMA_VERSION = 2;
+const ABSTRACT_CACHE_SCHEMA_VERSION = 1;
 
 export class LiteratureCacheRepository {
   constructor(private readonly storage: CacheStorage) {}
@@ -66,24 +82,35 @@ export class LiteratureCacheRepository {
       return undefined;
     }
 
-    const [rawReferences, rawCitations] = await Promise.all([
+    const [rawReferences, rawCitations, rawAbstracts] = await Promise.all([
       this.storage.read(directory, "references.json"),
       this.storage.read(directory, "citations.json"),
+      this.storage.read(directory, "abstract.json"),
     ]);
     if (rawReferences === undefined || rawCitations === undefined) {
       throw new Error("Literature cache is incomplete");
     }
     const references = parsePaperFile(rawReferences, "references.json");
     const citations = parseCitationsFile(rawCitations);
+    const abstracts =
+      rawAbstracts === undefined ? undefined : parseAbstractFile(rawAbstracts);
     if (
       references.updatedAt !== manifest.updatedAt ||
-      citations.updatedAt !== manifest.updatedAt
+      citations.updatedAt !== manifest.updatedAt ||
+      (abstracts && abstracts.updatedAt !== manifest.updatedAt)
     ) {
       throw new Error("Literature cache files belong to different revisions");
     }
+    const abstractsByDoi = new Map(
+      abstracts?.abstracts.map((record) => [record.doi, record]),
+    );
     return {
-      references: references.papers.map(restorePaper),
-      citingPapers: citations.papers.map(restorePaper),
+      references: references.papers.map((record) =>
+        restorePaper(record, abstractsByDoi),
+      ),
+      citingPapers: citations.papers.map((record) =>
+        restorePaper(record, abstractsByDoi),
+      ),
       citingPapersLoaded: citations.loadedLimit,
     };
   }
@@ -111,12 +138,18 @@ export class LiteratureCacheRepository {
       loadedLimit: results.citingPapersLoaded,
       papers: results.citingPapers.map(cachePaper),
     };
+    const abstracts: CachedAbstractFile = {
+      schemaVersion: ABSTRACT_CACHE_SCHEMA_VERSION,
+      updatedAt,
+      abstracts: cacheAbstracts(results),
+    };
     await this.storage.write(
       createLiteratureCacheDirectory(identity),
       {
         "manifest.json": serialize(manifest),
         "references.json": serialize(references),
         "citations.json": serialize(citations),
+        "abstract.json": serialize(abstracts),
       },
       signal,
     );
@@ -168,6 +201,36 @@ function parseCitationsFile(raw: string): CachedCitationsFile {
   return value as CachedCitationsFile;
 }
 
+function parseAbstractFile(raw: string): CachedAbstractFile {
+  const value: unknown = JSON.parse(raw);
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== ABSTRACT_CACHE_SCHEMA_VERSION ||
+    typeof value.updatedAt !== "string" ||
+    !Number.isFinite(Date.parse(value.updatedAt)) ||
+    !Array.isArray(value.abstracts) ||
+    !value.abstracts.every(isCachedAbstract)
+  ) {
+    throw new Error("Literature cache abstract.json is invalid");
+  }
+  return value as CachedAbstractFile;
+}
+
+function isCachedAbstract(value: unknown): value is CachedAbstractRecord {
+  if (!isRecord(value) || typeof value.doi !== "string") return false;
+  const doi = normalizeDoi(value.doi);
+  return (
+    doi === value.doi &&
+    typeof value.text === "string" &&
+    value.text.trim().length > 0 &&
+    value.source === "openalex" &&
+    typeof value.sourceRecordID === "string" &&
+    value.sourceRecordID.length > 0 &&
+    typeof value.retrievedAt === "string" &&
+    Number.isFinite(Date.parse(value.retrievedAt))
+  );
+}
+
 function isPaperFile(value: unknown): value is CachedPaperFile {
   return (
     isRecord(value) &&
@@ -189,6 +252,8 @@ function isCachedPaper(value: unknown): value is CachedPaperRecord {
     !PAPER_STATUSES.has(value.status as ReaderPaper["status"]) ||
     "abstract" in value ||
     "abstractSource" in value ||
+    "abstractSourceRecordID" in value ||
+    "abstractRetrievedAt" in value ||
     "abstractLoading" in value ||
     "abstractError" in value ||
     "primaryResultURL" in value
@@ -214,6 +279,8 @@ function cachePaper(paper: ReaderPaper): CachedPaperRecord {
   const record: Record<string, unknown> = { ...paper };
   delete record.abstract;
   delete record.abstractSource;
+  delete record.abstractSourceRecordID;
+  delete record.abstractRetrievedAt;
   delete record.abstractLoading;
   delete record.abstractError;
   if (paper.status === "resolved") {
@@ -223,13 +290,51 @@ function cachePaper(paper: ReaderPaper): CachedPaperRecord {
   return record as CachedPaperRecord;
 }
 
-function restorePaper(record: CachedPaperRecord): ReaderPaper {
+function cacheAbstracts(
+  results: CachedRelatedPapers,
+): readonly CachedAbstractRecord[] {
+  const records = new Map<string, CachedAbstractRecord>();
+  for (const paper of [...results.references, ...results.citingPapers]) {
+    if (!paper.abstract || paper.abstractSource !== "openalex") continue;
+    const doi = normalizeDoi(paper.doi);
+    if (!doi) continue;
+    if (!paper.abstractSourceRecordID || !paper.abstractRetrievedAt) {
+      throw new Error("OpenAlex Abstract cache metadata is incomplete");
+    }
+    records.set(doi, {
+      doi,
+      text: paper.abstract,
+      source: "openalex",
+      sourceRecordID: paper.abstractSourceRecordID,
+      retrievedAt: paper.abstractRetrievedAt,
+    });
+  }
+  return [...records.values()].sort((left, right) =>
+    left.doi.localeCompare(right.doi),
+  );
+}
+
+function restorePaper(
+  record: CachedPaperRecord,
+  abstractsByDoi: ReadonlyMap<string, CachedAbstractRecord>,
+): ReaderPaper {
   const { landingURL, ...paper } = record;
-  return (
+  const restored = (
     record.status === "resolved"
       ? { ...paper, status: "resolved", primaryResultURL: landingURL }
       : paper
   ) as ReaderPaper;
+  const doi = normalizeDoi(restored.doi);
+  const abstract = doi ? abstractsByDoi.get(doi) : undefined;
+  return abstract
+    ? {
+        ...restored,
+        abstract: abstract.text,
+        abstractSource: abstract.source,
+        abstractSourceRecordID: abstract.sourceRecordID,
+        abstractRetrievedAt: abstract.retrievedAt,
+      }
+    : restored;
 }
 
 function serialize(value: unknown): string {

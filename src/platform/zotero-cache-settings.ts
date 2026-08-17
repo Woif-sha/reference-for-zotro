@@ -1,12 +1,9 @@
-import type { DownloadSettingsPorts } from "../application/download-settings";
-import type { ScanSciPort } from "../scansci/scan-sci-port";
+import type { CacheSettingsPorts } from "../application/cache-settings";
 import { chooseZoteroDirectory } from "./zotero-directory-picker";
 
-export function createZoteroDownloadSettingsPorts(options: {
-  runtime: ScanSciPort;
-}): DownloadSettingsPorts {
+export function createZoteroCacheSettingsPorts(): CacheSettingsPorts {
   return {
-    runtime: options.runtime,
+    defaultCacheRoot: zoteroDefaultCacheRoot,
     getPreference(key) {
       const value = Zotero.Prefs.get(key, true);
       return typeof value === "string" && value.trim() ? value : undefined;
@@ -17,9 +14,9 @@ export function createZoteroDownloadSettingsPorts(options: {
     clearPreference(key) {
       Zotero.Prefs.clear(key, true);
     },
-    chooseDownloadDestination(current, owner) {
+    chooseCacheRoot(current, owner) {
       return chooseZoteroDirectory({
-        title: "Choose download destination",
+        title: "Choose Reference for Zotero Cache root",
         current,
         owner,
       });
@@ -27,12 +24,12 @@ export function createZoteroDownloadSettingsPorts(options: {
   };
 }
 
-export function zoteroSidecarDataRoot(): string {
+export function zoteroDefaultCacheRoot(): string {
   const dataDirectory = (
     Zotero as typeof Zotero & { DataDirectory?: { dir?: string } }
   ).DataDirectory?.dir?.trim();
   if (!dataDirectory) throw new Error("Cannot resolve Zotero data directory");
-  return joinWindows(dataDirectory, "reference-for-zotero-sidecar\\v3");
+  return joinWindows(dataDirectory, "reference-for-zotero-cache");
 }
 
 function joinWindows(left: string, right: string): string {

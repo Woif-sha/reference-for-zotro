@@ -12,6 +12,44 @@ const currentPaperIdentity = {
   parentItemKey: "PARENT01",
 };
 
+test("model and Cache root changes share the recommendation invalidation subscription", () => {
+  let modelChange: (() => void) | undefined;
+  let cacheRootChange: (() => void) | undefined;
+  let unsubscribed = 0;
+  const service = new RelatedPaperRecommendationService(
+    {
+      subscribeIdentityChange(listener) {
+        modelChange = listener;
+        return () => {
+          unsubscribed += 1;
+        };
+      },
+      async generate() {
+        throw new Error("not used");
+      },
+    },
+    {
+      subscribeCacheRootChange(listener) {
+        cacheRootChange = listener;
+        return () => {
+          unsubscribed += 1;
+        };
+      },
+    },
+  );
+  let invalidations = 0;
+  const unsubscribe = service.subscribeIdentityChange(() => {
+    invalidations += 1;
+  });
+
+  modelChange?.();
+  cacheRootChange?.();
+  assert.equal(invalidations, 2);
+
+  unsubscribe();
+  assert.equal(unsubscribed, 2);
+});
+
 test("one global model call ranks every abstract-bearing candidate and merges shared scholarly identities", async () => {
   const requests: Array<{ instructions: string; prompt: string }> = [];
   const model: RecommendationModelPort = {

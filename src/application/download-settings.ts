@@ -22,13 +22,16 @@ export interface DownloadSettingsPorts {
   getPreference(key: string): string | undefined;
   setPreference(key: string, value: string): void;
   clearPreference(key: string): void;
-  chooseDownloadDestination(current: string): Promise<string | undefined>;
+  chooseDownloadDestination(
+    current: string,
+    owner?: Window,
+  ): Promise<string | undefined>;
 }
 
 export interface DownloadSettingsController {
   getState(): DownloadSettingsState;
   subscribe(listener: (state: DownloadSettingsState) => void): () => void;
-  changeDownloadDestination(): Promise<void>;
+  changeDownloadDestination(owner?: Window): Promise<void>;
   resetDownloadDestination(): void;
   probeRuntime(): Promise<void>;
   dispose(): void;
@@ -77,11 +80,12 @@ export class DownloadSettingsCoordinator implements DownloadSettingsController {
     return () => this.listeners.delete(listener);
   }
 
-  async changeDownloadDestination(): Promise<void> {
+  async changeDownloadDestination(owner?: Window): Promise<void> {
     if (this.disposed) return;
     try {
       const selected = await this.ports.chooseDownloadDestination(
         this.state.downloadDestination,
+        owner,
       );
       if (this.disposed || !selected) return;
       const downloadDestination = validateWindowsAbsolutePath(

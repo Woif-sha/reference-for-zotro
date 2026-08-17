@@ -1,5 +1,7 @@
 import type { DownloadSettingsController } from "../application/download-settings";
+import type { CacheSettingsController } from "../application/cache-settings";
 import type { ModelPreferencesController } from "../application/model-settings";
+import { mountCachePreferences } from "./cache-preferences";
 import { mountModelPreferences } from "./model-preferences";
 
 export type PreferencePaneOptions = Readonly<{
@@ -31,6 +33,7 @@ export function mountDownloadPreferences(
   const path = requiredElement(root, "[data-download-directory-path]");
   const change = requiredElement(root, "[data-change-download-directory]");
   const error = requiredElement(root, "[data-download-directory-error]");
+  const owner = root.ownerDocument.defaultView ?? undefined;
   const render = (): void => {
     const state = settings.getState();
     path.textContent = state.downloadDestination;
@@ -39,7 +42,7 @@ export function mountDownloadPreferences(
     error.toggleAttribute("hidden", !state.destinationError);
   };
   const onChange = (): void => {
-    void settings.changeDownloadDestination();
+    void settings.changeDownloadDestination(owner);
   };
 
   change.addEventListener("click", onChange);
@@ -62,6 +65,7 @@ export async function registerReferenceForZoteroPreferences(options: {
   pluginID: string;
   rootURI: string;
   settings: DownloadSettingsController;
+  cacheSettings: CacheSettingsController;
   modelSettings: ModelPreferencesController;
 }): Promise<ReferenceForZoteroPreferencesHandle> {
   const paneID = await options.manager.register({
@@ -86,11 +90,16 @@ export async function registerReferenceForZoteroPreferences(options: {
         root,
         options.modelSettings,
       );
+      const cachePreferences = mountCachePreferences(
+        root,
+        options.cacheSettings,
+      );
       const ownerWindow = root.ownerDocument.defaultView;
       const mountedPreferences: MountedDownloadPreferences = {
         destroy() {
           ownerWindow?.removeEventListener("unload", onUnload);
           modelPreferences.destroy();
+          cachePreferences.destroy();
           downloadPreferences.destroy();
           if (mounted.get(root) === mountedPreferences) mounted.delete(root);
         },

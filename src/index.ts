@@ -6,12 +6,14 @@ import {
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
 import { DownloadSettingsCoordinator } from "./application/download-settings";
+import { CacheSettingsCoordinator } from "./application/cache-settings";
 import { createScanSciDownloadPapers } from "./application/scan-sci-download";
 import {
   createZoteroDownloadSettingsPorts,
   zoteroSidecarDataRoot,
 } from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
+import { createZoteroCacheSettingsPorts } from "./platform/zotero-cache-settings";
 import {
   createZoteroModelSubsystem,
   type ZoteroModelSubsystem,
@@ -63,6 +65,7 @@ function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
   let preferences: ReferenceForZoteroPreferencesHandle | undefined;
   let modelSubsystem: ZoteroModelSubsystem | undefined;
+  let cacheSettings: CacheSettingsCoordinator | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -101,12 +104,17 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
+        const configuredCacheSettings = new CacheSettingsCoordinator(
+          createZoteroCacheSettingsPorts(),
+        );
+        cacheSettings = configuredCacheSettings;
         modelSubsystem = createZoteroModelSubsystem();
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
           pluginID: config.addonID,
           rootURI: packagedRootURI,
           settings: downloadSetup,
+          cacheSettings: configuredCacheSettings,
           modelSettings: modelSubsystem.settings,
         });
         handle = startReferenceForZotero({
@@ -116,6 +124,9 @@ function createRuntime() {
               setup: downloadSetup,
             }),
             recommendationModel: modelSubsystem.recommendationModel,
+            cacheRoot: () => configuredCacheSettings.cacheRoot(),
+            subscribeCacheRootChange: (listener) =>
+              configuredCacheSettings.subscribe(() => listener()),
           }),
           downloadSetup,
         });
@@ -132,6 +143,8 @@ function createRuntime() {
         handle = undefined;
         modelSubsystem?.shutdown();
         modelSubsystem = undefined;
+        cacheSettings?.dispose();
+        cacheSettings = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

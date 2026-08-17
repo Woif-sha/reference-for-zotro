@@ -4,6 +4,7 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 import { DownloadSettingsCoordinator } from "../../src/application/download-settings";
+import { CacheSettingsCoordinator } from "../../src/application/cache-settings";
 import type { ModelPreferencesController } from "../../src/application/model-settings";
 import { DEFAULT_MODEL_CONFIGURATION } from "../../src/model/model-configuration";
 import {
@@ -43,6 +44,15 @@ test("Reference for Zotero registers and explicitly unregisters its Preferences 
     pluginID: "referenceforzotero@woif-sha.github.io",
     rootURI: "resource://reference-for-zotero/",
     settings,
+    cacheSettings: new CacheSettingsCoordinator({
+      defaultCacheRoot: () => "C:\\ZoteroData\\reference-for-zotero-cache",
+      getPreference: () => undefined,
+      setPreference() {},
+      clearPreference() {},
+      async chooseCacheRoot() {
+        return undefined;
+      },
+    }),
     modelSettings: unusedModelSettingsController(),
   });
 

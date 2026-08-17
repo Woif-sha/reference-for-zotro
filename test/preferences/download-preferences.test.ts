@@ -13,6 +13,7 @@ test("Preferences exposes one read-only download row and updates it only after c
     "utf8",
   );
   const dom = new JSDOM(`<!doctype html><body>${fragment}</body>`);
+  const ownerWindow = dom.window as unknown as Window;
   const root = dom.window.document.querySelector(
     "[data-reference-for-zotero-preferences]",
   );
@@ -20,12 +21,14 @@ test("Preferences exposes one read-only download row and updates it only after c
   const writes: Array<readonly [string, string]> = [];
   let selected: string | undefined = "D:\\Selected\\Papers";
   let pickerCalls = 0;
+  let pickerOwner: Window | undefined;
   const settings = settingsController({
     setPreference(key, value) {
       writes.push([key, value]);
     },
-    async chooseDownloadDestination() {
+    async chooseDownloadDestination(_current, owner) {
       pickerCalls += 1;
+      pickerOwner = owner;
       return selected;
     },
   });
@@ -48,11 +51,12 @@ test("Preferences exposes one read-only download row and updates it only after c
     true,
   );
   assert.match(button.textContent ?? "", /^\s*📁\s*更改目录\s*$/u);
-  assert.equal(root.textContent?.includes("Cache"), false);
+  assert.equal(root.textContent?.includes("Cache 路径"), true);
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(pickerOwner, ownerWindow);
   assert.equal(path.textContent, "D:\\Selected\\Papers");
   assert.equal(writes.length, 1);
 
@@ -71,7 +75,10 @@ test("Preferences exposes one read-only download row and updates it only after c
 function settingsController(
   overrides: Partial<{
     setPreference(key: string, value: string): void;
-    chooseDownloadDestination(current: string): Promise<string | undefined>;
+    chooseDownloadDestination(
+      current: string,
+      owner?: Window,
+    ): Promise<string | undefined>;
   }> = {},
 ): DownloadSettingsCoordinator {
   return new DownloadSettingsCoordinator({

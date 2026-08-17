@@ -4,10 +4,12 @@ import {
   type DownloadSettingsController,
 } from "../application/download-settings";
 import type { ModelPreferencesController } from "../application/model-settings";
+import type { OpenAlexSettingsController } from "../application/openalex-settings";
 import { mountModelPreferences } from "./model-preferences";
 
 export const REFERENCE_FOR_ZOTERO_PREFERENCES_ID =
   "reference-for-zotero-preferences";
+export const OPENALEX_SETTINGS_URL = "https://openalex.org/settings/api";
 
 export type PreferencePaneOptions = Readonly<{
   pluginID: string;
@@ -83,11 +85,61 @@ export function mountDownloadPreferences(
   };
 }
 
+export function mountOpenAlexPreferences(
+  root: Element,
+  settings: OpenAlexSettingsController,
+  openExternalURL: (url: string) => void,
+): MountedDownloadPreferences {
+  const input = requiredElement<HTMLInputElement>(
+    root,
+    "[data-openalex-api-key]",
+  );
+  const toggle = requiredElement<HTMLButtonElement>(
+    root,
+    "[data-toggle-openalex-api-key]",
+  );
+  const registrationLink = requiredElement<HTMLAnchorElement>(
+    root,
+    "[data-openalex-api-registration]",
+  );
+  input.value = settings.getApiKey() ?? "";
+
+  const onChange = (): void => settings.setApiKey(input.value);
+  const onToggle = (): void => {
+    const visible = input.type === "password";
+    input.type = visible ? "text" : "password";
+    toggle.setAttribute(
+      "aria-label",
+      visible ? "隐藏 OpenAlex API Key" : "显示 OpenAlex API Key",
+    );
+  };
+  const onOpenRegistration = (event: Event): void => {
+    event.preventDefault();
+    openExternalURL(OPENALEX_SETTINGS_URL);
+  };
+
+  input.addEventListener("change", onChange);
+  toggle.addEventListener("click", onToggle);
+  registrationLink.addEventListener("click", onOpenRegistration);
+  let active = true;
+  return {
+    destroy() {
+      if (!active) return;
+      active = false;
+      input.removeEventListener("change", onChange);
+      toggle.removeEventListener("click", onToggle);
+      registrationLink.removeEventListener("click", onOpenRegistration);
+    },
+  };
+}
+
 export async function registerReferenceForZoteroPreferences(options: {
   manager: PreferencePanesPort;
   pluginID: string;
   rootURI: string;
   settings: DownloadSettingsController;
+  openAlexSettings: OpenAlexSettingsController;
+  openExternalURL(url: string): void;
   modelSettings: ModelPreferencesController;
 }): Promise<ReferenceForZoteroPreferencesHandle> {
   const paneID = await options.manager.register({
@@ -112,11 +164,17 @@ export async function registerReferenceForZoteroPreferences(options: {
         root,
         options.modelSettings,
       );
+      const openAlexPreferences = mountOpenAlexPreferences(
+        root,
+        options.openAlexSettings,
+        options.openExternalURL,
+      );
       const ownerWindow = root.ownerDocument.defaultView;
       const mountedPreferences: MountedDownloadPreferences = {
         destroy() {
           ownerWindow?.removeEventListener("unload", onUnload);
           modelPreferences.destroy();
+          openAlexPreferences.destroy();
           downloadPreferences.destroy();
           if (mounted.get(root) === mountedPreferences) mounted.delete(root);
         },
@@ -147,8 +205,11 @@ function renderError(element: Element, value: string | undefined): void {
   element.toggleAttribute("hidden", !value);
 }
 
-function requiredElement(root: Element, selector: string): Element {
+function requiredElement<T extends Element = Element>(
+  root: Element,
+  selector: string,
+): T {
   const element = root.querySelector(selector);
   if (!element) throw new Error(`Preferences element is missing: ${selector}`);
-  return element;
+  return element as T;
 }

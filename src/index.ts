@@ -9,6 +9,7 @@ import { DownloadSettingsCoordinator } from "./application/download-settings";
 import { createScanSciDownloadPapers } from "./application/scan-sci-download";
 import {
   createZoteroDownloadSettingsPorts,
+  createZoteroOpenAlexSettings,
   zoteroSidecarDataRoot,
 } from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
@@ -101,12 +102,15 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
+        const openAlexSettings = createZoteroOpenAlexSettings();
         modelSubsystem = createZoteroModelSubsystem();
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
           pluginID: config.addonID,
           rootURI: packagedRootURI,
           settings: downloadSetup,
+          openAlexSettings,
+          openExternalURL: (url) => Zotero.launchURL(url),
           modelSettings: modelSubsystem.settings,
         });
         handle = startReferenceForZotero({
@@ -116,6 +120,7 @@ function createRuntime() {
               setup: downloadSetup,
             }),
             recommendationModel: modelSubsystem.recommendationModel,
+            openAlexApiKey: () => openAlexSettings.getApiKey(),
           }),
           downloadSetup,
         });

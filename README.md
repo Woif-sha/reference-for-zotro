@@ -24,6 +24,7 @@ Reference for Zotero 在 Reader 侧栏中补上了这层关系：它读取已有
 - 打开相关论文区域后自动查询前 10 篇 Citations，并支持按 30、50 条继续加载。
 - 点击论文题名打开详情卡，查看作者、期刊或会议、年份、DOI、引用数、参考文献数和摘要。
 - References 与已加载 Citations 缺少摘要时，后台按 DOI 依次查询 OpenAlex 或 Semantic Scholar，无需逐篇打开详情卡。
+- 可在插件 Preferences 中免费注册并配置 OpenAlex API Key；Key 仅保存在 Zotero 的插件专属本地设置中，用于提高摘要查询可用性。
 - 使用 `Ctrl + 左键` 打开已核验的论文落地页；未解析条目会按题名转到 Google Scholar 搜索。
 - 通过题名的右键菜单复制可用书目信息，或显式发起 Google 搜索。
 - 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations、OpenAlex 或 Semantic Scholar 摘要和落地页信息；蓝色斜体题名表示摘要已就绪，普通蓝色题名表示仍在补全摘要。
@@ -44,6 +45,7 @@ Reference for Zotero 专注于阅读过程中的论文关系探索。它关心�
 - Zotero `9.0.6` 至 `9.0.x`。
 - 当前 Reader 附件已有由 `llm-for-zotero` MinerU 工作流生成的有效 Markdown。
 - 联网元数据功能需要能够访问 DOI、Crossref、DataCite、OpenCitations、OpenAlex 和 Semantic Scholar。
+- OpenAlex API Key 可从插件 Preferences 中链接到 OpenAlex 免费获取；不配置时仍会使用当前的匿名 OpenAlex 查询与 Semantic Scholar fallback。
 
 插件不会上传当前 PDF。外部请求只包含解析文献所需的题名、作者、年份或 DOI；详情见 [PRIVACY.md](PRIVACY.md)。
 

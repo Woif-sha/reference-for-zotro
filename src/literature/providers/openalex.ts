@@ -15,6 +15,7 @@ export async function lookupOpenAlexAbstract(
   doi: string,
   ports: ProviderPorts,
   signal?: AbortSignal,
+  apiKey?: string,
 ): Promise<OpenAlexAbstract> {
   const normalizedDoi = normalizeDoi(doi);
   if (!normalizedDoi) {
@@ -30,6 +31,7 @@ export async function lookupOpenAlexAbstract(
       `https://api.openalex.org/works/https://doi.org/${encodeURI(normalizedDoi)}`,
       ports,
       signal,
+      apiKey?.trim() ? { Authorization: `Bearer ${apiKey.trim()}` } : undefined,
     ),
   );
   const sourceRecordID = asString(body?.id);

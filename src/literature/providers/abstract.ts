@@ -12,12 +12,24 @@ export async function lookupAvailableAbstract(
   doi: string,
   ports: ProviderPorts,
   signal?: AbortSignal,
+  openAlexApiKey?: string,
 ): Promise<LoadedAbstract> {
   const failures: string[] = [];
-  for (const lookup of [
-    lookupOpenAlexAbstract,
+  const lookups: readonly ((
+    currentDoi: string,
+    currentPorts: ProviderPorts,
+    currentSignal?: AbortSignal,
+  ) => Promise<LoadedAbstract>)[] = [
+    (currentDoi, currentPorts, currentSignal) =>
+      lookupOpenAlexAbstract(
+        currentDoi,
+        currentPorts,
+        currentSignal,
+        openAlexApiKey,
+      ),
     lookupSemanticScholarAbstract,
-  ]) {
+  ];
+  for (const lookup of lookups) {
     try {
       return await lookup(doi, ports, signal);
     } catch (error) {

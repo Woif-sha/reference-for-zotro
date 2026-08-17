@@ -6,6 +6,8 @@ import {
   type LiteratureCacheFileName,
   type LiteratureCacheFiles,
 } from "../../src/cache/cache-repository";
+import { lookupOpenAlexAbstract } from "../../src/literature/providers/openalex";
+import type { ProviderPorts } from "../../src/literature/providers/types";
 
 class MemoryStorage implements CacheStorage {
   readonly values = new Map<string, string>();
@@ -145,6 +147,60 @@ test("paper cache restores OpenAlex Abstracts by DOI", async () => {
     ],
     citingPapersLoaded: 10,
   });
+});
+
+test("a configured OpenAlex API Key never enters abstract.json or other cache files", async () => {
+  const apiKey = "test-openalex-cache-secret";
+  let authorization: string | null = null;
+  const ports: ProviderPorts = {
+    fetch: async (_input, init) => {
+      authorization = new Headers(init?.headers).get("Authorization");
+      return Response.json({
+        id: "https://openalex.org/W123",
+        doi: "https://doi.org/10.1000/paper",
+        abstract_inverted_index: { Cached: [0], abstract: [1] },
+      });
+    },
+    clock: { now: () => new Date("2026-08-17T12:00:00.000Z") },
+    scheduler: { sleep: async () => {} },
+  };
+  const loaded = await lookupOpenAlexAbstract(
+    "10.1000/paper",
+    ports,
+    undefined,
+    apiKey,
+  );
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+
+  await cache.write(identity, {
+    references: [
+      {
+        id: "reference:0",
+        ordinal: 0,
+        title: "Paper",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/paper",
+        doi: "10.1000/paper",
+        abstract: loaded.text,
+        abstractSource: loaded.source,
+        abstractSourceRecordID: loaded.sourceRecordID,
+        abstractRetrievedAt: "2026-08-17T12:00:00.000Z",
+      },
+    ],
+    citingPapers: [],
+    citingPapersLoaded: 0,
+  });
+
+  assert.equal(authorization, `Bearer ${apiKey}`);
+  assert.match(
+    storage.values.get("3-ABCDEFGH/abstract.json") ?? "",
+    /"source": "openalex"/u,
+  );
+  assert.doesNotMatch(
+    [...storage.values.values()].join("\n"),
+    new RegExp(apiKey, "u"),
+  );
 });
 
 test("paper cache restores Semantic Scholar Abstracts by DOI", async () => {

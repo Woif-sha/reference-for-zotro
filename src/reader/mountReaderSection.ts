@@ -849,7 +849,7 @@ function renderContent(
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
           <button class="rfz-paper-checkbox" type="button" role="checkbox" aria-checked="${selectedForDownload}" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectable ? "" : 'disabled=""'}><span class="rfz-checkbox-mark" aria-hidden="true">✓</span></button>
           <span class="rfz-ordinal">${escapeHTML(paper.sourceLabel ?? String(paper.ordinal + 1))}.</span><div class="rfz-paper-main">
-            <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
+            <div class="rfz-paper-title${paper.abstract ? " rfz-paper-title--has-abstract" : ""}" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
             )}</div>${metadata ? `<small class="rfz-paper-metadata" data-paper-metadata="" data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}
             ${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
@@ -1277,6 +1277,7 @@ const READER_STYLES = `
   .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 13px; }
   .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 13px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
+  .rfz-paper--resolved .rfz-paper-title--has-abstract { font-style: italic; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }
   .rfz-paper--failed .rfz-paper-status { color: #ba3b32; }

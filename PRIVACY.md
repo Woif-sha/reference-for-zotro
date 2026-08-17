@@ -16,7 +16,7 @@ Returned records are accepted only through the plugin's identity, schema and rea
 
 ## Local cache
 
-Resolved literature data is stored under Zotero's data directory in `reference-for-zotero-cache/v2/papers`. Cache identities include the current attachment, MinerU fingerprint and provider contract versions. Each paper directory may contain `abstract.json`; it stores only OpenAlex-sourced Abstracts together with their DOI, source record and retrieval time. The plugin does not persist Crossref- or Semantic Scholar-sourced Abstract text.
+Resolved literature data is stored under Zotero's data directory in `reference-for-zotero-cache/v2/papers`. Cache identities include the current attachment, MinerU fingerprint and provider contract versions. Each paper directory may contain `abstract.json`; it stores OpenAlex- or Semantic Scholar-sourced Abstracts together with their DOI, source record and retrieval time for local reuse. The plugin does not persist Crossref-sourced Abstract text.
 
 ## Download setup
 

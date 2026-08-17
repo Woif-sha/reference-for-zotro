@@ -50,8 +50,8 @@ const results = {
       title: "Paper",
       status: "resolved" as const,
       primaryResultURL: "https://example.test/paper",
-      abstract: "Do not persist this abstract",
-      abstractSource: "semantic-scholar",
+      abstract: "Do not persist this Crossref abstract",
+      abstractSource: "crossref",
     },
   ],
   citingPapers: [],
@@ -145,6 +145,35 @@ test("paper cache restores OpenAlex Abstracts by DOI", async () => {
     ],
     citingPapersLoaded: 10,
   });
+});
+
+test("paper cache restores Semantic Scholar Abstracts by DOI", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  const semanticScholarResults = {
+    references: [
+      {
+        id: "reference:0",
+        ordinal: 0,
+        title: "Paper",
+        status: "resolved" as const,
+        primaryResultURL: "https://doi.org/10.1000/paper",
+        doi: "10.1000/paper",
+        abstract: "Locally cached Semantic Scholar Abstract",
+        abstractSource: "semantic-scholar",
+        abstractSourceRecordID: "semantic-scholar-paper-id",
+        abstractRetrievedAt: "2026-08-17T12:00:00.000Z",
+      },
+    ],
+    citingPapers: [],
+    citingPapersLoaded: 0,
+  };
+
+  await cache.write(identity, semanticScholarResults);
+
+  const abstracts = storage.values.get("3-ABCDEFGH/abstract.json") ?? "";
+  assert.match(abstracts, /"source": "semantic-scholar"/u);
+  assert.deepEqual(await cache.read(identity), semanticScholarResults);
 });
 
 test("an existing paper cache without abstract.json remains readable", async () => {

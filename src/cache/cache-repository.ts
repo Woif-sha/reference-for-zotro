@@ -52,7 +52,7 @@ type CachedCitationsFile = CachedPaperFile & {
 type CachedAbstractRecord = {
   doi: string;
   text: string;
-  source: "openalex";
+  source: "openalex" | "semantic-scholar";
   sourceRecordID: string;
   retrievedAt: string;
 };
@@ -223,12 +223,18 @@ function isCachedAbstract(value: unknown): value is CachedAbstractRecord {
     doi === value.doi &&
     typeof value.text === "string" &&
     value.text.trim().length > 0 &&
-    value.source === "openalex" &&
+    isCachedAbstractSource(value.source) &&
     typeof value.sourceRecordID === "string" &&
     value.sourceRecordID.length > 0 &&
     typeof value.retrievedAt === "string" &&
     Number.isFinite(Date.parse(value.retrievedAt))
   );
+}
+
+function isCachedAbstractSource(
+  value: unknown,
+): value is CachedAbstractRecord["source"] {
+  return value === "openalex" || value === "semantic-scholar";
 }
 
 function isPaperFile(value: unknown): value is CachedPaperFile {
@@ -295,16 +301,18 @@ function cacheAbstracts(
 ): readonly CachedAbstractRecord[] {
   const records = new Map<string, CachedAbstractRecord>();
   for (const paper of [...results.references, ...results.citingPapers]) {
-    if (!paper.abstract || paper.abstractSource !== "openalex") continue;
+    if (!paper.abstract || !isCachedAbstractSource(paper.abstractSource)) {
+      continue;
+    }
     const doi = normalizeDoi(paper.doi);
     if (!doi) continue;
     if (!paper.abstractSourceRecordID || !paper.abstractRetrievedAt) {
-      throw new Error("OpenAlex Abstract cache metadata is incomplete");
+      throw new Error("Abstract cache metadata is incomplete");
     }
     records.set(doi, {
       doi,
       text: paper.abstract,
-      source: "openalex",
+      source: paper.abstractSource,
       sourceRecordID: paper.abstractSourceRecordID,
       retrievedAt: paper.abstractRetrievedAt,
     });

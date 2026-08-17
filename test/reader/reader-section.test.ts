@@ -305,6 +305,68 @@ test("Reader section renders supported text for LaTeX-formatted Abstracts", () =
   mounted.destroy();
 });
 
+test("resolved paper titles become italic when an Abstract is available", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = {
+    ...readyState(),
+    references: readyState().references.map((paper) =>
+      paper.id === "ref-1" ? { ...paper, abstractLoading: true } : paper,
+    ),
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.equal(
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] .rfz-paper-title--has-abstract',
+    ),
+    null,
+  );
+  state = {
+    ...state,
+    references: state.references.map((paper) =>
+      paper.id === "ref-1"
+        ? {
+            ...paper,
+            abstract: "Available Abstract",
+            abstractLoading: false,
+          }
+        : paper,
+    ),
+  };
+  listener?.(state);
+
+  assert.equal(
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] .rfz-paper-title--has-abstract',
+    )?.textContent,
+    "First reference",
+  );
+  assert.match(
+    dom.window.document.querySelector("style")?.textContent ?? "",
+    /\.rfz-paper--resolved \.rfz-paper-title--has-abstract\s*\{[^}]*font-style:\s*italic/u,
+  );
+  mounted.destroy();
+});
+
 test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:div xmlns:html="http://www.w3.org/1999/xhtml"/></window>',

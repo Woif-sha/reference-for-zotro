@@ -8,7 +8,7 @@ type CaretPointDocument = Document & {
   caretRangeFromPoint?(x: number, y: number): Range | null;
 };
 
-export function citationNumberAtOffset(
+export function referenceMarkerNumberAtOffset(
   text: string,
   offset: number,
 ): number | undefined {
@@ -35,7 +35,7 @@ export function citationNumberAtOffset(
   return undefined;
 }
 
-export function citationNumberAtPoint(
+export function referenceMarkerNumberAtPoint(
   document: Document,
   clientX: number,
   clientY: number,
@@ -51,22 +51,23 @@ export function citationNumberAtPoint(
   const textLayer = parentElement(node)?.closest(".textLayer");
   if (!textLayer) return undefined;
   const line = textLineAtPoint(textLayer, node, offset, clientY);
-  return line ? citationNumberAtOffset(line.text, line.offset) : undefined;
+  return line
+    ? referenceMarkerNumberAtOffset(line.text, line.offset)
+    : undefined;
 }
 
-export function referenceForCitationNumber(
+export function referenceForMarkerNumber(
   references: readonly ReaderPaper[],
-  citationNumber: number,
+  markerNumber: number,
 ): ReaderPaper | undefined {
   return (
     references.find(
-      (reference) =>
-        numericSourceLabel(reference.sourceLabel) === citationNumber,
+      (reference) => numericSourceLabel(reference.sourceLabel) === markerNumber,
     ) ??
     references.find(
       (reference) =>
         numericSourceLabel(reference.sourceLabel) === undefined &&
-        reference.ordinal + 1 === citationNumber,
+        reference.ordinal + 1 === markerNumber,
     )
   );
 }

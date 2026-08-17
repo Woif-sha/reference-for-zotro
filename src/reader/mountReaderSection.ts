@@ -2,9 +2,9 @@ import type { ReferenceMatchBasis } from "../domain/literature";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 import { relateScholarlyIdentities } from "../literature/identifiers";
 import {
-  citationNumberAtPoint,
-  referenceForCitationNumber,
-} from "./citation-navigation";
+  referenceForMarkerNumber,
+  referenceMarkerNumberAtPoint,
+} from "./reference-marker-navigation";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const TRANSLATION_POPOVER_GAP = 8;
@@ -211,18 +211,15 @@ export function mountReaderSection(options: {
     const mouseEvent = event as MouseEvent;
     if (!mouseEvent.ctrlKey) return;
     const document = event.currentTarget as Document;
-    const citationNumber = citationNumberAtPoint(
+    const markerNumber = referenceMarkerNumberAtPoint(
       document,
       mouseEvent.clientX,
       mouseEvent.clientY,
     );
-    if (citationNumber === undefined) return;
+    if (markerNumber === undefined) return;
     const state = controller.getState();
     if (state.status !== "ready") return;
-    const reference = referenceForCitationNumber(
-      state.references,
-      citationNumber,
-    );
+    const reference = referenceForMarkerNumber(state.references, markerNumber);
     if (!reference) return;
     event.preventDefault();
     event.stopImmediatePropagation();

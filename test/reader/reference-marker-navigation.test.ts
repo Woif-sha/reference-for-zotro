@@ -3,30 +3,30 @@ import test from "node:test";
 import { JSDOM } from "jsdom";
 
 import {
-  citationNumberAtOffset,
-  citationNumberAtPoint,
-  referenceForCitationNumber,
-} from "../../src/reader/citation-navigation";
+  referenceForMarkerNumber,
+  referenceMarkerNumberAtOffset,
+  referenceMarkerNumberAtPoint,
+} from "../../src/reader/reference-marker-navigation";
 import {
   mountReaderSection,
   type ReaderPaper,
   type ReaderSectionState,
 } from "../../src/reader/mountReaderSection";
 
-test("citation marker parsing selects the number nearest the pointer offset", () => {
+test("in-text reference marker parsing selects the number nearest the pointer offset", () => {
   const text = "Prior work [3, 5–7] established the result.";
 
-  assert.equal(citationNumberAtOffset(text, text.indexOf("3")), 3);
-  assert.equal(citationNumberAtOffset(text, text.indexOf("5")), 5);
-  assert.equal(citationNumberAtOffset(text, text.indexOf("7")), 7);
-  assert.equal(citationNumberAtOffset("参见［12，15］", 4), 12);
+  assert.equal(referenceMarkerNumberAtOffset(text, text.indexOf("3")), 3);
+  assert.equal(referenceMarkerNumberAtOffset(text, text.indexOf("5")), 5);
+  assert.equal(referenceMarkerNumberAtOffset(text, text.indexOf("7")), 7);
+  assert.equal(referenceMarkerNumberAtOffset("参见［12，15］", 4), 12);
   assert.equal(
-    citationNumberAtOffset("Section 12 has no marker", 8),
+    referenceMarkerNumberAtOffset("Section 12 has no marker", 8),
     undefined,
   );
 });
 
-test("citation hit testing joins split PDF text-layer spans", () => {
+test("reference marker hit testing joins split PDF text-layer spans", () => {
   const dom = new JSDOM(
     '<!doctype html><body><div class="textLayer"><span>[</span><span>3, </span><span>5</span><span>]</span></div></body>',
   );
@@ -42,21 +42,19 @@ test("citation hit testing joins split PDF text-layer spans", () => {
     value: () => ({ offsetNode: target, offset: 1 }),
   });
 
-  assert.equal(citationNumberAtPoint(dom.window.document, 45, 10), 5);
+  assert.equal(referenceMarkerNumberAtPoint(dom.window.document, 45, 10), 5);
 });
 
 test("explicit MinerU source labels take precedence over list position", () => {
   const references = referencePapers();
 
-  assert.equal(referenceForCitationNumber(references, 5)?.id, "ref-2");
-  assert.equal(referenceForCitationNumber(references, 1)?.id, "ref-1");
-  assert.equal(referenceForCitationNumber(references, 2), undefined);
-  assert.equal(referenceForCitationNumber(references, 99), undefined);
+  assert.equal(referenceForMarkerNumber(references, 5)?.id, "ref-2");
+  assert.equal(referenceForMarkerNumber(references, 1)?.id, "ref-1");
+  assert.equal(referenceForMarkerNumber(references, 2), undefined);
+  assert.equal(referenceForMarkerNumber(references, 99), undefined);
   assert.equal(
-    referenceForCitationNumber(
-      [{ ...references[1]!, sourceLabel: undefined }],
-      2,
-    )?.id,
+    referenceForMarkerNumber([{ ...references[1]!, sourceLabel: undefined }], 2)
+      ?.id,
     "ref-2",
   );
 });
@@ -74,12 +72,12 @@ test("Ctrl+right-click reveals and highlights the matching Reference entry", asy
   const paper = new JSDOM(
     '<!doctype html><body><div class="textLayer"><span>[5]</span><span>[99]</span></div></body>',
   );
-  const citationSpans = paper.window.document.querySelectorAll("span");
-  const citationText = citationSpans[0]?.firstChild;
-  const unknownCitationText = citationSpans[1]?.firstChild;
-  assert.ok(citationText);
-  assert.ok(unknownCitationText);
-  let caretText = citationText;
+  const markerSpans = paper.window.document.querySelectorAll("span");
+  const markerText = markerSpans[0]?.firstChild;
+  const unknownMarkerText = markerSpans[1]?.firstChild;
+  assert.ok(markerText);
+  assert.ok(unknownMarkerText);
+  let caretText = markerText;
   Object.defineProperty(paper.window.document, "caretPositionFromPoint", {
     value: () => ({ offsetNode: caretText, offset: 2 }),
   });
@@ -133,23 +131,23 @@ test("Ctrl+right-click reveals and highlights the matching Reference entry", asy
     },
   });
 
-  caretText = unknownCitationText;
+  caretText = unknownMarkerText;
   const unknownJump = new paper.window.MouseEvent("contextmenu", {
     bubbles: true,
     cancelable: true,
     button: 2,
     ctrlKey: true,
   });
-  unknownCitationText.parentElement?.dispatchEvent(unknownJump);
+  unknownMarkerText.parentElement?.dispatchEvent(unknownJump);
   assert.equal(unknownJump.defaultPrevented, false);
 
-  caretText = citationText;
+  caretText = markerText;
   const ordinaryMenu = new paper.window.MouseEvent("contextmenu", {
     bubbles: true,
     cancelable: true,
     button: 2,
   });
-  citationText.parentElement?.dispatchEvent(ordinaryMenu);
+  markerText.parentElement?.dispatchEvent(ordinaryMenu);
   assert.equal(ordinaryMenu.defaultPrevented, false);
 
   const jump = new paper.window.MouseEvent("contextmenu", {
@@ -158,7 +156,7 @@ test("Ctrl+right-click reveals and highlights the matching Reference entry", asy
     button: 2,
     ctrlKey: true,
   });
-  citationText.parentElement?.dispatchEvent(jump);
+  markerText.parentElement?.dispatchEvent(jump);
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   assert.equal(jump.defaultPrevented, true);
@@ -182,7 +180,7 @@ test("Ctrl+right-click reveals and highlights the matching Reference entry", asy
     button: 2,
     ctrlKey: true,
   });
-  citationText.parentElement?.dispatchEvent(afterDestroy);
+  markerText.parentElement?.dispatchEvent(afterDestroy);
   assert.equal(afterDestroy.defaultPrevented, false);
 });
 

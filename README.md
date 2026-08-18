@@ -27,7 +27,7 @@ Reference for Zotero 在 Reader 侧栏中补上了这层关系：它读取已有
 - 可在插件 Preferences 中免费注册并配置 OpenAlex API Key；Key 仅保存在 Zotero 的插件专属本地设置中，用于提高摘要查询可用性。
 - 使用 `Ctrl + 左键` 打开已核验的论文落地页；未解析条目会按题名转到 Google Scholar 搜索。
 - 通过题名的右键菜单复制可用书目信息，或显式发起 Google 搜索。
-- 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations、OpenAlex 或 Semantic Scholar 摘要和落地页信息；蓝色斜体题名表示摘要已就绪，普通蓝色题名表示仍在补全摘要。
+- 为每篇论文保存独立的本地检索缓存，再次阅读时直接恢复 References、Citations、OpenAlex 或 Semantic Scholar 摘要和落地页信息；带蓝色下划线的蓝色斜体题名表示摘要已就绪，普通蓝色题名表示仍在补全摘要。
 - 可选调用 Paper Translate 的公开接口，翻译插件界面中选中的文字。
 - 规范化 MinerU Reference 的编号、断行、转义字符和 URL，并同步共享的 Markdown 数据，减少其他插件重复处理同一条目。
 

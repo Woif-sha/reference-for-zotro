@@ -557,8 +557,8 @@ def _validate_output_dir(value: Any, request_id: str) -> Path:
     if _contains_reparse_point(absolute):
         raise ProtocolError("output-outside-root", "outputDir cannot be a link or junction.")
     resolved = absolute.resolve(strict=True)
-    if resolved.name != request_id or resolved.parent.name.casefold() != "scanscicache":
-        raise ProtocolError("output-outside-root", "outputDir must be ScanSciCache/<requestId>.")
+    if resolved.name != request_id:
+        raise ProtocolError("output-outside-root", "outputDir must end with <requestId>.")
     if any(resolved.iterdir()):
         raise ProtocolError("output-not-empty", "outputDir must be empty for a new request.")
     return resolved

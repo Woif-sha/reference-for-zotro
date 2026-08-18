@@ -1,0 +1,110 @@
+<vbox
+  id="reference-for-zotero-preferences"
+  data-reference-for-zotero-preferences=""
+  onload="Zotero.ReferenceForZotero.hooks.onPreferencesLoad(this)"
+  xmlns:html="http://www.w3.org/1999/xhtml"
+>
+  <groupbox id="reference-for-zotero-preferences-download-group">
+    <label><html:h2>文件</html:h2></label>
+    <html:div
+      id="reference-for-zotero-preferences-download-row"
+      class="reference-for-zotero-directory-row"
+      data-download-directory-row=""
+    >
+      <html:span data-download-directory-label="">下载目录：</html:span>
+      <html:span
+        id="reference-for-zotero-preferences-download-path"
+        data-download-directory-path=""
+        aria-label="当前下载目录"
+      ></html:span>
+      <html:button type="button" data-change-download-directory="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
+    </html:div>
+    <html:p
+      id="reference-for-zotero-preferences-download-error"
+      data-download-directory-error=""
+      role="alert"
+      hidden="hidden"
+    ></html:p>
+    <html:div
+      id="reference-for-zotero-preferences-cache-row"
+      class="reference-for-zotero-directory-row"
+      data-cache-directory-row=""
+    >
+      <html:span data-cache-directory-label="">Cache 路径：</html:span>
+      <html:span
+        id="reference-for-zotero-preferences-cache-path"
+        class="reference-for-zotero-directory-path"
+        data-cache-directory-path=""
+        aria-label="当前 Cache 路径"
+      ></html:span>
+      <html:button type="button" data-change-cache-directory="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
+    </html:div>
+    <html:p
+      id="reference-for-zotero-preferences-cache-error"
+      data-cache-directory-error=""
+      role="alert"
+      hidden="hidden"
+    ></html:p>
+    <html:div
+      id="reference-for-zotero-preferences-openalex-row"
+      class="reference-for-zotero-openalex-row"
+      data-openalex-api-row=""
+    >
+      <html:label
+        for="reference-for-zotero-preferences-openalex-key"
+        data-openalex-api-label=""
+        >OpenAlex API：</html:label
+      >
+      <html:div class="reference-for-zotero-openalex-control">
+        <html:div class="reference-for-zotero-openalex-actions">
+          <html:div class="reference-for-zotero-openalex-input">
+            <html:input
+              id="reference-for-zotero-preferences-openalex-key"
+              type="password"
+              data-openalex-api-key=""
+              aria-label="OpenAlex API Key"
+            />
+          </html:div>
+          <html:button type="button" data-test-openalex-connection=""
+            >测试连接</html:button
+          >
+          <html:span
+            class="reference-for-zotero-openalex-status"
+            data-openalex-connection-status=""
+            role="status"
+            aria-live="polite"
+            hidden="hidden"
+          ></html:span>
+        </html:div>
+        <html:span class="reference-for-zotero-openalex-help"
+          >可前往
+          <html:a
+            href="https://openalex.org/settings/api"
+            data-openalex-api-registration=""
+            >OpenAlex 免费注册/获取 API Key</html:a
+          >；Key 仅保存在本地，用于提高摘要查询可用性。</html:span
+        >
+      </html:div>
+    </html:div>
+  </groupbox>
+  <groupbox
+    id="reference-for-zotero-preferences-model-group"
+    data-recommendation-model-settings=""
+  >
+    <label><html:h2>推荐模型</html:h2></label>
+    <html:div data-model-provider-cards=""></html:div>
+    <html:button
+      type="button"
+      data-add-model-provider=""
+      style="margin-top: 10px; align-self: flex-start"
+    >
+      添加服务商
+    </html:button>
+  </groupbox>
+</vbox>

@@ -1,6 +1,7 @@
-import { FilePickerHelper } from "zotero-plugin-toolkit";
 import type { DownloadSettingsPorts } from "../application/download-settings";
+import { OpenAlexSettingsStore } from "../application/openalex-settings";
 import type { ScanSciPort } from "../scansci/scan-sci-port";
+import { chooseZoteroDirectory } from "./zotero-directory-picker";
 
 export function createZoteroDownloadSettingsPorts(options: {
   runtime: ScanSciPort;
@@ -14,22 +15,33 @@ export function createZoteroDownloadSettingsPorts(options: {
     setPreference(key, value) {
       Zotero.Prefs.set(key, value, true);
     },
-    clearPreference(key) {
-      Zotero.Prefs.clear(key, true);
-    },
-    async chooseDownloadDestination(current) {
-      const selected = await new FilePickerHelper(
-        "Choose download destination",
-        "folder",
-        undefined,
-        undefined,
-        Zotero.getMainWindow(),
-        undefined,
+    chooseDownloadDestination(current, owner) {
+      return chooseZoteroDirectory({
+        title: "Choose download destination",
         current,
-      ).open();
-      return selected || undefined;
+        owner,
+      });
+    },
+    chooseCacheDirectory(current, owner) {
+      return chooseZoteroDirectory({
+        title: "Choose ScanSci Cache directory",
+        current,
+        owner,
+      });
     },
   };
+}
+
+export function createZoteroOpenAlexSettings(): OpenAlexSettingsStore {
+  return new OpenAlexSettingsStore({
+    get(key) {
+      const value = Zotero.Prefs.get(key, true);
+      return typeof value === "string" ? value : undefined;
+    },
+    set(key, value) {
+      Zotero.Prefs.set(key, value, true);
+    },
+  });
 }
 
 export function zoteroSidecarDataRoot(): string {

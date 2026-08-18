@@ -10,6 +10,7 @@ import {
   unresolvedPaper,
 } from "./application/reader-paper-presentation";
 import { LiteratureCacheRepository } from "./cache/cache-repository";
+import { RecommendationCacheRepository } from "./cache/recommendation-cache-repository";
 import { decideRelatedPapersCacheWrite } from "./cache/related-papers-cache-policy";
 import { loadMineruReferences } from "./mineru/mineru-adapter";
 import {
@@ -36,10 +37,12 @@ import {
   createProviderPorts,
   createZoteroCacheStorage,
   createZoteroMinerUPorts,
+  createZoteroRecommendationCacheStorage,
 } from "./platform/zotero-runtime";
 import type { ReaderPaper } from "./reader/mountReaderSection";
 import type { ReaderControllerFactory } from "./reader/registerReaderSection";
-import type { DownloadSettingsController } from "./application/download-settings";
+import type { RecommendationModelPort } from "./model/configured-recommendation-model";
+import { RelatedPaperRecommendationService } from "./recommendation/related-paper-recommendation";
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
@@ -47,9 +50,10 @@ export const PROVIDER_QUERY_VERSION = 17;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
-export type ReaderDownloadDependencies = Readonly<{
+export type ReaderRuntimeDependencies = Readonly<{
   downloadPapers?: NonNullable<RelatedPapersPorts["downloadPapers"]>;
-  downloadSetup?: DownloadSettingsController;
+  recommendationModel?: RecommendationModelPort;
+  openAlexApiKey?: () => string | undefined;
 }>;
 
 export function zoteroReaderInteractionDocuments(
@@ -70,12 +74,20 @@ export function zoteroReaderInteractionDocuments(
 }
 
 export function createReaderControllerFactory(
-  downloadDependencies: ReaderDownloadDependencies = {},
+  dependencies: ReaderRuntimeDependencies = {},
 ): ReaderControllerFactory {
   const mineruPorts = createZoteroMinerUPorts();
   const providerPorts = createProviderPorts();
   const translation = createPaperTranslateBridge();
   const cache = new LiteratureCacheRepository(createZoteroCacheStorage());
+  const recommendationCache = new RecommendationCacheRepository(
+    createZoteroRecommendationCacheStorage(),
+  );
+  const recommendation = dependencies.recommendationModel
+    ? new RelatedPaperRecommendationService(dependencies.recommendationModel, {
+        cache: recommendationCache,
+      })
+    : undefined;
 
   return {
     create({ attachmentItemID }) {
@@ -96,6 +108,8 @@ export function createReaderControllerFactory(
           return {
             identity: loaded.identity,
             sourceFingerprint: loaded.sourceFingerprint,
+            fullMarkdown: loaded.fullMarkdown,
+            fullMdSha256: loaded.fullMdSha256,
             mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
@@ -150,8 +164,18 @@ export function createReaderControllerFactory(
             paper.doi,
             providerPorts,
             context.signal,
+            dependencies.openAlexApiKey?.(),
           );
         },
+        ...(recommendation
+          ? {
+              subscribeRecommendationIdentityChange: (listener) =>
+                recommendation.subscribeIdentityChange(listener),
+              readCachedRecommendation: (request) =>
+                recommendation.readCached(request),
+              recommendPapers: (request) => recommendation.recommend(request),
+            }
+          : {}),
         async readCachedResults(paper) {
           return cache.read(cacheIdentity(paper));
         },
@@ -173,11 +197,8 @@ export function createReaderControllerFactory(
             itemID,
           });
         },
-        ...(downloadDependencies.downloadPapers
-          ? { downloadPapers: downloadDependencies.downloadPapers }
-          : {}),
-        ...(downloadDependencies.downloadSetup
-          ? { downloadSetup: downloadDependencies.downloadSetup }
+        ...(dependencies.downloadPapers
+          ? { downloadPapers: dependencies.downloadPapers }
           : {}),
         revealDownloadedFile(savedPath) {
           void Zotero.File.reveal(savedPath).catch((error: unknown) => {

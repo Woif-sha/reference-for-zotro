@@ -4,6 +4,7 @@ import type {
   CacheStorage,
   LiteratureCacheFileName,
 } from "../cache/cache-repository";
+import type { RecommendationCacheStorage } from "../cache/recommendation-cache-repository";
 import {
   PaperTranslateBridge,
   type PaperTranslateGlobal,
@@ -18,6 +19,11 @@ type IOUtilsLike = {
     options?: { tmpPath?: string },
   ): Promise<unknown>;
   move(
+    sourcePath: string,
+    destinationPath: string,
+    options?: { noOverwrite?: boolean },
+  ): Promise<void>;
+  copy(
     sourcePath: string,
     destinationPath: string,
     options?: { noOverwrite?: boolean },
@@ -81,26 +87,11 @@ export function createProviderPorts(): ProviderPorts {
 
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
-  const root = joinPath(
-    getDataDirectory(),
-    "reference-for-zotero-cache",
-    "v2",
-    "papers",
-  );
-  const writes = new Map<string, Promise<void>>();
-  const enqueue = (key: string, task: () => Promise<void>): Promise<void> => {
-    const previous = writes.get(key) ?? Promise.resolve();
-    const operation = previous.catch(() => undefined).then(task);
-    writes.set(key, operation);
-    return operation.finally(() => {
-      if (writes.get(key) === operation) {
-        writes.delete(key);
-      }
-    });
-  };
+  const root = paperCacheRoot();
+  const queue = createDirectoryWriteQueue();
   return {
     async read(directory, file) {
-      await writes.get(directory);
+      await queue.wait(directory);
       const path = joinPath(root, directory, file);
       if (!(await io.exists(path))) return undefined;
       const raw = await io.read(path);
@@ -108,7 +99,7 @@ export function createZoteroCacheStorage(): CacheStorage {
       return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
     write(directory, files, signal) {
-      return enqueue(directory, async () => {
+      return queue.enqueue(directory, async () => {
         if (signal?.aborted) throw abortError();
         const paperDirectory = joinPath(root, directory);
         await io.makeDirectory(paperDirectory, {
@@ -119,6 +110,7 @@ export function createZoteroCacheStorage(): CacheStorage {
         const commitOrder: readonly LiteratureCacheFileName[] = [
           "references.json",
           "citations.json",
+          "abstract.json",
           "manifest.json",
         ];
         const stagedPaths = new Map<LiteratureCacheFileName, string>();
@@ -151,7 +143,64 @@ export function createZoteroCacheStorage(): CacheStorage {
   };
 }
 
+export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
+  const io = getIOUtils();
+  const root = paperCacheRoot();
+  const queue = createDirectoryWriteQueue();
+  return {
+    async read(directory) {
+      await queue.wait(directory);
+      const path = joinPath(root, directory, "recommendation.json");
+      if (!(await io.exists(path))) return undefined;
+      const raw = await io.read(path);
+      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    },
+    write(directory, value, signal) {
+      return queue.enqueue(directory, async () => {
+        if (signal?.aborted) throw abortError();
+        const paperDirectory = joinPath(root, directory);
+        await io.makeDirectory(paperDirectory, {
+          createAncestors: true,
+          ignoreExisting: true,
+        });
+        const path = joinPath(paperDirectory, "recommendation.json");
+        const writeID = nextRecommendationCacheWriteID++;
+        const stagedPath = `${path}.pending-${writeID}`;
+        const previousPath = `${path}.previous-${writeID}`;
+        let previousExists: boolean;
+        try {
+          await io.write(stagedPath, new TextEncoder().encode(value), {
+            tmpPath: `${stagedPath}.tmp`,
+          });
+          if (signal?.aborted) throw abortError();
+          previousExists = await io.exists(path);
+          if (previousExists) {
+            await io.copy(path, previousPath, { noOverwrite: false });
+          }
+          if (signal?.aborted) throw abortError();
+          await io.move(stagedPath, path, { noOverwrite: false });
+          if (signal?.aborted) {
+            if (previousExists) {
+              await io.move(previousPath, path, { noOverwrite: false });
+            } else {
+              await io.remove(path, { ignoreAbsent: true });
+            }
+            throw abortError();
+          }
+        } finally {
+          await Promise.all([
+            io.remove(stagedPath, { ignoreAbsent: true }),
+            io.remove(previousPath, { ignoreAbsent: true }),
+          ]);
+        }
+      });
+    },
+  };
+}
+
 let nextCacheWriteID = 1;
+let nextRecommendationCacheWriteID = 1;
 let nextMinerUWriteID = 1;
 
 export function createPaperTranslateBridge(): PaperTranslateBridge {
@@ -177,6 +226,33 @@ function getDataDirectory(): string {
     .DataDirectory?.dir;
   if (!value?.trim()) throw new Error("Cannot resolve Zotero data directory");
   return value.trim();
+}
+
+function paperCacheRoot(): string {
+  return joinPath(
+    getDataDirectory(),
+    "reference-for-zotero-cache",
+    "v2",
+    "papers",
+  );
+}
+
+function createDirectoryWriteQueue(): Readonly<{
+  wait(key: string): Promise<void> | undefined;
+  enqueue(key: string, task: () => Promise<void>): Promise<void>;
+}> {
+  const writes = new Map<string, Promise<void>>();
+  return {
+    wait: (key) => writes.get(key),
+    enqueue(key, task) {
+      const previous = writes.get(key) ?? Promise.resolve();
+      const operation = previous.catch(() => undefined).then(task);
+      writes.set(key, operation);
+      return operation.finally(() => {
+        if (writes.get(key) === operation) writes.delete(key);
+      });
+    },
+  };
 }
 
 function joinPath(...parts: string[]): string {

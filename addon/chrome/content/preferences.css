@@ -1,0 +1,85 @@
+#reference-for-zotero-preferences {
+  overflow-y: auto;
+}
+
+.reference-for-zotero-directory-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  gap: 10px;
+  align-items: center;
+}
+
+.reference-for-zotero-openalex-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.reference-for-zotero-openalex-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reference-for-zotero-openalex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.reference-for-zotero-openalex-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 0 1 320px;
+  min-width: 180px;
+  padding-inline-end: 6px;
+}
+
+.reference-for-zotero-openalex-input > input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.reference-for-zotero-openalex-status {
+  color: var(--fill-secondary, #666);
+}
+
+.reference-for-zotero-openalex-status[data-state="success"] {
+  color: var(--fill-success, #168c68);
+}
+
+.reference-for-zotero-openalex-status[data-state="error"] {
+  color: var(--fill-error, #b42318);
+}
+
+.reference-for-zotero-openalex-help {
+  color: var(--fill-secondary, #666);
+}
+
+#reference-for-zotero-preferences-download-path,
+.reference-for-zotero-directory-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.reference-for-zotero-path-unconfigured {
+  font-weight: 700;
+}
+
+#reference-for-zotero-preferences-download-error,
+#reference-for-zotero-preferences-cache-error {
+  margin-block: 8px 0;
+  color: var(--fill-error, #c33);
+}
+
+#reference-for-zotero-preferences [data-model-provider-cards] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

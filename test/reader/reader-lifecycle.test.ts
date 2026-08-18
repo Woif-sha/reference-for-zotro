@@ -33,7 +33,7 @@ test("Reader registration completes before the sidecar probe settles", () => {
       return () => {};
     },
     async changeDownloadDestination() {},
-    resetDownloadDestination() {},
+    async changeCacheDirectory() {},
     probeRuntime() {
       events.push("probe");
       return new Promise<void>((resolve) => {
@@ -81,6 +81,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
   };
   const created: number[] = [];
   const destroyed: number[] = [];
+  let preferencesOpened = 0;
   const state: ReaderSectionState = {
     activeTab: "references",
     status: "ready",
@@ -89,6 +90,7 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
     citingPapersStatus: { status: "ready" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
@@ -121,6 +123,9 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     pluginID: "referenceforzotero@woif-sha.github.io",
     localeNamespace: "referenceforzotero",
     controllerFactory: factory,
+    openPreferences: () => {
+      preferencesOpened += 1;
+    },
   });
   assert.ok(registration);
   assert.equal(
@@ -131,6 +136,22 @@ test("Reader lifecycle enables only Reader tabs and removes section work on dest
     registration.sidenav.l10nID,
     "referenceforzotero-reference-for-zotero-section-sidenav",
   );
+  assert.deepEqual(
+    registration.sectionButtons.map(({ type, icon, l10nID }) => ({
+      type,
+      icon,
+      l10nID,
+    })),
+    [
+      {
+        type: "open-preferences",
+        icon: "chrome://referenceforzotero/content/icons/reader-settings.svg",
+        l10nID: "referenceforzotero-reference-for-zotero-section-settings",
+      },
+    ],
+  );
+  registration.sectionButtons[0]?.onClick();
+  assert.equal(preferencesOpened, 1);
 
   const enabled: boolean[] = [];
   registration.onInit({
@@ -188,6 +209,10 @@ test("Reader section Fluent messages localize control attributes without replaci
     assert.match(
       fluent,
       /reference-for-zotero-section-sidenav\s*=\s*\r?\n\s+\.tooltiptext\s*=\s*\S+/u,
+    );
+    assert.match(
+      fluent,
+      /reference-for-zotero-section-settings\s*=\s*\r?\n\s+\.tooltiptext\s*=\s*\S+/u,
     );
   }
 });

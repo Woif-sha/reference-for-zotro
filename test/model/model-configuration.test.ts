@@ -1,0 +1,179 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  DEFAULT_MODEL_CONFIGURATION,
+  ModelSettingsStore,
+  flattenRuntimeModels,
+  validateProviderConfiguration,
+  type ModelProviderConfiguration,
+  type ModelSettingsPreferences,
+} from "../../src/model/model-configuration";
+
+test("fresh settings use one active Codex gpt-5.4 medium model without a Legacy display name", () => {
+  const preferences = memoryPreferences();
+  const settings = new ModelSettingsStore(preferences);
+
+  assert.deepEqual(settings.getConfiguration(), DEFAULT_MODEL_CONFIGURATION);
+  assert.equal(settings.getConfiguration().providers[0].name, "服务商 A");
+  assert.deepEqual(
+    flattenRuntimeModels(settings.getConfiguration()).map((model) => ({
+      authMode: model.authMode,
+      model: model.model,
+      effort: model.effort,
+      active: model.active,
+    })),
+    [
+      {
+        authMode: "codex_auth",
+        model: "gpt-5.4",
+        effort: "medium",
+        active: true,
+      },
+    ],
+  );
+  assert.match(preferences.value ?? "", /"activeModelId":"model-codex"/u);
+});
+
+test("stored default Legacy display names are upgraded without changing the provider identity", () => {
+  const legacy = structuredClone(DEFAULT_MODEL_CONFIGURATION);
+  legacy.providers[0].name = "Legacy Codex";
+  const preferences = memoryPreferences();
+  preferences.value = JSON.stringify(legacy);
+  const settings = new ModelSettingsStore(preferences);
+
+  assert.equal(settings.getConfiguration().providers[0].name, "服务商 A");
+  assert.doesNotMatch(preferences.value ?? "", /Legacy/u);
+});
+
+test("model settings read only this plugin preference and never Paper Translate preferences", () => {
+  const reads: string[] = [];
+  const settings = new ModelSettingsStore({
+    get(key) {
+      reads.push(key);
+      return undefined;
+    },
+    set() {},
+  });
+
+  settings.getConfiguration();
+
+  assert.deepEqual(reads, [
+    "extensions.referenceforzotero.recommendationModelConfiguration",
+  ]);
+});
+
+test("configuration accepts only Legacy auth.json and HTTPS OpenAI Compatible providers", () => {
+  const configuration = apiConfiguration("https://api.example.com/v1/");
+  const validated = validateProviderConfiguration(configuration);
+
+  assert.equal(
+    validated.providers[1].apiBase,
+    "https://api.example.com/v1/chat/completions",
+  );
+
+  assert.throws(
+    () =>
+      validateProviderConfiguration({
+        ...configuration,
+        providers: [
+          {
+            ...configuration.providers[1],
+            authMode: "anthropic" as "openai_compatible",
+          },
+        ],
+      }),
+    /认证方式/u,
+  );
+  assert.throws(
+    () =>
+      validateProviderConfiguration({
+        ...configuration,
+        providers: [
+          {
+            ...configuration.providers[1],
+            apiBase: "http://api.example.com/v1",
+          },
+        ],
+        activeModelId: "model-api",
+      }),
+    /HTTPS/u,
+  );
+});
+
+test("configuration requires exactly one saved active model", () => {
+  const configuration = apiConfiguration("https://api.example.com/v1");
+
+  assert.throws(
+    () =>
+      validateProviderConfiguration({
+        ...configuration,
+        activeModelId: "missing-model",
+      }),
+    /活动模型/u,
+  );
+  assert.equal(
+    flattenRuntimeModels(validateProviderConfiguration(configuration)).filter(
+      (model) => model.active,
+    ).length,
+    1,
+  );
+});
+
+test("a failed preference write does not publish an unsaved model configuration", () => {
+  let stored: string | undefined;
+  let failWrites = false;
+  const settings = new ModelSettingsStore({
+    get: () => stored,
+    set(_key, value) {
+      if (failWrites) throw new Error("preference write failed");
+      stored = value;
+    },
+  });
+  settings.getConfiguration();
+  let notifications = 0;
+  settings.subscribe(() => {
+    notifications += 1;
+  });
+  failWrites = true;
+
+  assert.throws(
+    () =>
+      settings.saveConfiguration(
+        apiConfiguration("https://api.example.com/v1"),
+      ),
+    /preference write failed/u,
+  );
+  assert.deepEqual(settings.getConfiguration(), DEFAULT_MODEL_CONFIGURATION);
+  assert.equal(notifications, 0);
+});
+
+export function apiConfiguration(apiBase: string): ModelProviderConfiguration {
+  return {
+    schemaVersion: 1,
+    activeModelId: "model-api",
+    providers: [
+      ...DEFAULT_MODEL_CONFIGURATION.providers,
+      {
+        id: "provider-api",
+        name: "Example API",
+        authMode: "openai_compatible",
+        apiBase,
+        apiKey: "private-key",
+        models: [{ id: "model-api", model: "example-model", effort: "" }],
+      },
+    ],
+  };
+}
+
+function memoryPreferences(): ModelSettingsPreferences & { value?: string } {
+  return {
+    value: undefined,
+    get() {
+      return this.value;
+    },
+    set(_key, value) {
+      this.value = value;
+    },
+  };
+}

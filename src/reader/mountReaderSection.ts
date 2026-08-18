@@ -1,14 +1,21 @@
 import type { ReferenceMatchBasis } from "../domain/literature";
-import type { DownloadSettingsState } from "../application/download-settings";
 import type { TranslationCapability } from "../translation/paper-translate-bridge";
 import { relateScholarlyIdentities } from "../literature/identifiers";
+import {
+  referenceForMarkerNumber,
+  referenceMarkerNumberAtPoint,
+} from "./reference-marker-navigation";
+import type {
+  RecommendationItem,
+  RecommendationProgress,
+} from "../recommendation/related-paper-recommendation";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const TRANSLATION_POPOVER_GAP = 8;
 const TRANSLATION_POPOVER_MARGIN = 10;
 const TRANSLATION_POPOVER_WIDTH = 340;
 
-export type ReaderTab = "references" | "citations";
+export type ReaderTab = "references" | "citations" | "ai-recommendation";
 export type ReaderPaperAction = "copy-title" | "copy-doi" | "google-search";
 export type ReaderStatus = "loading" | "ready" | "error" | "no-md";
 export type CitingPapersStatus =
@@ -16,6 +23,21 @@ export type CitingPapersStatus =
   | Readonly<{ status: "loading" }>
   | Readonly<{ status: "ready" }>
   | Readonly<{ status: "error"; message: string }>;
+export type RecommendationState =
+  | Readonly<{ status: "not-analyzed" }>
+  | (Readonly<{ status: "analyzing" }> & RecommendationProgress)
+  | Readonly<{ status: "no-candidates" }>
+  | Readonly<{
+      status: "failed";
+      message: string;
+      partial?: RecommendationProgress;
+    }>
+  | Readonly<{
+      status: "completed";
+      priority: readonly RecommendationItem[];
+      optional: readonly RecommendationItem[];
+      restoredFromCache: boolean;
+    }>;
 export type PaperStatus =
   | "matching"
   | "resolved"
@@ -50,6 +72,8 @@ type ReaderPaperBase = {
   pmcid?: string;
   abstract?: string;
   abstractSource?: string;
+  abstractSourceRecordID?: string;
+  abstractRetrievedAt?: string;
   abstractLoading?: boolean;
   abstractError?: string;
   citationCount?: number;
@@ -107,12 +131,12 @@ export interface ReaderSectionState {
   citingPaperLimit: 10 | 30 | 50;
   citingPapersLoaded: number;
   citingPapersStatus: CitingPapersStatus;
+  recommendation: RecommendationState;
   selectedPaperID?: string;
   downloadSelection: readonly DownloadSelectionEntry[];
   paperDownloads: readonly PaperDownloadProjection[];
   downloadInProgress: boolean;
   downloadAvailable: boolean;
-  downloadSetup?: DownloadSettingsState;
 }
 
 export interface ReaderSectionController {
@@ -134,8 +158,6 @@ export interface ReaderSectionController {
   downloadSelected(): Promise<void>;
   openDownloadedFolder(paperID: string): void;
   openMineruDirectory?(): void;
-  changeDownloadDestination?(): Promise<void>;
-  resetDownloadDestination?(): void;
   translationCapability?(): TranslationCapability;
   translateSelection?(text: string): Promise<string>;
   externalInteractionDocuments?(): readonly Document[];
@@ -172,6 +194,7 @@ export function mountReaderSection(options: {
   let destroyed = false;
   let translationRequest = 0;
   let detailWasOpenAtPointerDown = false;
+  let jumpHighlightTimer: number | undefined;
   const externalInteractionDocuments = new Set<Document>();
 
   const dismissSelectedPaper = (): void => {
@@ -183,12 +206,55 @@ export function mountReaderSection(options: {
     dismissSelectedPaper();
   };
 
+  const revealReference = async (paperID: string): Promise<void> => {
+    controller.selectTab("references");
+    await revealReaderSection(body);
+    if (destroyed) return;
+    const row = [...root.querySelectorAll<HTMLElement>("[data-paper-id]")].find(
+      (candidate) => candidate.dataset.paperId === paperID,
+    );
+    if (!row) return;
+    row.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    row.classList.remove("is-reference-jump-target");
+    void row.getBoundingClientRect();
+    row.classList.add("is-reference-jump-target");
+    const view = body.ownerDocument.defaultView;
+    if (!view) return;
+    if (jumpHighlightTimer !== undefined) {
+      view.clearTimeout(jumpHighlightTimer);
+    }
+    jumpHighlightTimer = view.setTimeout(() => {
+      row.classList.remove("is-reference-jump-target");
+      jumpHighlightTimer = undefined;
+    }, 1800);
+  };
+
+  const onExternalContextMenu = (event: Event): void => {
+    const mouseEvent = event as MouseEvent;
+    if (!mouseEvent.ctrlKey) return;
+    const document = event.currentTarget as Document;
+    const markerNumber = referenceMarkerNumberAtPoint(
+      document,
+      mouseEvent.clientX,
+      mouseEvent.clientY,
+    );
+    if (markerNumber === undefined) return;
+    const state = controller.getState();
+    if (state.status !== "ready") return;
+    const reference = referenceForMarkerNumber(state.references, markerNumber);
+    if (!reference) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void revealReference(reference.id);
+  };
+
   const syncExternalInteractionDocuments = (): void => {
     for (const document of controller.externalInteractionDocuments?.() ?? []) {
       if (document === body.ownerDocument) continue;
       if (externalInteractionDocuments.has(document)) continue;
       externalInteractionDocuments.add(document);
       document.addEventListener("pointerdown", onExternalPointerDown, true);
+      document.addEventListener("contextmenu", onExternalContextMenu, true);
     }
   };
 
@@ -244,10 +310,16 @@ export function mountReaderSection(options: {
     const papers =
       state.activeTab === "references"
         ? state.references
-        : state.citingPapers.slice(
-            0,
-            Math.min(state.citingPaperLimit, state.citingPapers.length),
-          );
+        : state.activeTab === "citations"
+          ? state.citingPapers.slice(
+              0,
+              Math.min(state.citingPaperLimit, state.citingPapers.length),
+            )
+          : [];
+    const detailPapers =
+      state.activeTab === "ai-recommendation"
+        ? [...state.references, ...state.citingPapers]
+        : papers;
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
@@ -266,6 +338,7 @@ export function mountReaderSection(options: {
       <nav class="rfz-tabs" aria-label="Paper relationship">
         <div class="rfz-tab" role="tab" tabindex="0" data-tab="references" data-focus-key="tab:references" aria-selected="${state.activeTab === "references"}">References <span>${state.references.length}</span></div>
         <div class="rfz-tab" role="tab" tabindex="0" data-tab="citations" data-focus-key="tab:citations" aria-selected="${state.activeTab === "citations"}">Citations <span>${state.citingPapersStatus.status === "loading" && state.citingPapers.length === 0 ? "…" : state.citingPapers.length}</span></div>
+        <div class="rfz-tab" role="tab" tabindex="0" data-tab="ai-recommendation" data-focus-key="tab:ai-recommendation" aria-selected="${state.activeTab === "ai-recommendation"}">AI 推荐</div>
       </nav>
       ${
         state.activeTab === "citations"
@@ -296,7 +369,7 @@ export function mountReaderSection(options: {
       ].find((element) => element.dataset.focusKey === focusKey);
       replacement?.focus();
     }
-    const detailCard = renderDetailCard(state, papers);
+    const detailCard = renderDetailCard(state, detailPapers);
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);
     positionDetailCard(root, overlay);
@@ -355,8 +428,10 @@ export function mountReaderSection(options: {
       dismissSelectedPaper();
       return;
     }
-    const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
-    if (tab === "references" || tab === "citations") {
+    const tab = parseReaderTab(
+      target.closest<HTMLElement>("[data-tab]")?.dataset.tab,
+    );
+    if (tab) {
       controller.selectTab(tab);
       return;
     }
@@ -447,8 +522,10 @@ export function mountReaderSection(options: {
       controller.refresh();
       return;
     }
-    const tab = target.closest<HTMLElement>("[data-tab]")?.dataset.tab;
-    if (tab === "references" || tab === "citations") {
+    const tab = parseReaderTab(
+      target.closest<HTMLElement>("[data-tab]")?.dataset.tab,
+    );
+    if (tab) {
       event.preventDefault();
       controller.selectTab(tab);
       return;
@@ -607,10 +684,18 @@ export function mountReaderSection(options: {
         repositionDetailCard,
         true,
       );
+      if (jumpHighlightTimer !== undefined) {
+        body.ownerDocument.defaultView?.clearTimeout(jumpHighlightTimer);
+      }
       for (const document of externalInteractionDocuments) {
         document.removeEventListener(
           "pointerdown",
           onExternalPointerDown,
+          true,
+        );
+        document.removeEventListener(
+          "contextmenu",
+          onExternalContextMenu,
           true,
         );
       }
@@ -621,6 +706,27 @@ export function mountReaderSection(options: {
   };
 }
 
+type ReaderSectionHost = Element & {
+  collapsed?: boolean;
+  open?: boolean;
+  scrollToPane?(
+    paneID: string,
+    behavior?: "instant" | "smooth",
+  ): Promise<unknown> | unknown;
+};
+
+async function revealReaderSection(body: HTMLElement): Promise<void> {
+  const section = body.closest<ReaderSectionHost>("[data-pane]");
+  const contextPane = section?.closest<ReaderSectionHost>("context-pane");
+  if (contextPane && "collapsed" in contextPane) {
+    contextPane.collapsed = false;
+  }
+  if (section && "open" in section) section.open = true;
+  const paneID = section?.getAttribute("data-pane");
+  const itemDetails = section?.closest<ReaderSectionHost>("item-details");
+  if (paneID) await itemDetails?.scrollToPane?.(paneID, "instant");
+}
+
 function escapeHTML(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -628,6 +734,23 @@ function escapeHTML(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function normalizeAbstractForDisplay(value: string): string {
+  return value
+    .replace(/\$([^$\r\n]+)\$/gu, (_match, expression: string) => {
+      const plainExpression = expression
+        .replace(/\\times\b/gu, "×")
+        .replace(/\\sim\b/gu, " ∼ ")
+        .replace(/\{\\rm\s+([^{}]*)\}/gu, "$1")
+        .replace(/~/gu, " ")
+        .replace(/\s+/gu, " ")
+        .trim();
+      return ` ${plainExpression} `;
+    })
+    .replace(/\s+([,.;:!?])/gu, "$1")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function escapeAttribute(value: string): string {
@@ -667,6 +790,13 @@ function renderContent(
       <strong>${escapeHTML(content[0])}</strong>
       <p>${escapeHTML(content[1])}</p>
     </section>`;
+  }
+
+  if (state.activeTab === "ai-recommendation") {
+    return renderRecommendation(state.recommendation, state.selectedPaperID, [
+      ...state.references,
+      ...state.citingPapers,
+    ]);
   }
 
   if (
@@ -733,7 +863,7 @@ function renderContent(
         }${selectedForDownload ? " is-download-selected" : ""}" data-paper-id="${escapeAttribute(paper.id)}">
           <button class="rfz-paper-checkbox" type="button" role="checkbox" aria-checked="${selectedForDownload}" data-select-paper="${escapeAttribute(paper.id)}" data-paper-control="" data-focus-key="select:${state.activeTab}:${escapeAttribute(paper.id)}" aria-label="${escapeAttribute(checkboxLabel)}" ${selectable ? "" : 'disabled=""'}><span class="rfz-checkbox-mark" aria-hidden="true">✓</span></button>
           <span class="rfz-ordinal">${escapeHTML(paper.sourceLabel ?? String(paper.ordinal + 1))}.</span><div class="rfz-paper-main">
-            <div class="rfz-paper-title" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
+            <div class="rfz-paper-title${paper.abstract ? " rfz-paper-title--has-abstract" : ""}" data-paper-title="" data-translation-text="" data-focus-key="title:${state.activeTab}:${escapeAttribute(paper.id)}" role="button" tabindex="0">${escapeHTML(
               paper.title,
             )}</div>${metadata ? `<small class="rfz-paper-metadata" data-paper-metadata="" data-translation-text="">${escapeHTML(metadata)}</small>` : ""}${status}
             ${unavailableReason ? `<span class="rfz-download-unavailable" data-no-translation="">Download unavailable · ${escapeHTML(unavailableReason)}</span>` : ""}${download}
@@ -742,6 +872,76 @@ function renderContent(
       })
       .join("")}
   </ol>`;
+}
+
+function renderRecommendation(
+  state: RecommendationState,
+  selectedPaperID: string | undefined,
+  papers: readonly ReaderPaper[],
+): string {
+  if (state.status === "not-analyzed") {
+    return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在检查缓存和分析条件…</strong><p>将使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p></section>`;
+  }
+  if (state.status === "analyzing") {
+    const completed = state.priority.length + state.optional.length;
+    return `<section class="rfz-recommendation-results">
+      <h2>AI 正在分析并生成阅读建议…</h2>
+      <p class="rfz-recommendation-cache-status" role="status"><strong>${
+        state.totalCandidates > 0
+          ? `已生成 ${completed} / ${state.totalCandidates} 篇`
+          : "正在检查缓存并等待模型输出"
+      }</strong>；每条完整建议生成后会立即显示。</p>
+      ${state.priority.length ? renderRecommendationGroup("优先看", state.priority, selectedPaperID, papers) : ""}
+      ${state.optional.length ? renderRecommendationGroup("可选看", state.optional, selectedPaperID, papers) : ""}
+    </section>`;
+  }
+  if (state.status === "no-candidates") {
+    return `<section class="rfz-status rfz-recommendation-status"><strong>暂无可分析论文</strong><p>当前 References 与已加载 Citing papers 中没有已知的非空 Abstract。加载 Abstract 后再次点击 AI 推荐标签。</p></section>`;
+  }
+  if (state.status === "failed") {
+    const partial = state.partial;
+    const completed = partial
+      ? partial.priority.length + partial.optional.length
+      : 0;
+    return `<section class="rfz-status rfz-recommendation-status" role="alert">
+      <strong>分析失败</strong><p>${escapeHTML(state.message)}</p>${
+        partial && completed > 0
+          ? `<p>中断前已生成 ${completed} / ${partial.totalCandidates} 篇；以下内容尚未通过完整响应校验。</p>
+            ${partial.priority.length ? renderRecommendationGroup("未完成的优先建议", partial.priority, selectedPaperID, papers) : ""}
+            ${partial.optional.length ? renderRecommendationGroup("未完成的可选建议", partial.optional, selectedPaperID, papers) : ""}`
+          : ""
+      }<p>再次点击 AI 推荐标签可重试。</p>
+    </section>`;
+  }
+  return `<section class="rfz-recommendation-results">
+    <h2>当前论文的 AI 阅读建议<span class="rfz-recommendation-summary" data-no-translation="">（送入 AI 分析 ${state.priority.length + state.optional.length} 篇 / 优先看 ${state.priority.length} 篇 / 可选看 ${state.optional.length} 篇）</span></h2>
+    ${state.restoredFromCache ? '<p class="rfz-recommendation-cache-status" role="status"><strong>缓存恢复</strong>：已从本地 recommendation.json 恢复，本次未调用 AI。</p>' : ""}
+    ${renderRecommendationGroup("优先看", state.priority, selectedPaperID, papers)}
+    ${renderRecommendationGroup("可选看", state.optional, selectedPaperID, papers)}
+  </section>`;
+}
+
+function renderRecommendationGroup(
+  title: string,
+  items: readonly RecommendationItem[],
+  selectedPaperID: string | undefined,
+  papers: readonly ReaderPaper[],
+): string {
+  return `<section class="rfz-recommendation-group"><h3>${title}</h3><ol>${items
+    .map((item) => {
+      const year = papers.find((paper) => paper.id === item.paperID)?.year;
+      return `<li class="rfz-recommendation-paper${selectedPaperID === item.paperID ? " is-selected" : ""}" data-paper-id="${escapeAttribute(item.paperID)}">
+        <div class="rfz-paper-title rfz-recommendation-title" data-paper-title="" data-translation-text="" data-focus-key="recommendation:${escapeAttribute(item.candidateKey)}" role="button" tabindex="0">${escapeHTML(`${item.title}${year ? `（${year}）` : ""}`)}</div>
+        <div class="rfz-recommendation-sources">${item.sources
+          .map(
+            (source) =>
+              `<span>${source === "reference" ? "Reference" : "Citation"}</span>`,
+          )
+          .join("")}</div>
+        <p data-translation-text="">${escapeHTML(item.reason)}</p>
+      </li>`;
+    })
+    .join("")}</ol></section>`;
 }
 
 function selectionMatchesPaper(
@@ -844,12 +1044,13 @@ function renderDetailCard(
         : ""
     }
     <section class="rfz-abstract"><strong>Abstract</strong><p${paper.abstract ? ' data-translation-text=""' : ""}>${escapeHTML(
-      paper.abstract ??
-        (paper.abstractLoading
+      paper.abstract
+        ? normalizeAbstractForDisplay(paper.abstract)
+        : paper.abstractLoading
           ? "Loading abstract…"
           : paper.abstractError
             ? `Abstract unavailable: ${paper.abstractError}`
-            : "Current metadata source did not provide an abstract."),
+            : "Current metadata source did not provide an abstract.",
     )}</p></section>
   </aside>`;
 }
@@ -915,6 +1116,14 @@ function isReaderPaperAction(
   return (
     value === "copy-title" || value === "copy-doi" || value === "google-search"
   );
+}
+
+function parseReaderTab(value: string | undefined): ReaderTab | undefined {
+  return value === "references" ||
+    value === "citations" ||
+    value === "ai-recommendation"
+    ? value
+    : undefined;
 }
 
 function clearTranslation(...containers: HTMLElement[]): void {
@@ -1097,6 +1306,11 @@ const READER_STYLES = `
   .rfz-paper-list { margin: 0; padding: 0; list-style: none; }
   .rfz-paper { display: grid; grid-template-columns: 18px 22px minmax(0, 1fr); gap: 6px; width: 100%; padding: 10px 8px; border-bottom: 1px solid var(--material-border, #ececef); cursor: default; }
   .rfz-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-paper.is-reference-jump-target { animation: rfz-reference-jump 1.8s ease-out; }
+  @keyframes rfz-reference-jump {
+    0%, 35% { background: color-mix(in srgb, var(--accent-blue, #4d74b2) 32%, transparent); }
+    100% { background: transparent; }
+  }
   .rfz-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
   .rfz-paper.is-download-selected { box-shadow: inset 3px 0 var(--rfz-accent); }
   .rfz-paper-checkbox { grid-column: 1; margin: 1px 0 0; cursor: pointer; }
@@ -1104,6 +1318,7 @@ const READER_STYLES = `
   .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 13px; }
   .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 13px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
+  .rfz-paper--resolved .rfz-paper-title--has-abstract { font-style: italic; text-decoration-line: underline; text-decoration-color: var(--rfz-accent); text-underline-offset: 2px; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }
   .rfz-paper--failed .rfz-paper-status { color: #ba3b32; }
@@ -1128,6 +1343,19 @@ const READER_STYLES = `
   .rfz-context-item[aria-disabled="true"] { color: var(--fill-tertiary, #9a9aa0); cursor: default; }
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
+  .rfz-recommendation-results { padding: 16px 12px 24px; }
+  .rfz-recommendation-results h2 { margin: 0 0 16px; font-size: 15px; }
+  .rfz-recommendation-summary { margin-left: 4px; color: var(--fill-secondary, #5f5f66); font-size: 12px; font-weight: 400; }
+  .rfz-recommendation-group + .rfz-recommendation-group { margin-top: 28px; }
+  .rfz-recommendation-group h3 { margin: 0 0 12px; font-size: 15px; }
+  .rfz-recommendation-group ol { margin: 0; padding: 0; list-style: none; }
+  .rfz-recommendation-group li { padding: 10px 0; border-bottom: 1px solid var(--material-border, #ececef); }
+  .rfz-recommendation-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-recommendation-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
+  .rfz-recommendation-title { color: var(--rfz-accent); font-size: 14px; cursor: pointer; }
+  .rfz-recommendation-group li > p { margin: 6px 0 0; color: var(--fill-secondary, #5f5f66); line-height: 1.5; }
+  .rfz-recommendation-sources { display: flex; gap: 5px; margin-top: 5px; }
+  .rfz-recommendation-sources span { padding: 1px 6px; border-radius: 8px; color: #154e9f; background: #dce8fb; font-size: 10px; }
   .rfz-overlay { position: fixed; z-index: 2147483000; inset: 0; pointer-events: none; }
   .rfz-overlay.is-open { pointer-events: none; }
   .rfz-detail-card { position: fixed; padding: 16px 18px 18px; border: 1px solid var(--material-border, #aaaeb5); border-radius: 8px 0 0 8px; color: var(--fill-primary, #242428); background: var(--material-background, #fff); box-shadow: -8px 12px 28px #0003; overflow: auto; pointer-events: auto; user-select: text; }

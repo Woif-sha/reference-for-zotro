@@ -5,6 +5,11 @@ import {
   type LoadedPaper,
   type RelatedPapersPorts,
 } from "../../src/application/related-papers-controller";
+import {
+  RecommendationCacheRepository,
+  type RecommendationCacheStorage,
+} from "../../src/cache/recommendation-cache-repository";
+import { RelatedPaperRecommendationService } from "../../src/recommendation/related-paper-recommendation";
 
 const loadedPaper: LoadedPaper = {
   identity: {
@@ -14,6 +19,8 @@ const loadedPaper: LoadedPaper = {
     parentItemKey: "PARENT01",
   },
   sourceFingerprint: "fingerprint",
+  fullMarkdown: "# Current paper\n\nComplete MinerU Markdown.",
+  fullMdSha256: "full-md-sha256",
   mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   entries: [
     {
@@ -23,6 +30,619 @@ const loadedPaper: LoadedPaper = {
     },
   ],
 };
+
+test("opening a Current paper restores its recommendation cache without calling the model", async () => {
+  let cacheReads = 0;
+  let modelCalls = 0;
+  const cachedItem = {
+    candidateKey: "doi:10.1000/reference",
+    paperID: "reference:0",
+    title: "Reference",
+    sources: ["reference" as const],
+    reason: "直接扩展当前论文的方法。",
+  };
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    async readCachedRecommendation(request) {
+      cacheReads += 1;
+      assert.equal(request.currentPaper.attachmentKey, "ATTACH01");
+      return {
+        status: "completed",
+        priority: [cachedItem],
+        optional: [],
+      };
+    },
+    async recommendPapers() {
+      modelCalls += 1;
+      throw new Error("model must not be called");
+    },
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+
+  assert.equal(cacheReads, 1);
+  assert.equal(modelCalls, 0);
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "completed",
+    priority: [cachedItem],
+    optional: [],
+    restoredFromCache: true,
+  });
+});
+
+test("entering AI recommendation checks the cache and starts analysis automatically", async () => {
+  const order: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    async readCachedRecommendation() {
+      order.push("cache");
+      return undefined;
+    },
+    async recommendPapers() {
+      order.push("model-boundary");
+      return { status: "no-candidates" };
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  order.length = 0;
+
+  controller.selectTab("ai-recommendation");
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "analyzing",
+    totalCandidates: 0,
+    priority: [],
+    optional: [],
+  });
+  await waitFor(
+    () => controller.getState().recommendation.status === "no-candidates",
+  );
+
+  assert.deepEqual(order, ["cache", "model-boundary"]);
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "no-candidates",
+  });
+});
+
+test("entering AI recommendation explains when no recommendation model is available", async () => {
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  controller.selectTab("ai-recommendation");
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "AI 推荐模型不可用，请在插件设置中配置并测试模型。",
+  });
+});
+
+test("a complete recommendation survives a Controller restart without a second model call", async () => {
+  const values = new Map<string, string>();
+  const storage: RecommendationCacheStorage = {
+    async read(directory) {
+      return values.get(`${directory}/recommendation.json`);
+    },
+    async write(directory, value) {
+      values.set(`${directory}/recommendation.json`, value);
+    },
+  };
+  let modelCalls = 0;
+  const modelIdentity = {
+    authMode: "codex_auth" as const,
+    providerId: "provider-codex",
+    providerName: "Legacy Codex",
+    modelId: "model-codex",
+    model: "gpt-5.4",
+    apiBase: "https://chatgpt.com/backend-api/codex/responses",
+    effort: "medium",
+  };
+  const service = new RelatedPaperRecommendationService(
+    {
+      identity() {
+        return modelIdentity;
+      },
+      async generate() {
+        modelCalls += 1;
+        return {
+          identity: modelIdentity,
+          text: JSON.stringify({
+            schemaVersion: 1,
+            priority: [{ id: "paper-1", reason: "直接扩展当前论文的方法。" }],
+            optional: [],
+          }),
+        };
+      },
+    },
+    { cache: new RecommendationCacheRepository(storage) },
+  );
+  const createController = (abstract?: string) =>
+    new RelatedPapersController(42, {
+      loadPaper: async () => loadedPaper,
+      resolveReferences: async () => [
+        {
+          ...resolvedPaper("Reference", "10.1000/reference"),
+          doi: "10.1000/reference",
+          ...(abstract ? { abstract } : {}),
+        },
+      ],
+      loadCitingPapers: async () => [],
+      readCachedRecommendation: (request) => service.readCached(request),
+      recommendPapers: (request) => service.recommend(request),
+      openURL() {},
+    });
+
+  const first = createController("Reference abstract");
+  await first.refreshAsync();
+  await first.generateRecommendations();
+  assert.equal(
+    first.getState().recommendation.status,
+    "completed",
+    JSON.stringify(first.getState().recommendation),
+  );
+  assert.equal(values.size, 1);
+  first.dispose();
+  const second = createController();
+  await second.refreshAsync();
+
+  assert.equal(modelCalls, 1);
+  const restored = second.getState().recommendation;
+  assert.equal(restored.status, "completed");
+  assert.equal(
+    restored.status === "completed" && restored.restoredFromCache,
+    true,
+  );
+});
+
+test("a newly loaded Abstract invalidates a restored recommendation without auto-calling the model", async () => {
+  let cacheReads = 0;
+  let modelCalls = 0;
+  const cached = {
+    status: "completed" as const,
+    priority: [
+      {
+        candidateKey: "doi:10.1000/reference",
+        paperID: "reference:0",
+        title: "Reference",
+        sources: ["reference" as const],
+        reason: "直接扩展当前论文的方法。",
+      },
+    ],
+    optional: [],
+  };
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        ...resolvedPaper("Reference", "10.1000/reference"),
+        doi: "10.1000/reference",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    async loadAbstract() {
+      return {
+        text: "New Abstract",
+        source: "crossref",
+        sourceRecordID: "10.1000/reference",
+      };
+    },
+    async readCachedRecommendation(request) {
+      cacheReads += 1;
+      return request.references[0]?.abstract ? undefined : cached;
+    },
+    async recommendPapers() {
+      modelCalls += 1;
+      throw new Error("must not auto-call model");
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  await waitFor(
+    () => controller.getState().references[0]?.abstract !== undefined,
+  );
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+  assert.ok(cacheReads >= 2);
+  assert.equal(modelCalls, 0);
+});
+
+test("a changed visible candidate set invalidates a restored recommendation", async () => {
+  let cacheReads = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [
+      {
+        id: "citation:0",
+        ordinal: 0,
+        title: "New citing paper",
+        doi: "10.1000/citing",
+        status: "resolved",
+        primaryResultURL: "https://doi.org/10.1000/citing",
+      },
+    ],
+    async readCachedRecommendation(request) {
+      cacheReads += 1;
+      return request.citingPapers.length
+        ? undefined
+        : {
+            status: "completed",
+            priority: [],
+            optional: [],
+          };
+    },
+    async recommendPapers() {
+      throw new Error("must not auto-call model");
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  assert.equal(controller.getState().recommendation.status, "completed");
+
+  controller.selectTab("citations");
+  await waitFor(() => cacheReads === 2);
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+});
+
+test("a Reference candidate change aborts analysis and rejects its late result", async () => {
+  const resolution = deferred<readonly ReaderPaperResult[]>();
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  let publishResolved: ((paper: ReaderPaperResult) => void) | undefined;
+  let recommendationSignal: AbortSignal | undefined;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences(_entries, _context, onResolved) {
+      publishResolved = onResolved;
+      return resolution.promise;
+    },
+    loadCitingPapers: async () => [],
+    recommendPapers(request) {
+      recommendationSignal = request.signal;
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 1);
+  const run = controller.generateRecommendations();
+  const resolved = resolvedPaper("Resolved", "10.1000/resolved");
+
+  publishResolved?.(resolved);
+  resolution.resolve([resolved]);
+  await refresh;
+
+  assert.equal(recommendationSignal?.aborted, true);
+  recommendation.resolve({ status: "completed", priority: [], optional: [] });
+  await run;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+});
+
+test("a model identity change clears a restored result and performs a fresh lookup", async () => {
+  let notifyIdentityChange: (() => void) | undefined;
+  let cacheReads = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    subscribeRecommendationIdentityChange(listener) {
+      notifyIdentityChange = listener;
+      return () => undefined;
+    },
+    async readCachedRecommendation() {
+      cacheReads += 1;
+      return cacheReads === 1
+        ? { status: "completed", priority: [], optional: [] }
+        : undefined;
+    },
+    async recommendPapers() {
+      throw new Error("must not auto-call model");
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  assert.equal(controller.getState().recommendation.status, "completed");
+
+  notifyIdentityChange?.();
+  await waitFor(() => cacheReads === 2);
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+});
+
+test("a cache read error is explicit and never falls through to the model", async () => {
+  let cacheReads = 0;
+  let modelCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    async readCachedRecommendation() {
+      cacheReads += 1;
+      throw new Error("Recommendation cache schema is invalid");
+    },
+    async recommendPapers() {
+      modelCalls += 1;
+      return { status: "no-candidates" };
+    },
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "Recommendation cache schema is invalid",
+  });
+  await controller.generateRecommendations();
+
+  assert.equal(cacheReads, 2);
+  assert.equal(modelCalls, 0);
+  assert.equal(controller.getState().recommendation.status, "failed");
+});
+
+test("recommendation snapshots the retained Current paper and every Controller candidate once", async () => {
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const requests: unknown[] = [];
+  let paperLoads = 0;
+  let citingLoads = 0;
+  let abstractLoads = 0;
+  const references = [
+    {
+      ...resolvedPaper("Reference", "10.1000/reference"),
+      abstract: "Reference abstract",
+    },
+  ];
+  const citingPapers = papers(12).map((entry) => ({
+    ...entry,
+    abstract: `${entry.title} abstract`,
+  }));
+  const controller = new RelatedPapersController(42, {
+    async loadPaper() {
+      paperLoads += 1;
+      return loadedPaper;
+    },
+    async resolveReferences() {
+      throw new Error("cached results should be used");
+    },
+    async loadCitingPapers() {
+      citingLoads += 1;
+      return [];
+    },
+    async loadAbstract() {
+      abstractLoads += 1;
+      return {
+        text: "unexpected",
+        source: "unexpected",
+        sourceRecordID: "unexpected",
+      };
+    },
+    async readCachedResults() {
+      return { references, citingPapers, citingPapersLoaded: 10 };
+    },
+    recommendPapers(request) {
+      requests.push(request);
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const run = controller.generateRecommendations();
+  assert.equal(controller.getState().recommendation.status, "analyzing");
+  controller.selectTab("citations");
+  controller.selectTab("ai-recommendation");
+  void controller.generateRecommendations();
+  assert.equal(requests.length, 1);
+  const request = requests[0] as {
+    currentPaper: unknown;
+    references: readonly unknown[];
+    citingPapers: readonly unknown[];
+    signal: AbortSignal;
+  };
+  assert.deepEqual(request.currentPaper, {
+    ...loadedPaper.identity,
+    fullMarkdown: loadedPaper.fullMarkdown,
+    fullMdSha256: loadedPaper.fullMdSha256,
+    sourceFingerprint: loadedPaper.sourceFingerprint,
+  });
+  assert.equal(request.references.length, 1);
+  assert.equal(request.citingPapers.length, 12);
+  assert.equal(request.signal.aborted, false);
+  assert.equal(paperLoads, 1);
+  assert.equal(citingLoads, 0);
+  assert.equal(abstractLoads, 0);
+
+  recommendation.resolve({ status: "completed", priority: [], optional: [] });
+  await run;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "completed",
+    priority: [],
+    optional: [],
+    restoredFromCache: false,
+  });
+});
+
+test("recommendation progress publishes partial items while the model is still running", async () => {
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const streamedItem = {
+    candidateKey: "doi:10.1000/reference",
+    paperID: "reference:0",
+    title: "Streaming paper",
+    sources: ["reference" as const],
+    reason: "正在生成的推荐理由。",
+  };
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        ...resolvedPaper("Streaming paper", "10.1000/reference"),
+        abstract: "Reference abstract",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    recommendPapers(request) {
+      request.onProgress?.({
+        totalCandidates: 2,
+        priority: [streamedItem],
+        optional: [],
+      });
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const run = controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "analyzing",
+    totalCandidates: 2,
+    priority: [streamedItem],
+    optional: [],
+  });
+
+  recommendation.reject(new Error("stream interrupted"));
+  await run;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "stream interrupted",
+    partial: {
+      totalCandidates: 2,
+      priority: [streamedItem],
+      optional: [],
+    },
+  });
+});
+
+test("recommendation exposes empty and isolated failure states and permits manual retry", async () => {
+  let calls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      resolvedPaper("Reference", "10.1000/reference"),
+    ],
+    loadCitingPapers: async () => [],
+    async recommendPapers() {
+      calls += 1;
+      if (calls === 1) return { status: "no-candidates" };
+      throw new Error("recommendation provider failed");
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  const references = controller.getState().references;
+
+  await controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "no-candidates",
+  });
+  await controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "recommendation provider failed",
+  });
+  assert.equal(calls, 2);
+  assert.equal(controller.getState().references, references);
+  assert.equal(controller.getState().status, "ready");
+});
+
+test("refresh and dispose abort recommendation work and reject late commits", async () => {
+  const firstRecommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const secondRecommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const replacementLoad = deferred<LoadedPaper>();
+  const signals: AbortSignal[] = [];
+  let paperLoads = 0;
+  let recommendationCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper() {
+      paperLoads += 1;
+      return paperLoads === 1
+        ? Promise.resolve(loadedPaper)
+        : replacementLoad.promise;
+    },
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    recommendPapers(request) {
+      signals.push(request.signal!);
+      recommendationCalls += 1;
+      return recommendationCalls === 1
+        ? firstRecommendation.promise
+        : secondRecommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const firstRun = controller.generateRecommendations();
+  controller.refresh();
+  assert.equal(signals[0]?.aborted, true);
+  firstRecommendation.resolve({
+    status: "completed",
+    priority: [],
+    optional: [],
+  });
+  await firstRun;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "not-analyzed",
+  });
+
+  replacementLoad.resolve({ ...loadedPaper, sourceFingerprint: "replacement" });
+  await waitFor(() => controller.getState().status === "ready");
+  const secondRun = controller.generateRecommendations();
+  controller.dispose();
+  assert.equal(signals[1]?.aborted, true);
+  secondRecommendation.resolve({
+    status: "completed",
+    priority: [],
+    optional: [],
+  });
+  await secondRun;
+  assert.equal(recommendationCalls, 2);
+});
 
 test("Reference entries show parsed titles before matching and after a failure", async () => {
   const paper: LoadedPaper = {
@@ -288,8 +908,9 @@ test("paper actions copy available metadata and open an explicit Google search",
   ]);
 });
 
-test("selecting a resolved DOI paper lazily loads and publishes its Abstract", async () => {
-  const abstract = deferred<{ text: string; source: string }>();
+test("opening a Current paper silently loads Citations and deduplicated Abstracts", async () => {
+  const abstractLoads: string[] = [];
+  let citationLimit: number | undefined;
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => loadedPaper,
     resolveReferences: async () => [
@@ -302,30 +923,59 @@ test("selecting a resolved DOI paper lazily loads and publishes its Abstract", a
         doi: "10.1000/one",
       },
     ],
-    loadCitingPapers: async () => [],
-    loadAbstract: () => abstract.promise,
+    loadCitingPapers: async (limit) => {
+      citationLimit = limit;
+      return [
+        {
+          id: "citation:0",
+          ordinal: 0,
+          title: "Same paper",
+          status: "resolved",
+          primaryResultURL: "https://doi.org/10.1000/one",
+          doi: "https://doi.org/10.1000/ONE",
+        },
+        {
+          id: "citation:1",
+          ordinal: 1,
+          title: "Another paper",
+          status: "resolved",
+          primaryResultURL: "https://doi.org/10.1000/two",
+          doi: "10.1000/two",
+        },
+      ];
+    },
+    async loadAbstract(paper) {
+      abstractLoads.push(paper.doi ?? "");
+      return {
+        text: `${paper.doi} Abstract`,
+        source: "openalex",
+        sourceRecordID: `openalex:${paper.doi}`,
+      };
+    },
     openURL() {},
   });
   await controller.refreshAsync();
 
-  controller.selectPaper("reference:0");
   await waitFor(
-    () => controller.getState().references[0]?.abstractLoading === true,
-  );
-  abstract.resolve({
-    text: "An abstract loaded only after the paper was selected.",
-    source: "semantic-scholar",
-  });
-  await waitFor(
-    () =>
-      controller.getState().references[0]?.abstract ===
-      "An abstract loaded only after the paper was selected.",
+    () => controller.getState().citingPapers[1]?.abstract !== undefined,
   );
 
+  assert.equal(citationLimit, 10);
+  assert.deepEqual(abstractLoads, ["10.1000/one", "10.1000/two"]);
   assert.equal(
-    controller.getState().references[0]?.abstractSource,
-    "semantic-scholar",
+    controller.getState().references[0]?.abstract,
+    "10.1000/one Abstract",
   );
+  assert.equal(
+    controller.getState().citingPapers[0]?.abstract,
+    "10.1000/one Abstract",
+  );
+  assert.equal(controller.getState().references[0]?.abstractSource, "openalex");
+  assert.equal(
+    controller.getState().references[0]?.abstractSourceRecordID,
+    "openalex:10.1000/one",
+  );
+  assert.ok(controller.getState().references[0]?.abstractRetrievedAt);
   assert.equal(controller.getState().references[0]?.abstractLoading, false);
 });
 

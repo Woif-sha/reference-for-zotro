@@ -357,5 +357,6 @@ function downloadRequest(): PaperDownloadRequest {
       },
     ],
     downloadDestination: "E:\\paper",
+    cacheDirectory: "E:\\paper\\ScanSciCache",
   };
 }

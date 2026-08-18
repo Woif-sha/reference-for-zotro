@@ -26,7 +26,8 @@ export function createScanSciDownloadPapers(options: {
       }));
     }
 
-    const destination = setup.downloadDestination;
+    const destination = setup.downloadDestination!;
+    const cacheDirectory = setup.cacheDirectory!;
     const results = await options.runtime.downloadPapers({
       items: request.papers.map((paper) => ({
         itemID: paper.id,
@@ -34,6 +35,7 @@ export function createScanSciDownloadPapers(options: {
         canonicalFinalTarget: canonicalFinalTarget(destination, paper.title),
       })),
       downloadDestination: destination,
+      cacheDirectory,
       signal: request.signal,
       onProgress: ({ itemID, result }) =>
         request.onProgress({ paperID: itemID, result }),
@@ -46,16 +48,6 @@ export function createScanSciDownloadPapers(options: {
         }) satisfies PaperDownloadProgress,
     );
   };
-}
-
-export function createScanSciDownloadDependencies(options: {
-  runtime: ScanSciPort;
-  setup: DownloadSettingsController;
-}) {
-  return {
-    downloadSetup: options.setup,
-    downloadPapers: createScanSciDownloadPapers(options),
-  } as const;
 }
 
 function confirmedPaper(paper: ReaderPaper & { status: "resolved" }) {
@@ -73,7 +65,13 @@ function canonicalFinalTarget(destination: string, title: string): string {
 }
 
 function downloadSetupError(setup: DownloadSettingsState): string | undefined {
+  if (!setup.downloadDestination && !setup.cacheDirectory) {
+    return "请先配置下载目录和 Cache 路径。";
+  }
   if (setup.destinationError) return setup.destinationError;
+  if (setup.cacheDirectoryError) return setup.cacheDirectoryError;
+  if (!setup.downloadDestination) return "请先配置下载目录。";
+  if (!setup.cacheDirectory) return "请先配置 Cache 路径。";
   return undefined;
 }
 

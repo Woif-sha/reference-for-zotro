@@ -8,6 +8,20 @@ public patterns used by Zotero's Make It Red example and
 Woif-sha/paper-translate-for-zotero. Changes include the plugin identity,
 Zotero 9 compatibility boundary, Reader section lifecycle, and XPI contents.
 
+The recommendation-model provider cards, active-model selection, draft
+connection testing, Legacy auth.json transport, and OpenAI Compatible
+Chat Completions SSE transport are directly adapted from Paper Translate for
+Zotero, Copyright (C) 2026 Woif-sha and contributors, licensed under
+AGPL-3.0-or-later and fixed to commit
+969f1350a583c45a21303aeba133ab37e488f1af (v1.4.6). The adapted implementation
+is renamed for Reference for Zotero, keeps independent preferences, and does
+not read Paper Translate configuration or runtime objects. Paper Translate
+records llm-for-zotero, Copyright (C) Yile Wang and contributors,
+AGPL-3.0-or-later, commit d9724df84ac053343cf32b00c7829620a243e5b9,
+as the upstream lineage for the Legacy Codex authentication and provider
+transport design; llm-for-zotero is not a second direct implementation source
+for this project.
+
 The packaged ScanSci compatibility module contains modified pure-Python
 fragments from scansci-pdf, Copyright 2024-2026 scansci-pdf contributors,
 licensed under Apache-2.0 and fixed to upstream commit

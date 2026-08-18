@@ -46,12 +46,327 @@ function readyState(): ReaderSectionState {
     citingPaperLimit: 10,
     citingPapersLoaded: 10,
     citingPapersStatus: { status: "ready" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: true,
   };
 }
+
+test("AI recommendation is the third tab and renders every analysis state without scores", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab(tab) {
+        state = { ...state, activeTab: tab };
+        listener?.(state);
+      },
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll("[data-tab]")].map(
+      (tab) => (tab as HTMLElement).dataset.tab,
+    ),
+    ["references", "citations", "ai-recommendation"],
+  );
+  (
+    dom.window.document.querySelector(
+      '[data-tab="ai-recommendation"]',
+    ) as HTMLElement | null
+  )?.click();
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /正在检查缓存和分析条件/u,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  state = {
+    ...state,
+    recommendation: {
+      status: "analyzing",
+      totalCandidates: 2,
+      priority: [
+        {
+          candidateKey: "doi:10.1000/streaming",
+          paperID: "reference:0",
+          title: "Streaming paper",
+          sources: ["reference"],
+          reason: "正在生成的推荐理由。",
+        },
+      ],
+      optional: [],
+    },
+  };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /正在分析/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /已生成\s*1\s*\/\s*2\s*篇/u,
+  );
+  assert.match(dom.window.document.body.textContent ?? "", /Streaming paper/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /正在生成的推荐理由/u,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  state = {
+    ...state,
+    recommendation: {
+      status: "completed",
+      restoredFromCache: false,
+      priority: [
+        {
+          candidateKey: "doi:10.1000/priority",
+          paperID: "citation:0",
+          title: "Priority paper",
+          sources: ["reference", "citation"],
+          reason: "直接扩展当前论文的方法并在新数据上验证。",
+        },
+      ],
+      optional: [
+        {
+          candidateKey: "doi:10.1000/optional",
+          paperID: "reference:0",
+          title: "Optional paper",
+          sources: ["reference"],
+          reason: "提供当前论文采用的理论基础。",
+        },
+      ],
+    },
+  };
+  listener?.(state);
+  const completedText = dom.window.document.body.textContent ?? "";
+  assert.match(completedText, /当前论文的 AI 阅读建议/u);
+  assert.match(completedText, /优先看/u);
+  assert.match(completedText, /可选看/u);
+  assert.match(completedText, /Reference/u);
+  assert.match(completedText, /Citation/u);
+  assert.match(completedText, /直接扩展当前论文的方法/u);
+  const recommendationHeading = dom.window.document.querySelector(
+    ".rfz-recommendation-results h2",
+  );
+  assert.equal(
+    recommendationHeading?.textContent?.trim(),
+    "当前论文的 AI 阅读建议（送入 AI 分析 2 篇 / 优先看 1 篇 / 可选看 1 篇）",
+  );
+  assert.equal(
+    recommendationHeading?.querySelector(".rfz-recommendation-summary")
+      ?.tagName,
+    "SPAN",
+  );
+  const recommendationTitle = dom.window.document.querySelector(
+    ".rfz-recommendation-title",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationTitle!).fontSize,
+    "14px",
+  );
+  const recommendationGroups = [
+    ...dom.window.document.querySelectorAll(".rfz-recommendation-group"),
+  ];
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[0]!.querySelector("h3")!)
+      .fontSize,
+    "15px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[0]!.querySelector("h3")!)
+      .marginBottom,
+    "12px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[1]!).marginTop,
+    "28px",
+  );
+  assert.doesNotMatch(completedText, /score|相关度\s*[:：]?\s*\d/iu);
+  assert.doesNotMatch(completedText, /缓存恢复/u);
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  if (state.recommendation.status !== "completed") {
+    throw new Error("expected completed recommendation state");
+  }
+  state = {
+    ...state,
+    recommendation: { ...state.recommendation, restoredFromCache: true },
+  };
+  listener?.(state);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /缓存恢复.*未调用 AI/u,
+  );
+
+  state = {
+    ...state,
+    recommendation: { status: "failed", message: "模型输出无效" },
+  };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /分析失败/u);
+  assert.match(dom.window.document.body.textContent ?? "", /模型输出无效/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /再次点击 AI 推荐标签可重试/u,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-generate-recommendations]"),
+    null,
+  );
+
+  state = { ...state, recommendation: { status: "no-candidates" } };
+  listener?.(state);
+  assert.match(dom.window.document.body.textContent ?? "", /暂无可分析论文/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /加载 Abstract 后再次点击 AI 推荐标签/u,
+  );
+});
+
+test("AI recommendation papers reuse landing, detail, context, and translation interactions", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const ready = readyState();
+  let state: ReaderSectionState = {
+    ...ready,
+    activeTab: "ai-recommendation",
+    references: ready.references.map((paper) =>
+      paper.id === "ref-1"
+        ? { ...paper, abstract: "Detailed recommendation abstract" }
+        : paper,
+    ),
+    recommendation: {
+      status: "completed",
+      restoredFromCache: false,
+      priority: [
+        {
+          candidateKey: "doi:10.1000/first",
+          paperID: "ref-1",
+          title: "First reference",
+          sources: ["reference"],
+          reason: "Directly extends the current method.",
+        },
+      ],
+      optional: [],
+    },
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const opened: string[] = [];
+  const selected: string[] = [];
+  const actions: string[] = [];
+  const translated: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        selected.push(paperID);
+        state = { ...state, selectedPaperID: paperID };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper: (paperID) => opened.push(paperID),
+      performPaperAction: (paperID, action) =>
+        actions.push(`${paperID}:${action}`),
+      translationCapability: () => ({ available: true }),
+      async translateSelection(text) {
+        translated.push(text);
+        return "推荐理由译文";
+      },
+    },
+  });
+
+  const recommendationTitle = () =>
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement | null;
+  assert.ok(recommendationTitle());
+  assert.equal(recommendationTitle()?.textContent, "First reference（2024）");
+  recommendationTitle()?.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      button: 0,
+      ctrlKey: true,
+    }),
+  );
+  assert.deepEqual(opened, ["ref-1"]);
+  assert.deepEqual(selected, []);
+
+  recommendationTitle()?.click();
+  assert.deepEqual(selected, ["ref-1"]);
+  assert.match(
+    dom.window.document.querySelector("[data-detail-card]")?.textContent ?? "",
+    /Detailed recommendation abstract/u,
+  );
+
+  const contextEvent = new dom.window.MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: 80,
+    clientY: 60,
+  });
+  recommendationTitle()?.dispatchEvent(contextEvent);
+  assert.equal(contextEvent.defaultPrevented, true);
+  (
+    dom.window.document.querySelector(
+      '[data-paper-action="copy-title"]',
+    ) as HTMLElement
+  ).click();
+  assert.deepEqual(actions, ["ref-1:copy-title"]);
+
+  const reason = dom.window.document.querySelector(
+    ".rfz-recommendation-paper > p",
+  );
+  assert.ok(reason);
+  selectNodeContents(dom, reason);
+  reason.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", {
+      bubbles: true,
+      clientX: 100,
+      clientY: 80,
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, ["Directly extends the current method."]);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "推荐理由译文",
+  );
+  mounted.destroy();
+});
 
 test("Citations distinguish an active lookup from a completed empty result", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
@@ -132,6 +447,112 @@ function downloadControllerStubs(): Pick<
     openReferenceURL() {},
   };
 }
+
+test("Reader section renders supported text for LaTeX-formatted Abstracts", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const state: ReaderSectionState = {
+    ...readyState(),
+    selectedPaperID: "ref-1",
+    references: readyState().references.map((paper) =>
+      paper.id === "ref-1"
+        ? {
+            ...paper,
+            abstract:
+              "speedups of$2.08\\times\\sim 8.57\\times~({\\rm on~the~geometric~mean})$, compared with KLU.",
+          }
+        : paper,
+    ),
+  };
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  const abstract = dom.window.document.querySelector(".rfz-abstract p");
+  assert.equal(
+    abstract?.textContent,
+    "speedups of 2.08× ∼ 8.57× (on the geometric mean), compared with KLU.",
+  );
+  mounted.destroy();
+});
+
+test("resolved paper titles become italic and underlined when an Abstract is available", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = {
+    ...readyState(),
+    references: readyState().references.map((paper) =>
+      paper.id === "ref-1" ? { ...paper, abstractLoading: true } : paper,
+    ),
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  assert.equal(
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] .rfz-paper-title--has-abstract',
+    ),
+    null,
+  );
+  state = {
+    ...state,
+    references: state.references.map((paper) =>
+      paper.id === "ref-1"
+        ? {
+            ...paper,
+            abstract: "Available Abstract",
+            abstractLoading: false,
+          }
+        : paper,
+    ),
+  };
+  listener?.(state);
+
+  assert.equal(
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] .rfz-paper-title--has-abstract',
+    )?.textContent,
+    "First reference",
+  );
+  const abstractTitleRule =
+    /\.rfz-paper--resolved \.rfz-paper-title--has-abstract\s*\{([^}]*)\}/u.exec(
+      dom.window.document.querySelector("style")?.textContent ?? "",
+    )?.[1] ?? "";
+  assert.match(abstractTitleRule, /font-style:\s*italic/u);
+  assert.match(abstractTitleRule, /text-decoration-line:\s*underline/u);
+  assert.match(
+    abstractTitleRule,
+    /text-decoration-color:\s*var\(--rfz-accent\)/u,
+  );
+  mounted.destroy();
+});
 
 test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   const dom = new JSDOM(
@@ -1915,14 +2336,6 @@ test("Reader keeps every self-painted checkbox visible when Zotero hides native 
   const state: ReaderSectionState = {
     ...readyState(),
     downloadSelection: [{ originTab: "references", paperID: "ref-1" }],
-    downloadSetup: {
-      downloadDestination: "E:\\paper",
-      usingDefaultDestination: true,
-      runtime: {
-        status: "unavailable",
-        error: "requests==2.34.2 is missing",
-      },
-    },
   };
   let downloadAttempts = 0;
   const mounted = mountReaderSection({
@@ -1995,49 +2408,6 @@ test("Reader does not project the unavailable institution candidate as support",
   const body = dom.window.document.body;
   const state: ReaderSectionState = {
     ...readyState(),
-    downloadSetup: {
-      downloadDestination: "E:\\paper",
-      usingDefaultDestination: true,
-      runtime: {
-        status: "ready",
-        capability: {
-          status: "available",
-          executable: "C:\\Python312\\python.exe",
-          pythonVersion: "3.12.10",
-          architecture: "x64",
-          moduleVersion: "3.2.0",
-          schemaVersion: 3,
-          sourceRulesVersion: 3,
-          dependencies: [],
-          features: {
-            onePaperDownload: "available",
-            batchDownload: "available",
-            visibleLogin: "disabled",
-          },
-          routes: [
-            {
-              routeID: "open-access",
-              status: "available",
-              sources: ["arxiv", "pmc"],
-              operations: ["downloadOne", "downloadBatch"],
-            },
-            {
-              routeID: "institution-webvpn/ieee/one-click-single",
-              status: "candidate",
-              reason: "real-world-route-audit-pending",
-              operations: ["visibleLogin", "downloadOne"],
-            },
-          ],
-          sidecar: {
-            protocol: "reference-for-zotero.scansci-sidecar",
-            contractVersion: "1.1.0",
-            resultSchemaVersion: "1.0.0",
-            upstreamRevision: "5e4a6f20ee32b16c0fcb52e37b66ca7a0b31edc5",
-            dirty: false,
-          },
-        },
-      },
-    },
   };
   const mounted = mountReaderSection({
     body,

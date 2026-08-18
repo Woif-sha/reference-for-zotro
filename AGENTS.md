@@ -12,6 +12,13 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 
 Use a single-context domain documentation layout. See `docs/agents/domain.md`.
 
+### Research and prototypes
+
+Use `origin/research` for `docs/research` work and `origin/prototype` for
+`prototypes` work. Work on either through a temporary local tracking branch;
+finish by pushing it, switching back to `dev`, and deleting the local branch so
+the repository keeps one worktree.
+
 ### Git synchronization
 
 After creating any commit, push it to the corresponding branch on `origin`

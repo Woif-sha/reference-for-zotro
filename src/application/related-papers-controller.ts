@@ -1,9 +1,5 @@
 import type { ReferenceEntry } from "../domain/reference";
 import type { PaperIdentity, SessionToken } from "../domain/literature";
-import {
-  DEFAULT_DOWNLOAD_DESTINATION,
-  type DownloadSettingsController,
-} from "./download-settings";
 import type {
   ReaderPaper,
   ReaderPaperAction,
@@ -21,10 +17,18 @@ import {
   parseReferenceQuery,
   UNPARSED_REFERENCE_TITLE,
 } from "../literature/reference-query";
+import { normalizeDoi } from "../literature/identifiers";
+import type {
+  RecommendationProgress,
+  RecommendationRequest,
+  RecommendationResult,
+} from "../recommendation/related-paper-recommendation";
 
 export type LoadedPaper = {
   identity: Omit<PaperIdentity, "sourceFingerprint">;
   sourceFingerprint: string;
+  fullMarkdown: string;
+  fullMdSha256: string;
   mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
@@ -40,6 +44,11 @@ export type CachedRelatedPapers = {
   citingPapers: readonly ReaderPaper[];
   citingPapersLoaded: number;
 };
+
+export type CachedRecommendation = Extract<
+  RecommendationResult,
+  { status: "completed" }
+>;
 
 export type SinglePaperDownloadResult =
   | Readonly<{ status: "downloaded"; savedPath: string }>
@@ -67,7 +76,16 @@ export interface RelatedPapersPorts {
   loadAbstract?(
     paper: ReaderPaper,
     context: ResolutionContext,
-  ): Promise<Readonly<{ text: string; source: string }>>;
+  ): Promise<
+    Readonly<{ text: string; source: string; sourceRecordID: string }>
+  >;
+  recommendPapers?(
+    request: RecommendationRequest,
+  ): Promise<RecommendationResult>;
+  readCachedRecommendation?(
+    request: RecommendationRequest,
+  ): Promise<CachedRecommendation | undefined>;
+  subscribeRecommendationIdentityChange?(listener: () => void): () => void;
   readCachedResults?(
     paper: LoadedPaper,
   ): Promise<CachedRelatedPapers | undefined>;
@@ -88,7 +106,6 @@ export interface RelatedPapersPorts {
   revealDownloadedFile?(savedPath: string): void;
   revealMineruDirectory?(directory: string): void;
   externalInteractionDocuments?(): readonly Document[];
-  downloadSetup?: DownloadSettingsController;
   copyText?(text: string): void;
   openURL(url: string): void;
   dispose?(): void;
@@ -103,23 +120,28 @@ export class RelatedPapersController implements ReaderSectionController {
     citingPaperLimit: 10,
     citingPapersLoaded: 0,
     citingPapersStatus: { status: "idle" },
+    recommendation: { status: "not-analyzed" },
     downloadSelection: [],
     paperDownloads: [],
     downloadInProgress: false,
     downloadAvailable: false,
-    downloadSetup: defaultDownloadSetupState(),
   };
   private readonly listeners = new Set<(state: ReaderSectionState) => void>();
   private readonly sessions = new PaperSessionCoordinator();
   private loadController?: AbortController;
   private persistController?: AbortController;
   private downloadRun?: { invalidated: boolean; controller: AbortController };
+  private recommendationRun?: {
+    generation: number;
+    controller: AbortController;
+  };
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private citingRequestGeneration = 0;
+  private recommendationGeneration = 0;
   private context?: ResolutionContext;
+  private readonly unsubscribeRecommendationIdentityChange?: () => void;
   private disposed = false;
-  private unsubscribeDownloadSetup?: () => void;
 
   constructor(
     private readonly attachmentItemID: number,
@@ -128,12 +150,15 @@ export class RelatedPapersController implements ReaderSectionController {
     this.state = {
       ...this.state,
       downloadAvailable: Boolean(ports.downloadPapers),
-      downloadSetup:
-        ports.downloadSetup?.getState() ?? defaultDownloadSetupState(),
     };
-    this.unsubscribeDownloadSetup = ports.downloadSetup?.subscribe(
-      (downloadSetup) => this.update({ downloadSetup }),
-    );
+    this.unsubscribeRecommendationIdentityChange =
+      ports.subscribeRecommendationIdentityChange?.(() => {
+        if (this.disposed) return;
+        this.invalidateRecommendation();
+        if (this.context) {
+          void this.restoreCachedRecommendation(this.context);
+        }
+      });
   }
 
   getState(): ReaderSectionState {
@@ -146,8 +171,15 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   selectTab(tab: ReaderTab): void {
-    if (this.state.activeTab === tab) return;
-    this.update({ activeTab: tab, selectedPaperID: undefined });
+    const changed = this.state.activeTab !== tab;
+    if (changed) {
+      this.update({ activeTab: tab, selectedPaperID: undefined });
+    }
+    if (tab === "ai-recommendation") {
+      void this.generateRecommendations();
+      return;
+    }
+    if (!changed) return;
     if (
       tab === "citations" &&
       this.context &&
@@ -161,6 +193,93 @@ export class RelatedPapersController implements ReaderSectionController {
     this.update({ citingPaperLimit: limit, selectedPaperID: undefined });
     if (this.context && limit > this.state.citingPapersLoaded) {
       void this.loadCitingPapers(limit);
+    }
+  }
+
+  async generateRecommendations(): Promise<void> {
+    this.assertActive();
+    const context = this.context;
+    if (
+      !context ||
+      this.recommendationRun ||
+      this.state.recommendation.status === "completed"
+    ) {
+      return;
+    }
+    if (!this.ports.recommendPapers) {
+      this.update({
+        recommendation: {
+          status: "failed",
+          message: "AI 推荐模型不可用，请在插件设置中配置并测试模型。",
+        },
+      });
+      return;
+    }
+    const run = {
+      generation: ++this.recommendationGeneration,
+      controller: new AbortController(),
+    };
+    this.recommendationRun = run;
+    this.update({
+      recommendation: {
+        status: "analyzing",
+        totalCandidates: 0,
+        priority: [],
+        optional: [],
+      },
+    });
+    try {
+      const request = this.recommendationRequest(
+        context,
+        run.controller.signal,
+        (progress) => {
+          if (!this.recommendationIsCurrent(run, context.token)) return;
+          this.update({ recommendation: { status: "analyzing", ...progress } });
+        },
+      );
+      if (this.ports.readCachedRecommendation) {
+        const cacheResult = await this.tryRestoreCachedRecommendation(
+          request,
+          run,
+          context.token,
+        );
+        if (cacheResult !== "miss") return;
+      }
+      const result = await this.ports.recommendPapers(request);
+      if (!this.recommendationIsCurrent(run, context.token)) return;
+      this.update({
+        recommendation:
+          result.status === "no-candidates"
+            ? { status: "no-candidates" }
+            : {
+                status: "completed",
+                priority: result.priority,
+                optional: result.optional,
+                restoredFromCache: false,
+              },
+      });
+    } catch (error) {
+      if (!this.recommendationIsCurrent(run, context.token)) return;
+      const partial =
+        this.state.recommendation.status === "analyzing" &&
+        this.state.recommendation.priority.length +
+          this.state.recommendation.optional.length >
+          0
+          ? {
+              totalCandidates: this.state.recommendation.totalCandidates,
+              priority: this.state.recommendation.priority,
+              optional: this.state.recommendation.optional,
+            }
+          : undefined;
+      this.update({
+        recommendation: {
+          status: "failed",
+          message: conciseError(error),
+          ...(partial ? { partial } : {}),
+        },
+      });
+    } finally {
+      if (this.recommendationRun === run) this.recommendationRun = undefined;
     }
   }
 
@@ -323,16 +442,6 @@ export class RelatedPapersController implements ReaderSectionController {
     if (directory) this.ports.revealMineruDirectory?.(directory);
   }
 
-  changeDownloadDestination(): Promise<void> {
-    return (
-      this.ports.downloadSetup?.changeDownloadDestination() ?? Promise.resolve()
-    );
-  }
-
-  resetDownloadDestination(): void {
-    this.ports.downloadSetup?.resetDownloadDestination();
-  }
-
   selectPaper(paperID: string): void {
     const closing = this.state.selectedPaperID === paperID;
     this.update({
@@ -351,6 +460,7 @@ export class RelatedPapersController implements ReaderSectionController {
     this.loadController?.abort();
     this.loadController = new AbortController();
     this.persistController?.abort();
+    this.cancelRecommendation();
     this.cancelDownloads();
     this.sessions.cancelActive();
     this.context = undefined;
@@ -363,6 +473,7 @@ export class RelatedPapersController implements ReaderSectionController {
       citingPapers: [],
       citingPapersLoaded: 0,
       citingPapersStatus: { status: "idle" },
+      recommendation: { status: "not-analyzed" },
       selectedPaperID: undefined,
       downloadSelection: [],
       paperDownloads: [],
@@ -424,6 +535,8 @@ export class RelatedPapersController implements ReaderSectionController {
               status: cached.citingPapersLoaded > 0 ? "ready" : "idle",
             },
           });
+          await this.restoreCachedRecommendation(context);
+          this.startBackgroundEnrichment(context);
           return;
         }
       } catch (error) {
@@ -442,16 +555,20 @@ export class RelatedPapersController implements ReaderSectionController {
         context,
         (resolved) => {
           if (!this.sessions.canCommit(context.token)) return;
+          this.invalidateRecommendation();
           const next = [...this.state.references];
           next[resolved.ordinal] = resolved;
           this.update({ references: next });
         },
       );
       if (!this.sessions.canCommit(context.token)) return;
+      this.invalidateRecommendation();
       this.update({ references: [...references] });
       await this.persistResults(context);
+      await this.restoreCachedRecommendation(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
+      this.invalidateRecommendation();
       this.update({
         references: this.state.references.map((paperState) =>
           paperState.status === "matching"
@@ -464,7 +581,72 @@ export class RelatedPapersController implements ReaderSectionController {
         ),
       });
       await this.persistResults(context);
+      await this.restoreCachedRecommendation(context);
     }
+    this.startBackgroundEnrichment(context);
+  }
+
+  private async restoreCachedRecommendation(
+    context: ResolutionContext,
+  ): Promise<void> {
+    if (!this.ports.readCachedRecommendation) return;
+    const run = {
+      generation: ++this.recommendationGeneration,
+      controller: new AbortController(),
+    };
+    this.recommendationRun = run;
+    try {
+      await this.tryRestoreCachedRecommendation(
+        this.recommendationRequest(context, run.controller.signal),
+        run,
+        context.token,
+      );
+    } catch (error) {
+      if (!this.recommendationIsCurrent(run, context.token)) return;
+      this.update({
+        recommendation: { status: "failed", message: conciseError(error) },
+      });
+    } finally {
+      if (this.recommendationRun === run) this.recommendationRun = undefined;
+    }
+  }
+
+  private async tryRestoreCachedRecommendation(
+    request: RecommendationRequest,
+    run: { generation: number; controller: AbortController },
+    token: SessionToken,
+  ): Promise<"miss" | "restored" | "stale"> {
+    const cached = await this.ports.readCachedRecommendation!(request);
+    if (!this.recommendationIsCurrent(run, token)) return "stale";
+    if (!cached) return "miss";
+    this.update({
+      recommendation: {
+        status: "completed",
+        priority: cached.priority,
+        optional: cached.optional,
+        restoredFromCache: true,
+      },
+    });
+    return "restored";
+  }
+
+  private recommendationRequest(
+    context: ResolutionContext,
+    signal: AbortSignal,
+    onProgress?: (progress: RecommendationProgress) => void,
+  ): RecommendationRequest {
+    return {
+      currentPaper: {
+        ...context.paper.identity,
+        fullMarkdown: context.paper.fullMarkdown,
+        fullMdSha256: context.paper.fullMdSha256,
+        sourceFingerprint: context.paper.sourceFingerprint,
+      },
+      references: [...this.state.references],
+      citingPapers: [...this.state.citingPapers],
+      signal,
+      onProgress,
+    };
   }
 
   openPaper(paperID: string): void {
@@ -528,16 +710,19 @@ export class RelatedPapersController implements ReaderSectionController {
     this.disposed = true;
     this.loadController?.abort();
     this.persistController?.abort();
+    this.cancelRecommendation();
     this.cancelDownloads();
     this.sessions.dispose();
     this.ports.dispose?.();
-    this.unsubscribeDownloadSetup?.();
-    this.unsubscribeDownloadSetup = undefined;
+    this.unsubscribeRecommendationIdentityChange?.();
     this.listeners.clear();
     this.context = undefined;
   }
 
-  private async loadCitingPapers(limit: 10 | 30 | 50): Promise<void> {
+  private async loadCitingPapers(
+    limit: 10 | 30 | 50,
+    prefetchAbstracts = true,
+  ): Promise<void> {
     const context = this.context;
     if (!context || !this.sessions.canCommit(context.token)) return;
     const requestGeneration = ++this.citingRequestGeneration;
@@ -546,6 +731,7 @@ export class RelatedPapersController implements ReaderSectionController {
       const citingPapers = await this.ports.loadCitingPapers(limit, context);
       if (!this.sessions.canCommit(context.token)) return;
       assertStablePrefix(this.state.citingPapers, citingPapers);
+      this.invalidateRecommendation();
       const cumulativePapers =
         citingPapers.length >= this.state.citingPapers.length
           ? citingPapers
@@ -558,6 +744,10 @@ export class RelatedPapersController implements ReaderSectionController {
           : {}),
       });
       await this.persistResults(context);
+      await this.restoreCachedRecommendation(context);
+      if (prefetchAbstracts) {
+        await this.prefetchMissingAbstracts(context, cumulativePapers);
+      }
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
       if (requestGeneration !== this.citingRequestGeneration) return;
@@ -579,36 +769,80 @@ export class RelatedPapersController implements ReaderSectionController {
       !context ||
       !this.ports.loadAbstract ||
       paper?.status !== "resolved" ||
+      !paper.doi ||
       paper.abstract ||
       paper.abstractLoading
     ) {
       return;
     }
-    const requestKey = `${context.token.generation}:${paperID}`;
+    const doi = normalizeDoi(paper.doi);
+    if (!doi) return;
+    const requestKey = `${context.token.generation}:${doi}`;
     if (this.abstractLoads.has(requestKey)) return;
     this.abstractLoads.add(requestKey);
-    this.replacePaper(paperID, {
+    this.replacePapersByDoi(doi, {
       abstractLoading: true,
       abstractError: undefined,
     });
     try {
       const loaded = await this.ports.loadAbstract(paper, context);
       if (!this.sessions.canCommit(context.token)) return;
-      this.replacePaper(paperID, {
+      this.invalidateRecommendation();
+      this.replacePapersByDoi(doi, {
         abstract: loaded.text,
         abstractSource: loaded.source,
+        abstractSourceRecordID: loaded.sourceRecordID,
+        abstractRetrievedAt: new Date().toISOString(),
         abstractLoading: false,
         abstractError: undefined,
       });
       await this.persistResults(context);
+      await this.restoreCachedRecommendation(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
-      this.replacePaper(paperID, {
+      this.replacePapersByDoi(doi, {
         abstractLoading: false,
         abstractError: conciseError(error),
       });
     } finally {
       this.abstractLoads.delete(requestKey);
+    }
+  }
+
+  private startBackgroundEnrichment(context: ResolutionContext): void {
+    if (!this.ports.loadAbstract || this.state.status !== "ready") return;
+    void this.enrichRelatedPapers(context);
+  }
+
+  private async enrichRelatedPapers(context: ResolutionContext): Promise<void> {
+    if (!this.sessions.canCommit(context.token)) return;
+    if (
+      this.state.citingPapersLoaded < 10 &&
+      this.state.citingPapersStatus.status === "idle"
+    ) {
+      await this.loadCitingPapers(10, false);
+    }
+    if (!this.sessions.canCommit(context.token)) return;
+    await this.prefetchMissingAbstracts(context, [
+      ...this.state.references,
+      ...this.state.citingPapers,
+    ]);
+  }
+
+  private async prefetchMissingAbstracts(
+    context: ResolutionContext,
+    papers: readonly ReaderPaper[],
+  ): Promise<void> {
+    if (!this.ports.loadAbstract) return;
+    const pending = new Map<string, ReaderPaper>();
+    for (const paper of papers) {
+      if (paper.status !== "resolved" || paper.abstract) continue;
+      const doi = normalizeDoi(paper.doi);
+      if (doi && !pending.has(doi)) pending.set(doi, paper);
+    }
+    for (const paper of pending.values()) {
+      if (!this.sessions.canCommit(context.token)) return;
+      await this.loadPaperAbstract(paper.id);
     }
   }
 
@@ -678,6 +912,17 @@ export class RelatedPapersController implements ReaderSectionController {
     });
   }
 
+  private replacePapersByDoi(doi: string, patch: Partial<ReaderPaper>): void {
+    const replace = (paper: ReaderPaper): ReaderPaper =>
+      normalizeDoi(paper.doi) === doi
+        ? ({ ...paper, ...patch } as ReaderPaper)
+        : paper;
+    this.update({
+      references: this.state.references.map(replace),
+      citingPapers: this.state.citingPapers.map(replace),
+    });
+  }
+
   private replaceDownload(
     entry: ReaderSectionState["downloadSelection"][number],
     result: SinglePaperDownloadResult | Readonly<{ status: "downloading" }>,
@@ -692,13 +937,41 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   private visiblePapers(tab: ReaderTab): readonly ReaderPaper[] {
-    return tab === "references"
-      ? this.state.references
-      : this.state.citingPapers.slice(0, this.state.citingPaperLimit);
+    if (tab === "references") return this.state.references;
+    if (tab === "citations") {
+      return this.state.citingPapers.slice(0, this.state.citingPaperLimit);
+    }
+    return [];
   }
 
   private downloadIsCurrent(run: { invalidated: boolean }): boolean {
     return !this.disposed && this.downloadRun === run && !run.invalidated;
+  }
+
+  private recommendationIsCurrent(
+    run: { generation: number; controller: AbortController },
+    token: SessionToken,
+  ): boolean {
+    return (
+      !this.disposed &&
+      this.recommendationRun === run &&
+      run.generation === this.recommendationGeneration &&
+      !run.controller.signal.aborted &&
+      this.sessions.canCommit(token)
+    );
+  }
+
+  private cancelRecommendation(): void {
+    this.recommendationGeneration += 1;
+    this.recommendationRun?.controller.abort();
+    this.recommendationRun = undefined;
+  }
+
+  private invalidateRecommendation(): void {
+    this.cancelRecommendation();
+    if (this.state.recommendation.status !== "not-analyzed") {
+      this.update({ recommendation: { status: "not-analyzed" } });
+    }
   }
 
   private cancelDownloads(): void {
@@ -718,7 +991,11 @@ export class RelatedPapersController implements ReaderSectionController {
     paperID: string,
   ): ReaderPaper | undefined {
     const papers =
-      tab === "references" ? this.state.references : this.state.citingPapers;
+      tab === "references"
+        ? this.state.references
+        : tab === "citations"
+          ? this.state.citingPapers
+          : [];
     return papers.find((candidate) => candidate.id === paperID);
   }
 
@@ -735,14 +1012,6 @@ export class RelatedPapersController implements ReaderSectionController {
   private assertActive(): void {
     if (this.disposed) throw new Error("RelatedPapersController is disposed");
   }
-}
-
-function defaultDownloadSetupState(): ReaderSectionState["downloadSetup"] {
-  return {
-    downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-    usingDefaultDestination: true,
-    runtime: { status: "unchecked" },
-  };
 }
 
 function searchURL(

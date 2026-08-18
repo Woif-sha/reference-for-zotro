@@ -12,6 +12,10 @@ _Avoid_: Source paper, selected PDF
 One bibliography entry cited by the current paper and extracted from its existing MinerU Markdown.
 _Avoid_: Citation
 
+**In-text reference marker**:
+A numeric marker in the current paper body, such as `[12]`, that points to a Reference entry.
+_Avoid_: Reference entry, Citation
+
 **Resolved reference**:
 A reference entry that has been matched to a scholarly landing page and descriptive metadata.
 _Avoid_: Download
@@ -44,6 +48,10 @@ _Avoid_: Text selection, Automatic download queue
 The user-configured Windows directory in which downloaded paper files are saved.
 _Avoid_: Zotero storage, Attachment directory
 
+**ScanSci Cache path**:
+The user-configured Windows directory under which isolated temporary download request directories are created. It is not the fixed literature or recommendation cache.
+_Avoid_: Literature cache, Recommendation cache
+
 **Download request**:
 One user-authorized attempt to obtain a single paper from the Download selection and save it in the Download destination read when that attempt starts.
 _Avoid_: Import job, Background prefetch
@@ -51,6 +59,26 @@ _Avoid_: Import job, Background prefetch
 **Download result**:
 The per-paper outcome of a Download request: either the actual saved path or the unchanged error from the boundary that failed.
 _Avoid_: Import result, Batch partial result
+
+**AI reading recommendation**:
+One complete, schema-validated ordering of every eligible recommendation candidate into Priority and Optional groups for the Current paper.
+_Avoid_: Search result, Score list, Partial stream
+
+**Recommendation candidate**:
+A Resolved reference or Citing paper with a non-empty Abstract that was present in the Controller snapshot when AI analysis began.
+_Avoid_: Every visible paper, Newly fetched result
+
+**Recommendation progress**:
+Complete recommendation items parsed from the model stream and shown before the whole response has passed final validation. Progress is not a persisted AI reading recommendation.
+_Avoid_: Model reasoning, Validated result
+
+**Recommendation cache**:
+The per-Current-paper `recommendation.json` containing one complete AI reading recommendation and the non-secret identity evidence required to reuse it.
+_Avoid_: Partial stream, Model conversation, Literature cache
+
+**Recommendation model**:
+The single active Codex Auth or HTTPS OpenAI Compatible model selected in this plugin's Preferences. It is independent of Paper Translate configuration.
+_Avoid_: Paper Translate model, Automatic fallback model
 
 **Institution download route**:
 A user-entitled path from a confirmed paper through an institution login to an official publisher PDF. A route remains a candidate until its actual login, source, network, session ownership, and one-paper download have been audited together.

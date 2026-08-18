@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  DEFAULT_DOWNLOAD_DESTINATION,
+  CACHE_DIRECTORY_REQUIRED_ERROR,
+  DOWNLOAD_CACHE_DIRECTORY_PREFERENCE,
+  DOWNLOAD_DESTINATION_PREFERENCE,
+  DOWNLOAD_DESTINATION_REQUIRED_ERROR,
   DownloadSettingsCoordinator,
   type DownloadSettingsPorts,
 } from "../../src/application/download-settings";
@@ -10,7 +13,7 @@ import type {
   ScanSciPort,
 } from "../../src/scansci/scan-sci-port";
 
-test("download settings keep only the destination and automatically probed capability", async () => {
+test("download settings require explicit destination and Cache paths", async () => {
   const preferenceWrites: Array<readonly [string, string]> = [];
   let probes = 0;
   const runtime: ScanSciPort = {
@@ -33,16 +36,18 @@ test("download settings keep only the destination and automatically probed capab
     setPreference(key, value) {
       preferenceWrites.push([key, value]);
     },
-    clearPreference() {},
     async chooseDownloadDestination() {
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       return undefined;
     },
   };
   const settings = new DownloadSettingsCoordinator(ports);
 
   assert.deepEqual(settings.getState(), {
-    downloadDestination: DEFAULT_DOWNLOAD_DESTINATION,
-    usingDefaultDestination: true,
+    destinationError: DOWNLOAD_DESTINATION_REQUIRED_ERROR,
+    cacheDirectoryError: CACHE_DIRECTORY_REQUIRED_ERROR,
     runtime: { status: "unchecked" },
   });
 
@@ -73,8 +78,10 @@ test("a failed automatic probe becomes an explicit unavailable state", async () 
       return undefined;
     },
     setPreference() {},
-    clearPreference() {},
     async chooseDownloadDestination() {
+      return undefined;
+    },
+    async chooseCacheDirectory() {
       return undefined;
     },
   });
@@ -86,6 +93,92 @@ test("a failed automatic probe becomes an explicit unavailable state", async () 
     error: "compatible ScanSci sidecar is missing",
   });
 });
+
+test("confirming destination and Cache paths persists both absolute paths", async () => {
+  const writes: Array<readonly [string, string]> = [];
+  const states: Array<readonly [string | undefined, string | undefined]> = [];
+  const settings = new DownloadSettingsCoordinator({
+    runtime: unusedRuntime(),
+    getPreference() {
+      return undefined;
+    },
+    setPreference(key, value) {
+      writes.push([key, value]);
+    },
+    async chooseDownloadDestination(current) {
+      assert.equal(current, undefined);
+      return "D:/Research/Papers/";
+    },
+    async chooseCacheDirectory(current) {
+      assert.equal(current, undefined);
+      return "D:/Research/ScanSciCache/";
+    },
+  });
+  settings.subscribe((state) =>
+    states.push([state.downloadDestination, state.cacheDirectory]),
+  );
+
+  await settings.changeDownloadDestination();
+  await settings.changeCacheDirectory();
+
+  assert.deepEqual(writes, [
+    [DOWNLOAD_DESTINATION_PREFERENCE, "D:\\Research\\Papers"],
+    [DOWNLOAD_CACHE_DIRECTORY_PREFERENCE, "D:\\Research\\ScanSciCache"],
+  ]);
+  assert.equal(settings.getState().downloadDestination, "D:\\Research\\Papers");
+  assert.equal(
+    settings.getState().cacheDirectory,
+    "D:\\Research\\ScanSciCache",
+  );
+  assert.deepEqual(states, [
+    ["D:\\Research\\Papers", undefined],
+    ["D:\\Research\\Papers", "D:\\Research\\ScanSciCache"],
+  ]);
+});
+
+test("cancelling destination selection leaves the path and preference unchanged", async () => {
+  let writes = 0;
+  let notifications = 0;
+  const settings = new DownloadSettingsCoordinator({
+    runtime: unusedRuntime(),
+    getPreference() {
+      return "C:\\Saved\\Papers";
+    },
+    setPreference() {
+      writes += 1;
+    },
+    async chooseDownloadDestination(current) {
+      assert.equal(current, "C:\\Saved\\Papers");
+      return undefined;
+    },
+    async chooseCacheDirectory() {
+      return undefined;
+    },
+  });
+  settings.subscribe(() => {
+    notifications += 1;
+  });
+
+  await settings.changeDownloadDestination();
+
+  assert.equal(settings.getState().downloadDestination, "C:\\Saved\\Papers");
+  assert.equal(writes, 0);
+  assert.equal(notifications, 0);
+});
+
+function unusedRuntime(): ScanSciPort {
+  return {
+    async probe() {
+      throw new Error("not used");
+    },
+    async startVisibleLogin() {
+      throw new Error("not used");
+    },
+    async downloadPapers() {
+      throw new Error("not used");
+    },
+  };
+}
 
 function capability(): ScanSciCapability {
   return {

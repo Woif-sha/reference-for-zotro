@@ -8,13 +8,14 @@ export async function getJson(
   url: string,
   ports: ProviderPorts,
   signal?: AbortSignal,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<unknown> {
   let attempt = 0;
   while (true) {
     let response: Response;
     try {
       response = await ports.fetch(url, {
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", ...headers },
         signal,
       });
     } catch (error) {
@@ -22,7 +23,9 @@ export async function getJson(
         throw new ProviderError(
           source,
           "source-unavailable",
-          `${source} request failed: ${errorMessage(error)}`,
+          Object.hasOwn(headers, "Authorization")
+            ? `${source} request failed`
+            : `${source} request failed: ${errorMessage(error)}`,
         );
       }
       await ports.scheduler.sleep(2 ** attempt * 1000, signal);

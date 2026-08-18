@@ -6,12 +6,24 @@ import {
 } from "./addon";
 import { createReaderControllerFactory } from "./composition-root";
 import { DownloadSettingsCoordinator } from "./application/download-settings";
-import { createScanSciDownloadDependencies } from "./application/scan-sci-download";
+import { createScanSciDownloadPapers } from "./application/scan-sci-download";
 import {
   createZoteroDownloadSettingsPorts,
+  createZoteroOpenAlexSettings,
   zoteroSidecarDataRoot,
 } from "./platform/zotero-download-settings";
 import { createZoteroScanSciPort } from "./platform/zotero-scansci-runtime";
+import {
+  createZoteroModelSubsystem,
+  type ZoteroModelSubsystem,
+} from "./platform/zotero-model-runtime";
+import {
+  registerReferenceForZoteroPreferences,
+  type PreferencePanesPort,
+  type ReferenceForZoteroPreferencesHandle,
+} from "./preferences/download-preferences";
+import { testOpenAlexConnection } from "./literature/providers/openalex";
+import { createProviderPorts } from "./platform/zotero-runtime";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -27,6 +39,8 @@ if (!zotero[config.addonInstance]) {
     "DOMException",
     "fetch",
     "IOUtils",
+    "PathUtils",
+    "Services",
     "TextDecoder",
     "TextEncoder",
   ]) {
@@ -50,6 +64,8 @@ function defineRuntimeGlobal(name: string): void {
 
 function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
+  let preferences: ReferenceForZoteroPreferencesHandle | undefined;
+  let modelSubsystem: ZoteroModelSubsystem | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -88,21 +104,44 @@ function createRuntime() {
             runtime: scanSci,
           }),
         );
+        const openAlexSettings = createZoteroOpenAlexSettings();
+        const openAlexConnectionPorts = createProviderPorts();
+        modelSubsystem = createZoteroModelSubsystem();
+        preferences = await registerReferenceForZoteroPreferences({
+          manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
+          pluginID: config.addonID,
+          rootURI: packagedRootURI,
+          settings: downloadSetup,
+          openAlexSettings,
+          testOpenAlexConnection: (apiKey, signal) =>
+            testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
+          openExternalURL: (url) => Zotero.launchURL(url),
+          modelSettings: modelSubsystem.settings,
+        });
         handle = startReferenceForZotero({
-          factory: createReaderControllerFactory(
-            createScanSciDownloadDependencies({
+          factory: createReaderControllerFactory({
+            downloadPapers: createScanSciDownloadPapers({
               runtime: scanSci,
               setup: downloadSetup,
             }),
-          ),
+            recommendationModel: modelSubsystem.recommendationModel,
+            openAlexApiKey: () => openAlexSettings.getApiKey(),
+          }),
           downloadSetup,
         });
       },
       onMainWindowLoad,
       onMainWindowUnload,
+      onPreferencesLoad(root: Element): void {
+        preferences?.mount(root);
+      },
       onShutdown(): void {
+        preferences?.unregister();
+        preferences = undefined;
         handle?.shutdown();
         handle = undefined;
+        modelSubsystem?.shutdown();
+        modelSubsystem = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

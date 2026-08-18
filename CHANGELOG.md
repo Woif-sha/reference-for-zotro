@@ -6,8 +6,7 @@ All notable changes to Reference for Zotero are documented in this file.
 
 ### 新增
 
-- 打开相关论文区域后自动加载前 10 篇 Citations，并在后台依次补全 References 与已加载 Citations 的缺失摘要；OpenAlex 与 Semantic Scholar 摘要写入当前论文缓存目录的 `abstract.json`，再次打开时直接恢复。带蓝色下划线的蓝色斜体题名表示摘要已就绪，普通蓝色题名表示摘要仍在补全。
-- Preferences 新增可选 OpenAlex API Key 设置、免费获取入口和连接测试；连接成功后显示 OpenAlex 当日剩余可用余额。
+- 暂无。
 
 ### 调整
 
@@ -15,15 +14,55 @@ All notable changes to Reference for Zotero are documented in this file.
 
 ### 修复
 
-- 已有摘要的论文题名增加蓝色下划线，使摘要就绪状态更容易辨认。
+- 暂无。
 
 ### 安全
 
-- OpenAlex 摘要查询通过 `Authorization: Bearer` 请求头发送 API Key；仅在用户主动测试连接时，按官方接口要求把 Key 作为查询参数发送给 `/rate-limit`，Key 不进入日志、诊断输出或摘要缓存。
+- 暂无。
 
 ### 工程
 
 - 暂无。
+
+## [2.0.0] - 2026-08-18
+
+### 新增
+
+- 新增“AI 推荐”标签：使用当前论文的完整 MinerU Markdown 与已有非空 Abstract 的 References / Citations，一次生成完整“优先看 / 可选看”阅读建议；模型每形成一条完整建议就立即显示，并更新“已生成 X / Y 篇”。完整结果按当前论文写入 `recommendation.json`，身份未变化时直接从本地恢复。对应 [Issue #57](https://github.com/Woif-sha/reference-for-zotro/issues/57)、[Issue #58](https://github.com/Woif-sha/reference-for-zotro/issues/58) 和 [PR #66](https://github.com/Woif-sha/reference-for-zotro/pull/66)。
+- Preferences 新增推荐模型服务商卡片、活动模型选择和连接测试，支持 Codex Auth 与 HTTPS OpenAI Compatible；配置由本插件独立保存，不读取 Paper Translate 的模型设置。对应 [Issue #56](https://github.com/Woif-sha/reference-for-zotro/issues/56)。
+- 打开相关论文区域后自动加载前 10 篇 Citations，并在后台依次补全 References 与已加载 Citations 的缺失摘要；OpenAlex 与 Semantic Scholar 摘要写入当前论文缓存目录的 `abstract.json`，再次打开时直接恢复。对应 [PR #63](https://github.com/Woif-sha/reference-for-zotro/pull/63)。
+- Preferences 新增可选 OpenAlex API Key、免费获取入口和连接测试；连接成功后显示当日剩余可用余额。对应 [PR #64](https://github.com/Woif-sha/reference-for-zotro/pull/64)。
+- 支持在 PDF 正文中对数字引用执行 `Ctrl + 右键`，自动展开相关论文区域、切换到 References 并定位高亮对应条目。对应 [PR #59](https://github.com/Woif-sha/reference-for-zotro/pull/59)。
+- Reader“相关论文”标题栏新增设置快捷按钮，可直接打开插件 Preferences。对应 [PR #62](https://github.com/Woif-sha/reference-for-zotro/pull/62)。
+
+### 调整
+
+- AI 推荐论文复用 References / Citations 的普通左键详情、`Ctrl + 左键`落地页、右键菜单和划词翻译交互，并显示发表年份、分析数量和更清晰的标题层级。对应 [PR #66](https://github.com/Woif-sha/reference-for-zotro/pull/66)。
+- 下载目录和 ScanSci Cache 路径改为分别通过原生目录选择器显式配置；未配置时显示简洁状态并阻止下载，不再使用隐式默认目录。对应 [PR #61](https://github.com/Woif-sha/reference-for-zotro/pull/61)。
+- 推荐模型配置与固定版 Paper Translate 的 provider card 交互保持一致，同时保留本插件独立的配置、任务取消和传输边界。对应 [PR #61](https://github.com/Woif-sha/reference-for-zotro/pull/61)。
+- 蓝色、斜体并带蓝色下划线的论文题名表示摘要已就绪；普通蓝色题名表示摘要仍在补全。对应 [PR #65](https://github.com/Woif-sha/reference-for-zotro/pull/65)。
+
+### 修复
+
+- 修复 OpenAlex 等来源的 Abstract 中 `\\times`、`\\sim`、`{\\rm ...}` 和 LaTeX 空格原样显示的问题。对应 [PR #60](https://github.com/Woif-sha/reference-for-zotro/pull/60)。
+- 修复模型流缺少完成标记、响应被截断、输出过大或当前论文已变化时，推荐仍可能进入 UI 的问题；所有完整结果继续执行严格 schema、候选覆盖和理由长度校验。
+- 修复 Codex 流把大型非文本响应事件错误计入 128 KiB 文本预算，导致分析在有效输出前失败的问题。
+- 修复流式推荐与论文详情交互整合后，中间状态缺少论文集合而无法渲染的问题。
+- 修复 OpenAlex Key 密码框出现重复显隐按钮的问题，只保留单一原生控制。
+- 修复 Reader 设置图标尺寸过大和 Preferences 目录选择窗口退到主论文窗口之后的问题。对应 [PR #61](https://github.com/Woif-sha/reference-for-zotro/pull/61) 和 [PR #62](https://github.com/Woif-sha/reference-for-zotro/pull/62)。
+
+### 安全
+
+- Codex 推荐使用严格 JSON Schema，OpenAI Compatible 使用 JSON object mode；不支持结构化输出时显式失败，不降级为自由文本或自动切换服务商。
+- 模型 API Key、Codex access / refresh token 和本地 `auth.json` 路径不进入模型身份、用户可见错误、推荐缓存或日志；OpenAI Compatible API Base 只接受 HTTPS。
+- OpenAlex 摘要查询通过 `Authorization: Bearer` 请求头发送 API Key；仅在用户主动测试连接时按官方接口要求把 Key 作为查询参数发送给 `/rate-limit`，Key 不进入日志、诊断或摘要缓存。对应 [PR #64](https://github.com/Woif-sha/reference-for-zotro/pull/64)。
+- ScanSci 下载继续强制 legal-only，当前只启用 arXiv 与 PMC；机构浏览器路由保持禁用，插件不创建 Python 环境、不安装依赖或修改全局 pip 配置。
+
+### 工程
+
+- 为推荐模型双传输、严格输出、缓存身份、流式进度、Reader 交互、摘要持久化、OpenAlex 连接测试和路径配置增加回归覆盖。
+- 统一研究与原型的远端分支工作流，并保持构建后的 XPI 内容审计和确定性重打包。
+- 完整功能、配置和 PR 说明见 [2.0.0 发布说明](https://github.com/Woif-sha/reference-for-zotro/blob/v2.0.0/docs/releases/2.0.0.md)。
 
 ## [1.1.4] - 2026-08-15
 
@@ -195,3 +234,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.1.2]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.2
 [1.1.3]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.3
 [1.1.4]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.4
+[2.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v2.0.0

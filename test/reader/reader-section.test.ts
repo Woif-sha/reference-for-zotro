@@ -101,9 +101,34 @@ test("AI recommendation is the third tab and renders every analysis state withou
     null,
   );
 
-  state = { ...state, recommendation: { status: "analyzing" } };
+  state = {
+    ...state,
+    recommendation: {
+      status: "analyzing",
+      totalCandidates: 2,
+      priority: [
+        {
+          candidateKey: "doi:10.1000/streaming",
+          paperID: "reference:0",
+          title: "Streaming paper",
+          sources: ["reference"],
+          reason: "正在生成的推荐理由。",
+        },
+      ],
+      optional: [],
+    },
+  };
   listener?.(state);
   assert.match(dom.window.document.body.textContent ?? "", /正在分析/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /已生成\s*1\s*\/\s*2\s*篇/u,
+  );
+  assert.match(dom.window.document.body.textContent ?? "", /Streaming paper/u);
+  assert.match(
+    dom.window.document.body.textContent ?? "",
+    /正在生成的推荐理由/u,
+  );
   assert.equal(
     dom.window.document.querySelector("[data-generate-recommendations]"),
     null,

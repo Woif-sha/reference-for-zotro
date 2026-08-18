@@ -100,6 +100,73 @@ test("one global model call ranks every abstract-bearing candidate and merges sh
   assert.equal(result.optional[0]?.candidateKey, "doi:10.1000/theory");
 });
 
+test("streaming output publishes each complete recommendation item before final validation", async () => {
+  const output =
+    '{"schemaVersion":1,"priority":[{"id":"paper-2","reason":"直接扩展当前方法。"}],"optional":[{"id":"paper-1","reason":"提供理论基础。"}]}';
+  const progress: Array<{
+    totalCandidates: number;
+    priority: readonly { title: string }[];
+    optional: readonly { title: string }[];
+  }> = [];
+  const service = new RelatedPaperRecommendationService({
+    async generate(request) {
+      for (const delta of [
+        '{"schemaVersion":1,"priority":[',
+        '{"id":"paper-2","reason":"直接扩展当前方法。"}',
+        '],"optional":[{"id":"paper-1","reason":"提供理论基础。"}',
+        "]}",
+      ]) {
+        request.onTextDelta?.(delta);
+      }
+      return {
+        identity: {
+          authMode: "codex_auth",
+          providerId: "legacy",
+          providerName: "Legacy Codex",
+          modelId: "codex",
+          model: "gpt-5.4",
+          apiBase: "https://chatgpt.com/backend-api/codex/responses",
+          effort: "medium",
+        },
+        text: output,
+      };
+    },
+  });
+
+  const result = await service.recommend({
+    currentPaper: {
+      ...currentPaperIdentity,
+      fullMarkdown: "Current paper",
+      fullMdSha256: "sha",
+      sourceFingerprint: "fingerprint",
+    },
+    references: [
+      paper("reference:0", "Theory", "10.1000/theory", "Theory abstract"),
+      paper("reference:1", "Method", "10.1000/method", "Method abstract"),
+    ],
+    citingPapers: [],
+    onProgress: (value) => progress.push(value),
+  });
+
+  assert.equal(result.status, "completed");
+  assert.deepEqual(
+    progress.map((value) => ({
+      totalCandidates: value.totalCandidates,
+      priority: value.priority.map((item) => item.title),
+      optional: value.optional.map((item) => item.title),
+    })),
+    [
+      { totalCandidates: 2, priority: [], optional: [] },
+      { totalCandidates: 2, priority: ["Method"], optional: [] },
+      {
+        totalCandidates: 2,
+        priority: ["Method"],
+        optional: ["Theory"],
+      },
+    ],
+  );
+});
+
 test("the complete model output is rejected when any strict schema rule fails", async () => {
   const invalidOutputs: Array<[string, unknown]> = [
     ["empty output", ""],

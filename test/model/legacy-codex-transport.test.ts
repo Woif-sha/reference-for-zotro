@@ -367,9 +367,17 @@ test("Legacy recommendation responses enforce visible output and stream byte bud
 test("Legacy recommendation responses tolerate large non-text events and stop after completion", async () => {
   const eventHarness = transportHarness();
   const response = completedResponseWithIgnoredEvent("OK", 131_000);
+  const deltas: string[] = [];
   assert.ok(response.bytes > 128 * 1024);
   eventHarness.fetchResponses.push(response.value);
-  assert.deepEqual(await eventHarness.transport.run(request()), { text: "OK" });
+  assert.deepEqual(
+    await eventHarness.transport.run({
+      ...request(),
+      onTextDelta: (delta) => deltas.push(delta),
+    }),
+    { text: "OK" },
+  );
+  assert.deepEqual(deltas, ["OK"]);
 
   const completionHarness = transportHarness();
   completionHarness.fetchResponses.push(completedThenTrailingResponse("OK"));

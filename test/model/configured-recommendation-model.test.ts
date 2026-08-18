@@ -52,7 +52,13 @@ test("Legacy recommendations use a strict JSON schema instead of rejected JSON o
     },
   );
 
-  await model.generate({ instructions: "Return JSON.", prompt: "{}" });
+  const deltas: string[] = [];
+  await model.generate({
+    instructions: "Return JSON.",
+    prompt: "{}",
+    onTextDelta: (delta) => deltas.push(delta),
+  });
+  legacyRequest?.onTextDelta?.("partial");
 
   assert.equal(legacyRequest?.responseFormat, "json_schema");
   assert.equal(
@@ -60,6 +66,7 @@ test("Legacy recommendations use a strict JSON schema instead of rejected JSON o
     "related_paper_recommendation",
   );
   assert.equal(legacyRequest?.responseSchema?.strict, true);
+  assert.deepEqual(deltas, ["partial"]);
 });
 
 test("provider failure never falls back to another provider or model", async () => {

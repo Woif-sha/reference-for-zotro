@@ -5,7 +5,10 @@ import {
   referenceForMarkerNumber,
   referenceMarkerNumberAtPoint,
 } from "./reference-marker-navigation";
-import type { RecommendationItem } from "../recommendation/related-paper-recommendation";
+import type {
+  RecommendationItem,
+  RecommendationProgress,
+} from "../recommendation/related-paper-recommendation";
 
 const XHTML_NAMESPACE = "http://www.w3.org/1999/xhtml";
 const TRANSLATION_POPOVER_GAP = 8;
@@ -22,9 +25,13 @@ export type CitingPapersStatus =
   | Readonly<{ status: "error"; message: string }>;
 export type RecommendationState =
   | Readonly<{ status: "not-analyzed" }>
-  | Readonly<{ status: "analyzing" }>
+  | (Readonly<{ status: "analyzing" }> & RecommendationProgress)
   | Readonly<{ status: "no-candidates" }>
-  | Readonly<{ status: "failed"; message: string }>
+  | Readonly<{
+      status: "failed";
+      message: string;
+      partial?: RecommendationProgress;
+    }>
   | Readonly<{
       status: "completed";
       priority: readonly RecommendationItem[];
@@ -865,14 +872,34 @@ function renderRecommendation(state: RecommendationState): string {
     return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在检查缓存和分析条件…</strong><p>将使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p></section>`;
   }
   if (state.status === "analyzing") {
-    return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在分析当前论文…</strong><p>请稍候；切换标签不会中断本次分析。</p></section>`;
+    const completed = state.priority.length + state.optional.length;
+    return `<section class="rfz-recommendation-results">
+      <h2>AI 正在分析并生成阅读建议…</h2>
+      <p class="rfz-recommendation-cache-status" role="status"><strong>${
+        state.totalCandidates > 0
+          ? `已生成 ${completed} / ${state.totalCandidates} 篇`
+          : "正在检查缓存并等待模型输出"
+      }</strong>；每条完整建议生成后会立即显示。</p>
+      ${state.priority.length ? renderRecommendationGroup("优先看", state.priority) : ""}
+      ${state.optional.length ? renderRecommendationGroup("可选看", state.optional) : ""}
+    </section>`;
   }
   if (state.status === "no-candidates") {
     return `<section class="rfz-status rfz-recommendation-status"><strong>暂无可分析论文</strong><p>当前 References 与已加载 Citing papers 中没有已知的非空 Abstract。加载 Abstract 后再次点击 AI 推荐标签。</p></section>`;
   }
   if (state.status === "failed") {
+    const partial = state.partial;
+    const completed = partial
+      ? partial.priority.length + partial.optional.length
+      : 0;
     return `<section class="rfz-status rfz-recommendation-status" role="alert">
-      <strong>分析失败</strong><p>${escapeHTML(state.message)}</p><p>再次点击 AI 推荐标签可重试。</p>
+      <strong>分析失败</strong><p>${escapeHTML(state.message)}</p>${
+        partial && completed > 0
+          ? `<p>中断前已生成 ${completed} / ${partial.totalCandidates} 篇；以下内容尚未通过完整响应校验。</p>
+            ${partial.priority.length ? renderRecommendationGroup("未完成的优先建议", partial.priority) : ""}
+            ${partial.optional.length ? renderRecommendationGroup("未完成的可选建议", partial.optional) : ""}`
+          : ""
+      }<p>再次点击 AI 推荐标签可重试。</p>
     </section>`;
   }
   return `<section class="rfz-recommendation-results">

@@ -57,6 +57,7 @@ export type LegacyCodexRequest = Readonly<{
   signal?: AbortSignal;
   maxOutputCharacters?: number;
   maxResponseBytes?: number;
+  onTextDelta?: (delta: string) => void;
 }>;
 
 export type LegacyCodexResponseSchema = Readonly<{
@@ -463,6 +464,7 @@ async function readCodexStream(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const parser = new CodexResponsesStreamParser(
     request.maxOutputCharacters ?? DEFAULT_OUTPUT_MAX_CHARACTERS,
+    request.onTextDelta,
   );
   const maxResponseBytes =
     request.maxResponseBytes ?? DEFAULT_CODEX_STREAM_MAX_BYTES;
@@ -504,7 +506,10 @@ class CodexResponsesStreamParser {
   private text = "";
   private completed = false;
 
-  constructor(private readonly maxOutputCharacters: number) {}
+  constructor(
+    private readonly maxOutputCharacters: number,
+    private readonly onTextDelta?: (delta: string) => void,
+  ) {}
 
   get isComplete(): boolean {
     return this.completed;
@@ -601,6 +606,7 @@ class CodexResponsesStreamParser {
       );
     }
     this.text += delta;
+    this.onTextDelta?.(delta);
   }
 }
 

@@ -22,6 +22,7 @@ export type OpenAICompatibleRequest = Readonly<{
   signal?: AbortSignal;
   maxOutputCharacters?: number;
   maxResponseBytes?: number;
+  onTextDelta?: (delta: string) => void;
   fetch?: typeof fetch;
 }>;
 
@@ -32,6 +33,7 @@ export class OpenAICompatibleStreamParser {
 
   constructor(
     private readonly maxOutputCharacters = DEFAULT_OUTPUT_MAX_CHARACTERS,
+    private readonly onTextDelta?: (delta: string) => void,
   ) {}
 
   get isComplete(): boolean {
@@ -122,6 +124,7 @@ export class OpenAICompatibleStreamParser {
       );
     }
     this.text += delta;
+    this.onTextDelta?.(delta);
   }
 }
 
@@ -210,6 +213,7 @@ async function runValidatedRequest(
   const decoder = new TextDecoder("utf-8", { fatal: true });
   const parser = new OpenAICompatibleStreamParser(
     request.maxOutputCharacters ?? DEFAULT_OUTPUT_MAX_CHARACTERS,
+    request.onTextDelta,
   );
   const maxResponseBytes = request.maxResponseBytes ?? DEFAULT_STREAM_MAX_BYTES;
   let responseBytes = 0;

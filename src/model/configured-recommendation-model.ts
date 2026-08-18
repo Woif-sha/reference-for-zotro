@@ -40,6 +40,7 @@ export type RecommendationModelRequest = Readonly<{
   instructions: string;
   prompt: string;
   signal?: AbortSignal;
+  onTextDelta?: (delta: string) => void;
 }>;
 
 export type RecommendationModelResult = Readonly<{
@@ -134,6 +135,7 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
         responseFormat: "json_schema",
         responseSchema: RECOMMENDATION_RESPONSE_SCHEMA,
         signal,
+        onTextDelta: request.onTextDelta,
       });
     }
     return this.transports.openAICompatible({
@@ -144,6 +146,7 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
       prompt: request.prompt,
       responseFormat: "json_object",
       signal,
+      onTextDelta: request.onTextDelta,
     });
   }
 }

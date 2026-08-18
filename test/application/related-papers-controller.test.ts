@@ -99,6 +99,9 @@ test("entering AI recommendation checks the cache and starts analysis automatica
   controller.selectTab("ai-recommendation");
   assert.deepEqual(controller.getState().recommendation, {
     status: "analyzing",
+    totalCandidates: 0,
+    priority: [],
+    optional: [],
   });
   await waitFor(
     () => controller.getState().recommendation.status === "no-candidates",
@@ -489,6 +492,61 @@ test("recommendation snapshots the retained Current paper and every Controller c
     priority: [],
     optional: [],
     restoredFromCache: false,
+  });
+});
+
+test("recommendation progress publishes partial items while the model is still running", async () => {
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  const streamedItem = {
+    candidateKey: "doi:10.1000/reference",
+    paperID: "reference:0",
+    title: "Streaming paper",
+    sources: ["reference" as const],
+    reason: "正在生成的推荐理由。",
+  };
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        ...resolvedPaper("Streaming paper", "10.1000/reference"),
+        abstract: "Reference abstract",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    recommendPapers(request) {
+      request.onProgress?.({
+        totalCandidates: 2,
+        priority: [streamedItem],
+        optional: [],
+      });
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+
+  const run = controller.generateRecommendations();
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "analyzing",
+    totalCandidates: 2,
+    priority: [streamedItem],
+    optional: [],
+  });
+
+  recommendation.reject(new Error("stream interrupted"));
+  await run;
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "failed",
+    message: "stream interrupted",
+    partial: {
+      totalCandidates: 2,
+      priority: [streamedItem],
+      optional: [],
+    },
   });
 });
 

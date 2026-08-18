@@ -69,6 +69,7 @@ test("OpenAI Compatible requires SSE DONE and stops reading when it arrives", as
       cancelled = true;
     },
   });
+  const deltas: string[] = [];
   const result = await runOpenAICompatibleRequest({
     endpoint: "https://api.example.com/v1/chat/completions",
     apiKey: "secret",
@@ -76,9 +77,11 @@ test("OpenAI Compatible requires SSE DONE and stops reading when it arrives", as
     instructions: "Return JSON.",
     prompt: "{}",
     responseFormat: "json_object",
+    onTextDelta: (delta) => deltas.push(delta),
     fetch: async () => new Response(stream, { status: 200 }),
   });
   assert.equal(result.text, "OK");
+  assert.deepEqual(deltas, ["OK"]);
   assert.equal(cancelled, true);
 });
 

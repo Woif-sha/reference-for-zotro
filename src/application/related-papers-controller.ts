@@ -19,6 +19,7 @@ import {
 } from "../literature/reference-query";
 import { normalizeDoi } from "../literature/identifiers";
 import type {
+  RecommendationProgress,
   RecommendationRequest,
   RecommendationResult,
 } from "../recommendation/related-paper-recommendation";
@@ -219,11 +220,22 @@ export class RelatedPapersController implements ReaderSectionController {
       controller: new AbortController(),
     };
     this.recommendationRun = run;
-    this.update({ recommendation: { status: "analyzing" } });
+    this.update({
+      recommendation: {
+        status: "analyzing",
+        totalCandidates: 0,
+        priority: [],
+        optional: [],
+      },
+    });
     try {
       const request = this.recommendationRequest(
         context,
         run.controller.signal,
+        (progress) => {
+          if (!this.recommendationIsCurrent(run, context.token)) return;
+          this.update({ recommendation: { status: "analyzing", ...progress } });
+        },
       );
       if (this.ports.readCachedRecommendation) {
         const cacheResult = await this.tryRestoreCachedRecommendation(
@@ -248,8 +260,23 @@ export class RelatedPapersController implements ReaderSectionController {
       });
     } catch (error) {
       if (!this.recommendationIsCurrent(run, context.token)) return;
+      const partial =
+        this.state.recommendation.status === "analyzing" &&
+        this.state.recommendation.priority.length +
+          this.state.recommendation.optional.length >
+          0
+          ? {
+              totalCandidates: this.state.recommendation.totalCandidates,
+              priority: this.state.recommendation.priority,
+              optional: this.state.recommendation.optional,
+            }
+          : undefined;
       this.update({
-        recommendation: { status: "failed", message: conciseError(error) },
+        recommendation: {
+          status: "failed",
+          message: conciseError(error),
+          ...(partial ? { partial } : {}),
+        },
       });
     } finally {
       if (this.recommendationRun === run) this.recommendationRun = undefined;
@@ -606,6 +633,7 @@ export class RelatedPapersController implements ReaderSectionController {
   private recommendationRequest(
     context: ResolutionContext,
     signal: AbortSignal,
+    onProgress?: (progress: RecommendationProgress) => void,
   ): RecommendationRequest {
     return {
       currentPaper: {
@@ -617,6 +645,7 @@ export class RelatedPapersController implements ReaderSectionController {
       references: [...this.state.references],
       citingPapers: [...this.state.citingPapers],
       signal,
+      onProgress,
     };
   }
 

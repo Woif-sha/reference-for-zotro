@@ -33,6 +33,12 @@ export type RecommendationResult =
       optional: readonly RecommendationItem[];
     }>;
 
+export type RecommendationProgress = Readonly<{
+  totalCandidates: number;
+  priority: readonly RecommendationItem[];
+  optional: readonly RecommendationItem[];
+}>;
+
 export type RecommendationRequest = Readonly<{
   currentPaper: Readonly<
     PaperIdentity & {
@@ -43,6 +49,7 @@ export type RecommendationRequest = Readonly<{
   references: readonly ReaderPaper[];
   citingPapers: readonly ReaderPaper[];
   signal?: AbortSignal;
+  onProgress?: (progress: RecommendationProgress) => void;
 }>;
 
 export class RecommendationAnalysisError extends Error {
@@ -131,10 +138,15 @@ export class RelatedPaperRecommendationService {
         `Recommendation input exceeded the ${RECOMMENDATION_INPUT_MAX_BYTES}-byte limit`,
       );
     }
+    const streamedOutput = createStreamedOutputProjector(
+      candidates,
+      request.onProgress,
+    );
     const generated = await this.generateWithDeadline(
       INSTRUCTIONS,
       prompt,
       request.signal,
+      streamedOutput,
     );
     if ([...generated.text].length > RECOMMENDATION_OUTPUT_MAX_CHARACTERS) {
       throw new RecommendationAnalysisError(
@@ -146,21 +158,10 @@ export class RelatedPaperRecommendationService {
       generated.text,
       candidates.map((_, index) => `paper-${index + 1}`),
     );
-    const project = ({ id, reason }: { id: string; reason: string }) => {
-      const index = Number(id.replace(/^paper-/u, "")) - 1;
-      const candidate = candidates[index]!;
-      return {
-        candidateKey: candidate.candidateKey,
-        paperID: candidate.paper.id,
-        title: candidate.paper.title,
-        sources: candidate.sources,
-        reason,
-      };
-    };
     const result = {
       status: "completed",
-      priority: output.priority.map(project),
-      optional: output.optional.map(project),
+      priority: output.priority.map((item) => projectItem(candidates, item)!),
+      optional: output.optional.map((item) => projectItem(candidates, item)!),
     } as const;
     if (this.options.cache) {
       await this.options.cache.write(
@@ -176,6 +177,7 @@ export class RelatedPaperRecommendationService {
     instructions: string,
     prompt: string,
     externalSignal?: AbortSignal,
+    onTextDelta?: (delta: string) => void,
   ) {
     if (externalSignal?.aborted) throw externalSignal.reason;
     const controller = new AbortController();
@@ -202,6 +204,7 @@ export class RelatedPaperRecommendationService {
           instructions,
           prompt,
           signal: controller.signal,
+          onTextDelta,
         }),
         aborted,
       ]);
@@ -210,6 +213,112 @@ export class RelatedPaperRecommendationService {
       externalSignal?.removeEventListener("abort", onExternalAbort);
     }
   }
+}
+
+function createStreamedOutputProjector(
+  candidates: readonly Candidate[],
+  publish?: (progress: RecommendationProgress) => void,
+): ((delta: string) => void) | undefined {
+  if (!publish) return undefined;
+  let text = "";
+  let publishedItems = 0;
+  publish({ totalCandidates: candidates.length, priority: [], optional: [] });
+  return (delta) => {
+    text += delta;
+    const priority = streamedItems(text, "priority").flatMap((item) => {
+      const projected = projectItem(candidates, item);
+      return projected ? [projected] : [];
+    });
+    const optional = streamedItems(text, "optional").flatMap((item) => {
+      const projected = projectItem(candidates, item);
+      return projected ? [projected] : [];
+    });
+    if (priority.length + optional.length === publishedItems) return;
+    publishedItems = priority.length + optional.length;
+    publish({ totalCandidates: candidates.length, priority, optional });
+  };
+}
+
+function streamedItems(
+  text: string,
+  key: "priority" | "optional",
+): Array<{ id: string; reason: string }> {
+  const match = new RegExp(`"${key}"\\s*:\\s*\\[`, "u").exec(text);
+  if (!match) return [];
+  const items: Array<{ id: string; reason: string }> = [];
+  let cursor = match.index + match[0].length;
+  while (cursor < text.length) {
+    while (/\s|,/u.test(text[cursor] ?? "")) cursor += 1;
+    if (text[cursor] !== "{") break;
+    const end = jsonObjectEnd(text, cursor);
+    if (end === undefined) break;
+    const item = parseStreamedItem(text.slice(cursor, end + 1));
+    if (item) items.push(item);
+    cursor = end + 1;
+  }
+  return items;
+}
+
+function jsonObjectEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') inString = true;
+    else if (character === "{") depth += 1;
+    else if (character === "}" && --depth === 0) return index;
+  }
+  return undefined;
+}
+
+function parseStreamedItem(
+  text: string,
+): { id: string; reason: string } | undefined {
+  try {
+    const value: unknown = JSON.parse(text);
+    if (
+      !isRecord(value) ||
+      !hasExactKeys(value, ["id", "reason"]) ||
+      typeof value.id !== "string" ||
+      typeof value.reason !== "string"
+    ) {
+      return undefined;
+    }
+    const reason = value.reason.trim();
+    if (
+      !reason ||
+      /[\r\n\u2028\u2029]/u.test(reason) ||
+      [...reason].length > 240
+    ) {
+      return undefined;
+    }
+    return { id: value.id, reason };
+  } catch {
+    return undefined;
+  }
+}
+
+function projectItem(
+  candidates: readonly Candidate[],
+  item: { id: string; reason: string },
+): RecommendationItem | undefined {
+  const match = /^paper-(\d+)$/u.exec(item.id);
+  const candidate = match ? candidates[Number(match[1]) - 1] : undefined;
+  if (!candidate) return undefined;
+  return {
+    candidateKey: candidate.candidateKey,
+    paperID: candidate.paper.id,
+    title: candidate.paper.title,
+    sources: candidate.sources,
+    reason: item.reason,
+  };
 }
 
 function cacheIdentity(

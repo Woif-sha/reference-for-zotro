@@ -12,6 +12,7 @@
   "type": "module",
   "scripts": {
     "start": "zotero-plugin serve",
+    "prototype:recommendation-settings": "python -m http.server 4173 --directory prototypes/issue-52-recommendation-settings",
     "test": "node --test --test-concurrency=1 --test-timeout=60000 --import tsx test/**/*.test.ts",
     "test:scansci-python": "python -B -m unittest discover -s test/python -p \"test_*.py\" -v",
     "test:scansci-smoke": "tsx test/scansci/local-legal-smoke.ts",

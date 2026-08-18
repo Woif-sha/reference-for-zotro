@@ -6,7 +6,7 @@ All notable changes to Reference for Zotero are documented in this file.
 
 ### 新增
 
-- 打开相关论文区域后自动加载前 10 篇 Citations，并在后台依次补全 References 与已加载 Citations 的缺失摘要；OpenAlex 与 Semantic Scholar 摘要写入当前论文缓存目录的 `abstract.json`，再次打开时直接恢复。蓝色斜体题名表示摘要已就绪，普通蓝色题名表示摘要仍在补全。
+- 打开相关论文区域后自动加载前 10 篇 Citations，并在后台依次补全 References 与已加载 Citations 的缺失摘要；OpenAlex 与 Semantic Scholar 摘要写入当前论文缓存目录的 `abstract.json`，再次打开时直接恢复。带蓝色下划线的蓝色斜体题名表示摘要已就绪，普通蓝色题名表示摘要仍在补全。
 - Preferences 新增可选 OpenAlex API Key 设置及免费获取入口；Key 仅在本地保存，用于提高摘要查询可用性。
 
 ### 调整
@@ -15,7 +15,7 @@ All notable changes to Reference for Zotero are documented in this file.
 
 ### 修复
 
-- 暂无。
+- 已有摘要的论文题名增加蓝色下划线，使摘要就绪状态更容易辨认。
 
 ### 安全
 

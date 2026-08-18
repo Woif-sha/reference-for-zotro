@@ -1277,7 +1277,7 @@ const READER_STYLES = `
   .rfz-ordinal { grid-column: 2; color: var(--fill-secondary, #85858b); text-align: right; font-size: 13px; }
   .rfz-paper-title { display: block; width: 100%; padding: 0; color: var(--fill-primary, CanvasText); text-align: left; font-size: 13px; font-weight: 600; line-height: 1.35; white-space: normal; overflow-wrap: break-word; word-break: normal; }
   .rfz-paper--resolved .rfz-paper-title { color: var(--rfz-accent); font-weight: 700; }
-  .rfz-paper--resolved .rfz-paper-title--has-abstract { font-style: italic; }
+  .rfz-paper--resolved .rfz-paper-title--has-abstract { font-style: italic; text-decoration-line: underline; text-decoration-color: var(--rfz-accent); text-underline-offset: 2px; }
   .rfz-paper small, .rfz-paper-status { display: block; margin-top: 2px; color: var(--fill-secondary, #6a6a70); font-size: 10px; }
   .rfz-paper-status { color: #8a5d0b; }
   .rfz-paper--failed .rfz-paper-status { color: #ba3b32; }

@@ -305,7 +305,7 @@ test("Reader section renders supported text for LaTeX-formatted Abstracts", () =
   mounted.destroy();
 });
 
-test("resolved paper titles become italic when an Abstract is available", () => {
+test("resolved paper titles become italic and underlined when an Abstract is available", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   let state: ReaderSectionState = {
     ...readyState(),
@@ -360,9 +360,15 @@ test("resolved paper titles become italic when an Abstract is available", () => 
     )?.textContent,
     "First reference",
   );
+  const abstractTitleRule =
+    /\.rfz-paper--resolved \.rfz-paper-title--has-abstract\s*\{([^}]*)\}/u.exec(
+      dom.window.document.querySelector("style")?.textContent ?? "",
+    )?.[1] ?? "";
+  assert.match(abstractTitleRule, /font-style:\s*italic/u);
+  assert.match(abstractTitleRule, /text-decoration-line:\s*underline/u);
   assert.match(
-    dom.window.document.querySelector("style")?.textContent ?? "",
-    /\.rfz-paper--resolved \.rfz-paper-title--has-abstract\s*\{[^}]*font-style:\s*italic/u,
+    abstractTitleRule,
+    /text-decoration-color:\s*var\(--rfz-accent\)/u,
   );
   mounted.destroy();
 });

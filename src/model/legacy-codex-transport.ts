@@ -5,7 +5,6 @@ import {
 } from "./model-errors";
 import {
   DEFAULT_OUTPUT_MAX_CHARACTERS,
-  DEFAULT_STREAM_MAX_BYTES,
   ERROR_RESPONSE_MAX_BYTES,
   readBoundedBody,
   type ModelResponseFormat,
@@ -16,6 +15,8 @@ import { findSseFrameBoundary } from "./sse";
 const CODEX_REFRESH_TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
+// Codex Responses streams include non-visible reasoning and completion items.
+const DEFAULT_CODEX_STREAM_MAX_BYTES = 8 * 1024 * 1024;
 const LOGIN_REQUIRED_MESSAGE =
   "Codex 登录状态已失效或无法自动更新，请在终端运行 codex login 重新登录后再试。";
 
@@ -463,7 +464,8 @@ async function readCodexStream(
   const parser = new CodexResponsesStreamParser(
     request.maxOutputCharacters ?? DEFAULT_OUTPUT_MAX_CHARACTERS,
   );
-  const maxResponseBytes = request.maxResponseBytes ?? DEFAULT_STREAM_MAX_BYTES;
+  const maxResponseBytes =
+    request.maxResponseBytes ?? DEFAULT_CODEX_STREAM_MAX_BYTES;
   let responseBytes = 0;
   try {
     while (true) {
@@ -476,6 +478,10 @@ async function readCodexStream(
         );
       }
       parser.feed(decoder.decode(value, { stream: true }));
+      if (parser.isComplete) {
+        await reader.cancel();
+        break;
+      }
     }
     parser.feed(decoder.decode());
   } catch (error) {
@@ -499,6 +505,10 @@ class CodexResponsesStreamParser {
   private completed = false;
 
   constructor(private readonly maxOutputCharacters: number) {}
+
+  get isComplete(): boolean {
+    return this.completed;
+  }
 
   feed(chunk: string): void {
     this.buffer += chunk;

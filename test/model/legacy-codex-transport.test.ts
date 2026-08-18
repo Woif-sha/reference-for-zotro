@@ -364,6 +364,24 @@ test("Legacy recommendation responses enforce visible output and stream byte bud
   );
 });
 
+test("Legacy recommendation responses tolerate large non-text events and stop after completion", async () => {
+  const eventHarness = transportHarness();
+  const response = completedResponseWithIgnoredEvent("OK", 131_000);
+  assert.ok(response.bytes > 128 * 1024);
+  eventHarness.fetchResponses.push(response.value);
+  assert.deepEqual(await eventHarness.transport.run(request()), { text: "OK" });
+
+  const completionHarness = transportHarness();
+  completionHarness.fetchResponses.push(completedThenTrailingResponse("OK"));
+  assert.deepEqual(
+    await completionHarness.transport.run({
+      ...request(),
+      maxResponseBytes: 200,
+    }),
+    { text: "OK" },
+  );
+});
+
 function request() {
   return {
     model: "gpt-5.4",
@@ -460,6 +478,38 @@ function jsonResponse(value: unknown): Response {
 function completedResponse(text: string): Response {
   return new Response(
     `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}\n\ndata: ${JSON.stringify({ type: "response.completed" })}\n\n`,
+    { status: 200 },
+  );
+}
+
+function completedResponseWithIgnoredEvent(
+  text: string,
+  padding: number,
+): Readonly<{ bytes: number; value: Response }> {
+  const body = `data: ${JSON.stringify({ type: "response.created", metadata: "x".repeat(padding) })}\n\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}\n\ndata: ${JSON.stringify({ type: "response.completed" })}\n\n`;
+  return {
+    bytes: encoder.encode(body).byteLength,
+    value: new Response(body, { status: 200 }),
+  };
+}
+
+function completedThenTrailingResponse(text: string): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text })}\n\ndata: ${JSON.stringify({ type: "response.completed" })}\n\n`,
+          ),
+        );
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({ type: "response.created", metadata: "x".repeat(1_000) })}\n\n`,
+          ),
+        );
+        controller.close();
+      },
+    }),
     { status: 200 },
   );
 }

@@ -142,6 +142,7 @@ test("AI recommendation is the third tab and renders every analysis state withou
   assert.match(completedText, /Reference/u);
   assert.match(completedText, /Citation/u);
   assert.match(completedText, /直接扩展当前论文的方法/u);
+  assert.match(completedText, /送入 AI 分析 2 篇 · 优先看 1 篇 · 可选看 1 篇/u);
   assert.doesNotMatch(completedText, /score|相关度\s*[:：]?\s*\d/iu);
   assert.doesNotMatch(completedText, /缓存恢复/u);
   assert.equal(
@@ -185,6 +186,125 @@ test("AI recommendation is the third tab and renders every analysis state withou
     dom.window.document.body.textContent ?? "",
     /加载 Abstract 后再次点击 AI 推荐标签/u,
   );
+});
+
+test("AI recommendation papers reuse landing, detail, context, and translation interactions", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const ready = readyState();
+  let state: ReaderSectionState = {
+    ...ready,
+    activeTab: "ai-recommendation",
+    references: ready.references.map((paper) =>
+      paper.id === "ref-1"
+        ? { ...paper, abstract: "Detailed recommendation abstract" }
+        : paper,
+    ),
+    recommendation: {
+      status: "completed",
+      restoredFromCache: false,
+      priority: [
+        {
+          candidateKey: "doi:10.1000/first",
+          paperID: "ref-1",
+          title: "First reference",
+          sources: ["reference"],
+          reason: "Directly extends the current method.",
+        },
+      ],
+      optional: [],
+    },
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const opened: string[] = [];
+  const selected: string[] = [];
+  const actions: string[] = [];
+  const translated: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        selected.push(paperID);
+        state = { ...state, selectedPaperID: paperID };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper: (paperID) => opened.push(paperID),
+      performPaperAction: (paperID, action) =>
+        actions.push(`${paperID}:${action}`),
+      translationCapability: () => ({ available: true }),
+      async translateSelection(text) {
+        translated.push(text);
+        return "推荐理由译文";
+      },
+    },
+  });
+
+  const recommendationTitle = () =>
+    dom.window.document.querySelector(
+      '[data-paper-id="ref-1"] [data-paper-title]',
+    ) as HTMLElement | null;
+  assert.ok(recommendationTitle());
+  recommendationTitle()?.dispatchEvent(
+    new dom.window.MouseEvent("click", {
+      bubbles: true,
+      button: 0,
+      ctrlKey: true,
+    }),
+  );
+  assert.deepEqual(opened, ["ref-1"]);
+  assert.deepEqual(selected, []);
+
+  recommendationTitle()?.click();
+  assert.deepEqual(selected, ["ref-1"]);
+  assert.match(
+    dom.window.document.querySelector("[data-detail-card]")?.textContent ?? "",
+    /Detailed recommendation abstract/u,
+  );
+
+  const contextEvent = new dom.window.MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: 80,
+    clientY: 60,
+  });
+  recommendationTitle()?.dispatchEvent(contextEvent);
+  assert.equal(contextEvent.defaultPrevented, true);
+  (
+    dom.window.document.querySelector(
+      '[data-paper-action="copy-title"]',
+    ) as HTMLElement
+  ).click();
+  assert.deepEqual(actions, ["ref-1:copy-title"]);
+
+  const reason = dom.window.document.querySelector(
+    ".rfz-recommendation-paper > p",
+  );
+  assert.ok(reason);
+  selectNodeContents(dom, reason);
+  reason.dispatchEvent(
+    new dom.window.MouseEvent("mouseup", {
+      bubbles: true,
+      clientX: 100,
+      clientY: 80,
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(translated, ["Directly extends the current method."]);
+  assert.equal(
+    dom.window.document.querySelector("[data-translation-result]")?.textContent,
+    "推荐理由译文",
+  );
+  mounted.destroy();
 });
 
 test("Citations distinguish an active lookup from a completed empty result", () => {

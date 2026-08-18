@@ -309,6 +309,10 @@ export function mountReaderSection(options: {
               Math.min(state.citingPaperLimit, state.citingPapers.length),
             )
           : [];
+    const detailPapers =
+      state.activeTab === "ai-recommendation"
+        ? [...state.references, ...state.citingPapers]
+        : papers;
     const downloadDisabled =
       state.downloadSelection.length === 0 ||
       state.downloadInProgress ||
@@ -358,7 +362,7 @@ export function mountReaderSection(options: {
       ].find((element) => element.dataset.focusKey === focusKey);
       replacement?.focus();
     }
-    const detailCard = renderDetailCard(state, papers);
+    const detailCard = renderDetailCard(state, detailPapers);
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);
     positionDetailCard(root, overlay);
@@ -782,7 +786,7 @@ function renderContent(
   }
 
   if (state.activeTab === "ai-recommendation") {
-    return renderRecommendation(state.recommendation);
+    return renderRecommendation(state.recommendation, state.selectedPaperID);
   }
 
   if (
@@ -860,7 +864,10 @@ function renderContent(
   </ol>`;
 }
 
-function renderRecommendation(state: RecommendationState): string {
+function renderRecommendation(
+  state: RecommendationState,
+  selectedPaperID: string | undefined,
+): string {
   if (state.status === "not-analyzed") {
     return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在检查缓存和分析条件…</strong><p>将使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p></section>`;
   }
@@ -877,27 +884,31 @@ function renderRecommendation(state: RecommendationState): string {
   }
   return `<section class="rfz-recommendation-results">
     <h2>当前论文的 AI 阅读建议</h2>
+    <p class="rfz-recommendation-summary" data-no-translation="">送入 AI 分析 ${state.priority.length + state.optional.length} 篇 · 优先看 ${state.priority.length} 篇 · 可选看 ${state.optional.length} 篇</p>
     ${state.restoredFromCache ? '<p class="rfz-recommendation-cache-status" role="status"><strong>缓存恢复</strong>：已从本地 recommendation.json 恢复，本次未调用 AI。</p>' : ""}
-    ${renderRecommendationGroup("优先看", state.priority)}
-    ${renderRecommendationGroup("可选看", state.optional)}
+    ${renderRecommendationGroup("优先看", state.priority, selectedPaperID)}
+    ${renderRecommendationGroup("可选看", state.optional, selectedPaperID)}
   </section>`;
 }
 
 function renderRecommendationGroup(
   title: string,
   items: readonly RecommendationItem[],
+  selectedPaperID: string | undefined,
 ): string {
   return `<section class="rfz-recommendation-group"><h3>${title}</h3><ol>${items
     .map(
-      (item) => `<li>
-        <strong>${escapeHTML(item.title)}</strong>
+      (
+        item,
+      ) => `<li class="rfz-recommendation-paper${selectedPaperID === item.paperID ? " is-selected" : ""}" data-paper-id="${escapeAttribute(item.paperID)}">
+        <div class="rfz-paper-title rfz-recommendation-title" data-paper-title="" data-translation-text="" data-focus-key="recommendation:${escapeAttribute(item.candidateKey)}" role="button" tabindex="0">${escapeHTML(item.title)}</div>
         <div class="rfz-recommendation-sources">${item.sources
           .map(
             (source) =>
               `<span>${source === "reference" ? "Reference" : "Citation"}</span>`,
           )
           .join("")}</div>
-        <p>${escapeHTML(item.reason)}</p>
+        <p data-translation-text="">${escapeHTML(item.reason)}</p>
       </li>`,
     )
     .join("")}</ol></section>`;
@@ -1303,12 +1314,15 @@ const READER_STYLES = `
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
   .rfz-recommendation-results { padding: 16px 12px 24px; }
-  .rfz-recommendation-results h2 { margin: 0 0 16px; font-size: 15px; }
+  .rfz-recommendation-results h2 { margin: 0; font-size: 15px; }
+  .rfz-recommendation-summary { margin: 5px 0 16px; color: var(--fill-secondary, #5f5f66); font-size: 11px; }
   .rfz-recommendation-group + .rfz-recommendation-group { margin-top: 20px; }
   .rfz-recommendation-group h3 { margin: 0 0 8px; font-size: 13px; }
   .rfz-recommendation-group ol { margin: 0; padding: 0; list-style: none; }
   .rfz-recommendation-group li { padding: 10px 0; border-bottom: 1px solid var(--material-border, #ececef); }
-  .rfz-recommendation-group li > strong { display: block; color: var(--fill-primary, #242428); line-height: 1.35; }
+  .rfz-recommendation-paper.is-selected { background: var(--rfz-accent-soft); }
+  .rfz-recommendation-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
+  .rfz-recommendation-title { color: var(--rfz-accent); cursor: pointer; }
   .rfz-recommendation-group li > p { margin: 6px 0 0; color: var(--fill-secondary, #5f5f66); line-height: 1.5; }
   .rfz-recommendation-sources { display: flex; gap: 5px; margin-top: 5px; }
   .rfz-recommendation-sources span { padding: 1px 6px; border-radius: 8px; color: #154e9f; background: #dce8fb; font-size: 10px; }

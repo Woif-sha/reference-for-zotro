@@ -786,7 +786,10 @@ function renderContent(
   }
 
   if (state.activeTab === "ai-recommendation") {
-    return renderRecommendation(state.recommendation, state.selectedPaperID);
+    return renderRecommendation(state.recommendation, state.selectedPaperID, [
+      ...state.references,
+      ...state.citingPapers,
+    ]);
   }
 
   if (
@@ -867,6 +870,7 @@ function renderContent(
 function renderRecommendation(
   state: RecommendationState,
   selectedPaperID: string | undefined,
+  papers: readonly ReaderPaper[],
 ): string {
   if (state.status === "not-analyzed") {
     return `<section class="rfz-status rfz-recommendation-status" role="status"><strong>正在检查缓存和分析条件…</strong><p>将使用当前完整 MinerU Markdown 和已有论文 Abstract 生成统一阅读建议。</p></section>`;
@@ -886,8 +890,8 @@ function renderRecommendation(
     <h2>当前论文的 AI 阅读建议</h2>
     <p class="rfz-recommendation-summary" data-no-translation="">送入 AI 分析 ${state.priority.length + state.optional.length} 篇 · 优先看 ${state.priority.length} 篇 · 可选看 ${state.optional.length} 篇</p>
     ${state.restoredFromCache ? '<p class="rfz-recommendation-cache-status" role="status"><strong>缓存恢复</strong>：已从本地 recommendation.json 恢复，本次未调用 AI。</p>' : ""}
-    ${renderRecommendationGroup("优先看", state.priority, selectedPaperID)}
-    ${renderRecommendationGroup("可选看", state.optional, selectedPaperID)}
+    ${renderRecommendationGroup("优先看", state.priority, selectedPaperID, papers)}
+    ${renderRecommendationGroup("可选看", state.optional, selectedPaperID, papers)}
   </section>`;
 }
 
@@ -895,13 +899,13 @@ function renderRecommendationGroup(
   title: string,
   items: readonly RecommendationItem[],
   selectedPaperID: string | undefined,
+  papers: readonly ReaderPaper[],
 ): string {
   return `<section class="rfz-recommendation-group"><h3>${title}</h3><ol>${items
-    .map(
-      (
-        item,
-      ) => `<li class="rfz-recommendation-paper${selectedPaperID === item.paperID ? " is-selected" : ""}" data-paper-id="${escapeAttribute(item.paperID)}">
-        <div class="rfz-paper-title rfz-recommendation-title" data-paper-title="" data-translation-text="" data-focus-key="recommendation:${escapeAttribute(item.candidateKey)}" role="button" tabindex="0">${escapeHTML(item.title)}</div>
+    .map((item) => {
+      const year = papers.find((paper) => paper.id === item.paperID)?.year;
+      return `<li class="rfz-recommendation-paper${selectedPaperID === item.paperID ? " is-selected" : ""}" data-paper-id="${escapeAttribute(item.paperID)}">
+        <div class="rfz-paper-title rfz-recommendation-title" data-paper-title="" data-translation-text="" data-focus-key="recommendation:${escapeAttribute(item.candidateKey)}" role="button" tabindex="0">${escapeHTML(`${item.title}${year ? `（${year}）` : ""}`)}</div>
         <div class="rfz-recommendation-sources">${item.sources
           .map(
             (source) =>
@@ -909,8 +913,8 @@ function renderRecommendationGroup(
           )
           .join("")}</div>
         <p data-translation-text="">${escapeHTML(item.reason)}</p>
-      </li>`,
-    )
+      </li>`;
+    })
     .join("")}</ol></section>`;
 }
 

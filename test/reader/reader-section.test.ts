@@ -254,6 +254,7 @@ test("AI recommendation papers reuse landing, detail, context, and translation i
       '[data-paper-id="ref-1"] [data-paper-title]',
     ) as HTMLElement | null;
   assert.ok(recommendationTitle());
+  assert.equal(recommendationTitle()?.textContent, "First reference（2024）");
   recommendationTitle()?.dispatchEvent(
     new dom.window.MouseEvent("click", {
       bubbles: true,

@@ -34,10 +34,6 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
     row,
     "[data-openalex-api-key]",
   );
-  const toggle = requiredElement<HTMLButtonElement>(
-    row,
-    "[data-toggle-openalex-api-key]",
-  );
   const link = requiredElement<HTMLAnchorElement>(
     row,
     "[data-openalex-api-registration]",
@@ -54,7 +50,6 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
   assert.match(row.textContent ?? "", /提高摘要查询可用性/u);
   assert.equal(input.type, "password");
   assert.equal(input.value, "");
-  assert.equal(toggle.getAttribute("aria-label"), "显示 OpenAlex API Key");
 
   input.value = "  test-openalex-secret  ";
   input.dispatchEvent(new first.dom.window.Event("input", { bubbles: true }));
@@ -64,11 +59,6 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
     [OPENALEX_API_KEY_PREFERENCE, "test-openalex-secret"],
   ]);
 
-  toggle.click();
-  assert.equal(input.type, "text");
-  assert.equal(input.value, "  test-openalex-secret  ");
-  assert.equal(toggle.getAttribute("aria-label"), "隐藏 OpenAlex API Key");
-  toggle.click();
   assert.equal(input.type, "password");
   assert.equal(input.value, "  test-openalex-secret  ");
 
@@ -105,6 +95,28 @@ test("an empty OpenAlex API Key is treated as unconfigured", () => {
   store.setApiKey(" \t ");
   assert.equal(values.get(OPENALEX_API_KEY_PREFERENCE), "");
   assert.equal(store.getApiKey(), undefined);
+});
+
+test("OpenAlex API Key uses one unobscured native reveal control", () => {
+  const { root } = preferencesDocument();
+  const input = requiredElement<HTMLInputElement>(
+    root,
+    "[data-openalex-api-key]",
+  );
+  const stylesheet = readFileSync(
+    new URL("../../addon/chrome/content/preferences.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.equal(input.type, "password");
+  assert.equal(
+    root.querySelectorAll("[data-toggle-openalex-api-key]").length,
+    0,
+  );
+  assert.match(
+    stylesheet,
+    /\.reference-for-zotero-openalex-input\s*\{[^}]*padding-inline-end:\s*6px;/u,
+  );
 });
 
 function preferencesDocument(): Readonly<{ dom: JSDOM; root: Element }> {

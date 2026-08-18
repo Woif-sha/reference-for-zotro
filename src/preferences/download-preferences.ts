@@ -94,10 +94,6 @@ export function mountOpenAlexPreferences(
     root,
     "[data-openalex-api-key]",
   );
-  const toggle = requiredElement<HTMLButtonElement>(
-    root,
-    "[data-toggle-openalex-api-key]",
-  );
   const registrationLink = requiredElement<HTMLAnchorElement>(
     root,
     "[data-openalex-api-registration]",
@@ -105,21 +101,12 @@ export function mountOpenAlexPreferences(
   input.value = settings.getApiKey() ?? "";
 
   const onChange = (): void => settings.setApiKey(input.value);
-  const onToggle = (): void => {
-    const visible = input.type === "password";
-    input.type = visible ? "text" : "password";
-    toggle.setAttribute(
-      "aria-label",
-      visible ? "隐藏 OpenAlex API Key" : "显示 OpenAlex API Key",
-    );
-  };
   const onOpenRegistration = (event: Event): void => {
     event.preventDefault();
     openExternalURL(OPENALEX_SETTINGS_URL);
   };
 
   input.addEventListener("change", onChange);
-  toggle.addEventListener("click", onToggle);
   registrationLink.addEventListener("click", onOpenRegistration);
   let active = true;
   return {
@@ -127,7 +114,6 @@ export function mountOpenAlexPreferences(
       if (!active) return;
       active = false;
       input.removeEventListener("change", onChange);
-      toggle.removeEventListener("click", onToggle);
       registrationLink.removeEventListener("click", onOpenRegistration);
     },
   };

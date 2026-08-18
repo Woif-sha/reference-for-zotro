@@ -25,8 +25,8 @@
 
 .reference-for-zotero-openalex-input {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  padding-inline-end: 6px;
 }
 
 .reference-for-zotero-openalex-help {

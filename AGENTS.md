@@ -12,11 +12,12 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 
 Use a single-context domain documentation layout. See `docs/agents/domain.md`.
 
-### Research workflow
+### Research and prototypes
 
-Use `research` as the canonical branch and single worktree for all
-`docs/research` work. Integrate temporary research branches there and remove
-their branches and worktrees before completing the task.
+Use `origin/research` for `docs/research` work and `origin/prototype` for
+`prototypes` work. Work on either through a temporary local tracking branch;
+finish by pushing it, switching back to `dev`, and deleting the local branch so
+the repository keeps one worktree.
 
 ### Git synchronization
 

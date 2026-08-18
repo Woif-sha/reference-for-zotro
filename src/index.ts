@@ -22,6 +22,8 @@ import {
   type PreferencePanesPort,
   type ReferenceForZoteroPreferencesHandle,
 } from "./preferences/download-preferences";
+import { testOpenAlexConnection } from "./literature/providers/openalex";
+import { createProviderPorts } from "./platform/zotero-runtime";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -103,6 +105,7 @@ function createRuntime() {
           }),
         );
         const openAlexSettings = createZoteroOpenAlexSettings();
+        const openAlexConnectionPorts = createProviderPorts();
         modelSubsystem = createZoteroModelSubsystem();
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
@@ -110,6 +113,8 @@ function createRuntime() {
           rootURI: packagedRootURI,
           settings: downloadSetup,
           openAlexSettings,
+          testOpenAlexConnection: (apiKey, signal) =>
+            testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
           openExternalURL: (url) => Zotero.launchURL(url),
           modelSettings: modelSubsystem.settings,
         });

@@ -11,6 +11,55 @@ export type OpenAlexAbstract = Readonly<{
   sourceRecordID: string;
 }>;
 
+export type OpenAlexConnectionResult = Readonly<{
+  dailyRemainingUsd: number;
+}>;
+
+export async function testOpenAlexConnection(
+  apiKey: string,
+  ports: ProviderPorts,
+  signal?: AbortSignal,
+): Promise<OpenAlexConnectionResult> {
+  const normalizedApiKey = apiKey.trim();
+  if (!normalizedApiKey) throw new Error("请先填写 API Key");
+
+  const url = new URL("https://api.openalex.org/rate-limit");
+  url.searchParams.set("api_key", normalizedApiKey);
+  let response: Response;
+  try {
+    response = await ports.fetch(url.toString(), {
+      headers: { Accept: "application/json" },
+      signal,
+    });
+  } catch {
+    if (signal?.aborted) throw signal.reason;
+    throw new Error("无法连接 OpenAlex API");
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("API Key 无效或无权查询额度");
+  }
+  if (response.status === 429) {
+    throw new Error("OpenAlex API 额度已用尽");
+  }
+  if (!response.ok) {
+    throw new Error(`OpenAlex 服务返回 HTTP ${response.status}`);
+  }
+
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("OpenAlex 返回了无效响应");
+  }
+  const rateLimit = asRecord(asRecord(body)?.rate_limit);
+  const dailyRemainingUsd = asNumber(rateLimit?.daily_remaining_usd);
+  if (dailyRemainingUsd === undefined || dailyRemainingUsd < 0) {
+    throw new Error("OpenAlex 返回了无效余额信息");
+  }
+  return { dailyRemainingUsd };
+}
+
 export async function lookupOpenAlexAbstract(
   doi: string,
   ports: ProviderPorts,

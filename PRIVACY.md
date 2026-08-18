@@ -9,7 +9,7 @@ Depending on the selected feature, the plugin may send:
 - reference title, first author and year to Crossref or DataCite;
 - DOI to the DOI resolver to verify a paper landing page;
 - DOI or other supported identifiers to OpenCitations when the Related Papers section automatically loads the first 10 Citing papers or the user requests more;
-- DOI to OpenAlex and, if necessary, Semantic Scholar while the plugin automatically fills missing Abstracts for resolved References and loaded Citing papers. When configured, the OpenAlex API Key is sent only in an `Authorization: Bearer` request header, not in the URL;
+- DOI to OpenAlex and, if necessary, Semantic Scholar while the plugin automatically fills missing Abstracts for resolved References and loaded Citing papers. When configured, Abstract queries send the OpenAlex API Key in an `Authorization: Bearer` request header;
 - a trusted scholarly landing-page URL, such as ACL Anthology, to read public citation metadata.
 
 Returned records are accepted only through the plugin's identity, schema and reachability checks. Abstract fallback responses must contain the exact requested DOI.
@@ -20,7 +20,7 @@ Resolved literature data is stored under Zotero's data directory in `reference-f
 
 ## OpenAlex API Key
 
-The optional OpenAlex API Key is available for free from OpenAlex and is stored only in Zotero's local `extensions.referenceforzotero.*` plugin preferences. It is used to improve Abstract lookup availability. The Key is not written to the repository, add-on package, literature cache, logs, diagnostics or request URLs. Leaving it empty keeps the existing keyless OpenAlex request and Semantic Scholar fallback behavior.
+The optional OpenAlex API Key is available for free from OpenAlex and is stored only in Zotero's local `extensions.referenceforzotero.*` plugin preferences. It is used to improve Abstract lookup availability. When the user explicitly tests the connection in Preferences, the Key is sent to OpenAlex's official `/rate-limit` endpoint as the documented `api_key` query parameter so the plugin can display the remaining daily balance. The Key is not written to the repository, add-on package, literature cache, logs or diagnostics. Leaving it empty keeps the existing keyless OpenAlex request and Semantic Scholar fallback behavior.
 
 ## Download setup
 

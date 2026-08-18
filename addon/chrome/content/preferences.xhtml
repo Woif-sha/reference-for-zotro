@@ -62,13 +62,25 @@
         >OpenAlex API：</html:label
       >
       <html:div class="reference-for-zotero-openalex-control">
-        <html:div class="reference-for-zotero-openalex-input">
-          <html:input
-            id="reference-for-zotero-preferences-openalex-key"
-            type="password"
-            data-openalex-api-key=""
-            aria-label="OpenAlex API Key"
-          />
+        <html:div class="reference-for-zotero-openalex-actions">
+          <html:div class="reference-for-zotero-openalex-input">
+            <html:input
+              id="reference-for-zotero-preferences-openalex-key"
+              type="password"
+              data-openalex-api-key=""
+              aria-label="OpenAlex API Key"
+            />
+          </html:div>
+          <html:button type="button" data-test-openalex-connection=""
+            >测试连接</html:button
+          >
+          <html:span
+            class="reference-for-zotero-openalex-status"
+            data-openalex-connection-status=""
+            role="status"
+            aria-live="polite"
+            hidden="hidden"
+          ></html:span>
         </html:div>
         <html:span class="reference-for-zotero-openalex-help"
           >可前往

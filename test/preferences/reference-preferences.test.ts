@@ -51,6 +51,9 @@ test("Reference for Zotero registers and explicitly unregisters its Preferences 
       get: () => undefined,
       set() {},
     }),
+    async testOpenAlexConnection() {
+      throw new Error("not used");
+    },
     openExternalURL() {},
     modelSettings: unusedModelSettingsController(),
   });

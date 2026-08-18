@@ -23,10 +23,36 @@
   gap: 6px;
 }
 
+.reference-for-zotero-openalex-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .reference-for-zotero-openalex-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  flex: 0 1 320px;
+  min-width: 180px;
   padding-inline-end: 6px;
+}
+
+.reference-for-zotero-openalex-input > input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.reference-for-zotero-openalex-status {
+  color: var(--fill-secondary, #666);
+}
+
+.reference-for-zotero-openalex-status[data-state="success"] {
+  color: var(--fill-success, #168c68);
+}
+
+.reference-for-zotero-openalex-status[data-state="error"] {
+  color: var(--fill-error, #b42318);
 }
 
 .reference-for-zotero-openalex-help {

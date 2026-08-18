@@ -38,8 +38,11 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
     row,
     "[data-openalex-api-registration]",
   );
-  const mounted = mountOpenAlexPreferences(first.root, store, (url) =>
-    opened.push(url),
+  const mounted = mountOpenAlexPreferences(
+    first.root,
+    store,
+    (url) => opened.push(url),
+    async () => ({ dailyRemainingUsd: 1 }),
   );
 
   assert.equal(cacheError.nextElementSibling, row);
@@ -78,6 +81,7 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
       set: () => undefined,
     }),
     () => undefined,
+    async () => ({ dailyRemainingUsd: 1 }),
   );
   assert.equal(reloadedInput.type, "password");
   assert.equal(reloadedInput.value, "test-openalex-secret");
@@ -117,6 +121,68 @@ test("OpenAlex API Key uses one unobscured native reveal control", () => {
     stylesheet,
     /\.reference-for-zotero-openalex-input\s*\{[^}]*padding-inline-end:\s*6px;/u,
   );
+  assert.match(
+    stylesheet,
+    /\.reference-for-zotero-openalex-input\s*\{[^}]*flex:\s*0 1 320px;/u,
+  );
+});
+
+test("OpenAlex connection test saves the draft Key and renders balance or failure", async () => {
+  const preferences = new Map<string, string>();
+  const tested: string[] = [];
+  let shouldFail = false;
+  const { dom, root } = preferencesDocument();
+  const mounted = mountOpenAlexPreferences(
+    root,
+    new OpenAlexSettingsStore({
+      get: (key) => preferences.get(key),
+      set: (key, value) => preferences.set(key, value),
+    }),
+    () => undefined,
+    async (apiKey) => {
+      tested.push(apiKey);
+      if (shouldFail) throw new Error("API Key 无效或无权查询额度");
+      return { dailyRemainingUsd: 0.9964 };
+    },
+  );
+  const input = requiredElement<HTMLInputElement>(
+    root,
+    "[data-openalex-api-key]",
+  );
+  const button = requiredElement<HTMLButtonElement>(
+    root,
+    "[data-test-openalex-connection]",
+  );
+  const status = requiredElement<HTMLElement>(
+    root,
+    "[data-openalex-connection-status]",
+  );
+
+  input.value = "  test-openalex-secret  ";
+  button.click();
+  assert.equal(button.disabled, true);
+  assert.equal(status.textContent, "正在测试…");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(tested, ["test-openalex-secret"]);
+  assert.equal(
+    preferences.get(OPENALEX_API_KEY_PREFERENCE),
+    "test-openalex-secret",
+  );
+  assert.equal(status.dataset.state, "success");
+  assert.equal(status.textContent, "✓ 连接成功，剩余可用余额：$0.9964");
+  assert.equal(button.disabled, false);
+
+  input.value = "invalid-key";
+  input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  assert.equal(status.hidden, true);
+  shouldFail = true;
+  button.click();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.equal(status.dataset.state, "error");
+  assert.equal(status.textContent, "✕ 连接失败：API Key 无效或无权查询额度");
+  mounted.destroy();
 });
 
 function preferencesDocument(): Readonly<{ dom: JSDOM; root: Element }> {

@@ -891,8 +891,8 @@ function renderRecommendation(
           ? `已生成 ${completed} / ${state.totalCandidates} 篇`
           : "正在检查缓存并等待模型输出"
       }</strong>；每条完整建议生成后会立即显示。</p>
-      ${state.priority.length ? renderRecommendationGroup("优先看", state.priority) : ""}
-      ${state.optional.length ? renderRecommendationGroup("可选看", state.optional) : ""}
+      ${state.priority.length ? renderRecommendationGroup("优先看", state.priority, selectedPaperID, papers) : ""}
+      ${state.optional.length ? renderRecommendationGroup("可选看", state.optional, selectedPaperID, papers) : ""}
     </section>`;
   }
   if (state.status === "no-candidates") {
@@ -907,8 +907,8 @@ function renderRecommendation(
       <strong>分析失败</strong><p>${escapeHTML(state.message)}</p>${
         partial && completed > 0
           ? `<p>中断前已生成 ${completed} / ${partial.totalCandidates} 篇；以下内容尚未通过完整响应校验。</p>
-            ${partial.priority.length ? renderRecommendationGroup("未完成的优先建议", partial.priority) : ""}
-            ${partial.optional.length ? renderRecommendationGroup("未完成的可选建议", partial.optional) : ""}`
+            ${partial.priority.length ? renderRecommendationGroup("未完成的优先建议", partial.priority, selectedPaperID, papers) : ""}
+            ${partial.optional.length ? renderRecommendationGroup("未完成的可选建议", partial.optional, selectedPaperID, papers) : ""}`
           : ""
       }<p>再次点击 AI 推荐标签可重试。</p>
     </section>`;

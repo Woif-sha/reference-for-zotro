@@ -914,8 +914,7 @@ function renderRecommendation(
     </section>`;
   }
   return `<section class="rfz-recommendation-results">
-    <h2>当前论文的 AI 阅读建议</h2>
-    <p class="rfz-recommendation-summary" data-no-translation="">送入 AI 分析 ${state.priority.length + state.optional.length} 篇 · 优先看 ${state.priority.length} 篇 · 可选看 ${state.optional.length} 篇</p>
+    <h2>当前论文的 AI 阅读建议<span class="rfz-recommendation-summary" data-no-translation="">（送入 AI 分析 ${state.priority.length + state.optional.length} 篇 / 优先看 ${state.priority.length} 篇 / 可选看 ${state.optional.length} 篇）</span></h2>
     ${state.restoredFromCache ? '<p class="rfz-recommendation-cache-status" role="status"><strong>缓存恢复</strong>：已从本地 recommendation.json 恢复，本次未调用 AI。</p>' : ""}
     ${renderRecommendationGroup("优先看", state.priority, selectedPaperID, papers)}
     ${renderRecommendationGroup("可选看", state.optional, selectedPaperID, papers)}
@@ -1345,15 +1344,15 @@ const READER_STYLES = `
   .rfz-status { padding: 36px 18px; text-align: center; }
   .rfz-status p { color: var(--fill-secondary, #6a6a70); }
   .rfz-recommendation-results { padding: 16px 12px 24px; }
-  .rfz-recommendation-results h2 { margin: 0; font-size: 15px; }
-  .rfz-recommendation-summary { margin: 5px 0 16px; color: var(--fill-secondary, #5f5f66); font-size: 11px; }
-  .rfz-recommendation-group + .rfz-recommendation-group { margin-top: 20px; }
-  .rfz-recommendation-group h3 { margin: 0 0 8px; font-size: 13px; }
+  .rfz-recommendation-results h2 { margin: 0 0 16px; font-size: 15px; }
+  .rfz-recommendation-summary { margin-left: 4px; color: var(--fill-secondary, #5f5f66); font-size: 12px; font-weight: 400; }
+  .rfz-recommendation-group + .rfz-recommendation-group { margin-top: 28px; }
+  .rfz-recommendation-group h3 { margin: 0 0 12px; font-size: 15px; }
   .rfz-recommendation-group ol { margin: 0; padding: 0; list-style: none; }
   .rfz-recommendation-group li { padding: 10px 0; border-bottom: 1px solid var(--material-border, #ececef); }
   .rfz-recommendation-paper.is-selected { background: var(--rfz-accent-soft); }
   .rfz-recommendation-paper.is-context-target { outline: 2px solid var(--rfz-accent); outline-offset: -2px; background: var(--rfz-accent-soft); }
-  .rfz-recommendation-title { color: var(--rfz-accent); cursor: pointer; }
+  .rfz-recommendation-title { color: var(--rfz-accent); font-size: 14px; cursor: pointer; }
   .rfz-recommendation-group li > p { margin: 6px 0 0; color: var(--fill-secondary, #5f5f66); line-height: 1.5; }
   .rfz-recommendation-sources { display: flex; gap: 5px; margin-top: 5px; }
   .rfz-recommendation-sources span { padding: 1px 6px; border-radius: 8px; color: #154e9f; background: #dce8fb; font-size: 10px; }

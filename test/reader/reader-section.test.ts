@@ -167,7 +167,42 @@ test("AI recommendation is the third tab and renders every analysis state withou
   assert.match(completedText, /Reference/u);
   assert.match(completedText, /Citation/u);
   assert.match(completedText, /直接扩展当前论文的方法/u);
-  assert.match(completedText, /送入 AI 分析 2 篇 · 优先看 1 篇 · 可选看 1 篇/u);
+  const recommendationHeading = dom.window.document.querySelector(
+    ".rfz-recommendation-results h2",
+  );
+  assert.equal(
+    recommendationHeading?.textContent?.trim(),
+    "当前论文的 AI 阅读建议（送入 AI 分析 2 篇 / 优先看 1 篇 / 可选看 1 篇）",
+  );
+  assert.equal(
+    recommendationHeading?.querySelector(".rfz-recommendation-summary")
+      ?.tagName,
+    "SPAN",
+  );
+  const recommendationTitle = dom.window.document.querySelector(
+    ".rfz-recommendation-title",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationTitle!).fontSize,
+    "14px",
+  );
+  const recommendationGroups = [
+    ...dom.window.document.querySelectorAll(".rfz-recommendation-group"),
+  ];
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[0]!.querySelector("h3")!)
+      .fontSize,
+    "15px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[0]!.querySelector("h3")!)
+      .marginBottom,
+    "12px",
+  );
+  assert.equal(
+    dom.window.getComputedStyle(recommendationGroups[1]!).marginTop,
+    "28px",
+  );
   assert.doesNotMatch(completedText, /score|相关度\s*[:：]?\s*\d/iu);
   assert.doesNotMatch(completedText, /缓存恢复/u);
   assert.equal(

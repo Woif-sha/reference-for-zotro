@@ -136,8 +136,10 @@ interface TranslationBridge {
 
 // 能力探测，而不是硬依赖或直接访问内部 data/services
 const api = (Zotero as any).PaperTranslate?.api;
-if (typeof api?.translate !== "function" ||
-    typeof api?.getVersion !== "function") {
+if (
+  typeof api?.translate !== "function" ||
+  typeof api?.getVersion !== "function"
+) {
   // 在划词浮层中显示“请安装或更新 Paper Translate”
 }
 ```
@@ -193,12 +195,12 @@ PaperSessionStore (attachment identity + generation)
 
 ## 可直接复用、可移植、必须重写
 
-| 来源 | 直接复用 | 按模式移植 | 必须重写或放弃 |
-| --- | --- | --- | --- |
-| `paper-translate-for-zotero` | scaffold/bootstrap/config、Fluent/preferences 基础、CI XPI 安全检查；运行时调用 `Zotero.PaperTranslate.api.translate` | `ItemPaneManager` lifecycle、per-attachment job/state、MinerU 来源验证 | context learning、OCR、auth/model clients、内部 queue、原有 popup/sidebar UI |
-| `llm-for-zotero` | 只把现有磁盘格式当作外部只读契约 | `_llm_source.json` schema、`full.md`/manifest 路径和身份验证 | MinerU 调度、cache 写入/迁移/同步、chat/agent、PDF fallback |
-| `zotero-reference` | UI/交互语义和 metadata card 信息层级 | reference view model、Ctrl/Meta+click 与 hover 延时的行为 | `ReaderTabPanel`、XUL tree、私有 Reader 字段、PDF extraction、旧 API provider 聚合、LocalStorage、全局 prototype patch |
-| Zotero 9.0.6 | `ItemPaneManager`、Reader lifecycle、`Zotero.launchURL`、`Zotero.DataDirectory.dir` | 无 | DOM/iframe 私有实现不作为契约 |
+| 来源                         | 直接复用                                                                                                              | 按模式移植                                                             | 必须重写或放弃                                                                                                         |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `paper-translate-for-zotero` | scaffold/bootstrap/config、Fluent/preferences 基础、CI XPI 安全检查；运行时调用 `Zotero.PaperTranslate.api.translate` | `ItemPaneManager` lifecycle、per-attachment job/state、MinerU 来源验证 | context learning、OCR、auth/model clients、内部 queue、原有 popup/sidebar UI                                           |
+| `llm-for-zotero`             | 只把现有磁盘格式当作外部只读契约                                                                                      | `_llm_source.json` schema、`full.md`/manifest 路径和身份验证           | MinerU 调度、cache 写入/迁移/同步、chat/agent、PDF fallback                                                            |
+| `zotero-reference`           | UI/交互语义和 metadata card 信息层级                                                                                  | reference view model、Ctrl/Meta+click 与 hover 延时的行为              | `ReaderTabPanel`、XUL tree、私有 Reader 字段、PDF extraction、旧 API provider 聚合、LocalStorage、全局 prototype patch |
+| Zotero 9.0.6                 | `ItemPaneManager`、Reader lifecycle、`Zotero.launchURL`、`Zotero.DataDirectory.dir`                                   | 无                                                                     | DOM/iframe 私有实现不作为契约                                                                                          |
 
 ## 风险
 

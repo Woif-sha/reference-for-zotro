@@ -1,6 +1,6 @@
 # 机构认证下的论文匹配与 Citations 数据链路
 
-研究日期：2026-07-29  
+研究日期：2026-07-29\
 对应问题：[确定机构认证下的论文匹配与 Citations 数据链路](https://github.com/Woif-sha/reference-for-zotro/issues/4)
 
 ## 结论

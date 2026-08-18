@@ -1,6 +1,6 @@
 # 第三阶段模型设置与 Legacy 传输的最小复用边界
 
-研究日期：2026-08-17  
+研究日期：2026-08-17\
 对应票据：[确定模型设置与 Legacy 传输的最小复用边界](https://github.com/Woif-sha/reference-for-zotro/issues/48)
 
 ## 结论

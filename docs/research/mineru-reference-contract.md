@@ -129,12 +129,12 @@ cacheDir = root / "llm-for-zotero-mineru" / String(attachmentID)
 
    ```ts
    type ReferenceEntry = {
-     ordinal: number;       // Markdown 遇见顺序，从 0 开始
-     sourceLabel: string;   // marker 中的原始数字文本
-     rawMarkdown: string;   // 含 marker 的原始切片
-     lookupText: string;    // 去掉 marker、trim 后的检索文本
-     charStart: number;     // 相对 full.md
-     charEnd: number;       // 相对 full.md
+     ordinal: number; // Markdown 遇见顺序，从 0 开始
+     sourceLabel: string; // marker 中的原始数字文本
+     rawMarkdown: string; // 含 marker 的原始切片
+     lookupText: string; // 去掉 marker、trim 后的检索文本
+     charStart: number; // 相对 full.md
+     charEnd: number; // 相对 full.md
    };
    ```
 
@@ -149,18 +149,18 @@ cacheDir = root / "llm-for-zotero-mineru" / String(attachmentID)
 
 所有失败都必须显式，不允许进入 PDF/OCR/全文尾部猜测或网络反向重建 references：
 
-| code | 用户状态 | 是否允许联网匹配 |
-| --- | --- | --- |
-| `md-not-generated` | 无 MD 文本 | 否 |
-| `md-cache-incomplete` | MinerU MD 缓存不完整 | 否 |
-| `md-cache-invalid` | MinerU MD 与当前论文不匹配或已损坏 | 否 |
-| `unsupported-reader-item` | 当前 Reader 条目不是带父条目的附件 | 否 |
-| `references-heading-missing` | MD 中未找到 References 章节 | 否 |
-| `references-heading-ambiguous` | MD 中存在多个 References 章节，无法确定 | 否 |
-| `references-section-empty` | References 章节为空 | 否 |
-| `references-marker-mixed` | References 编号结构混杂，无法可靠拆分 | 否 |
-| `references-prefix-unparsed` | 首条参考文献前存在无法归属的内容 | 否 |
-| `references-entry-structure-unsupported` | References 结构暂不支持逐条解析 | 否 |
+| code                                     | 用户状态                                | 是否允许联网匹配 |
+| ---------------------------------------- | --------------------------------------- | ---------------- |
+| `md-not-generated`                       | 无 MD 文本                              | 否               |
+| `md-cache-incomplete`                    | MinerU MD 缓存不完整                    | 否               |
+| `md-cache-invalid`                       | MinerU MD 与当前论文不匹配或已损坏      | 否               |
+| `unsupported-reader-item`                | 当前 Reader 条目不是带父条目的附件      | 否               |
+| `references-heading-missing`             | MD 中未找到 References 章节             | 否               |
+| `references-heading-ambiguous`           | MD 中存在多个 References 章节，无法确定 | 否               |
+| `references-section-empty`               | References 章节为空                     | 否               |
+| `references-marker-mixed`                | References 编号结构混杂，无法可靠拆分   | 否               |
+| `references-prefix-unparsed`             | 首条参考文献前存在无法归属的内容        | 否               |
+| `references-entry-structure-unsupported` | References 结构暂不支持逐条解析         | 否               |
 
 开发日志可以记录 code、附件 item ID、文件名和范围；不得记录论文正文、完整 reference 文本或绝对 data directory。UI 不显示绝对路径。
 

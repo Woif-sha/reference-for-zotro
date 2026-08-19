@@ -4,7 +4,7 @@
 
 .reference-for-zotero-directory-row {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  grid-template-columns: 8em minmax(0, 1fr) max-content;
   gap: 10px;
   align-items: center;
 }
@@ -18,15 +18,7 @@
 }
 
 .reference-for-zotero-local-paper-sync {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
   margin-top: 10px;
-}
-
-.reference-for-zotero-local-paper-help {
-  color: var(--fill-secondary, #666);
-  margin-inline-start: 22px;
 }
 
 .reference-for-zotero-openalex-control {

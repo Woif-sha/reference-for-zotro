@@ -97,11 +97,14 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
     stylesheet,
     /\.reference-for-zotero-path-unconfigured\s*\{[^}]*font-weight:\s*700/su,
   );
+  assert.match(
+    stylesheet,
+    /\.reference-for-zotero-directory-row\s*\{[^}]*grid-template-columns:\s*8em\s+minmax\(0, 1fr\)\s+max-content/su,
+  );
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
   assert.equal(
     root.querySelector("[data-cache-directory-error]")?.nextElementSibling,
-    root.querySelector("[data-local-paper-name-sync-enabled]")?.parentElement
-      ?.parentElement,
+    root.querySelector("[data-local-paper-root-row]"),
   );
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -170,10 +173,23 @@ test("local paper renaming preferences are off by default and use a chosen direc
   ) as HTMLInputElement | null;
   const path = root.querySelector("[data-local-paper-root-path]");
   const error = root.querySelector("[data-local-paper-root-error]");
-  assert.ok(enabled && path && error);
+  const row = root.querySelector("[data-local-paper-root-row]");
+  const toggle = enabled?.parentElement?.parentElement;
+  assert.ok(enabled && path && error && row && toggle);
 
   assert.equal(enabled.checked, false);
   assert.equal(path.textContent, "未配置");
+  assert.equal(
+    row.classList.contains("reference-for-zotero-directory-row"),
+    true,
+  );
+  assert.equal(row.nextElementSibling, error);
+  assert.equal(error.nextElementSibling, toggle);
+  assert.equal(
+    root.querySelector(".reference-for-zotero-local-paper-help"),
+    null,
+  );
+  assert.doesNotMatch(root.textContent ?? "", /默认关闭；/u);
   enabled.checked = true;
   enabled.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   assert.equal(error.textContent, "请先选择本地论文目录。");

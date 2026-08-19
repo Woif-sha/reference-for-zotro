@@ -4,13 +4,12 @@ import {
   type LocalPaperNameSyncResult,
   type LocalPdf,
 } from "../application/local-paper-name-sync";
+import type { LocalPaperNameSettingsController } from "../application/local-paper-name-settings";
 import {
   assertExistingRegularDirectory,
   assertExistingRegularFile,
   assertUnchangedNormalizedPath,
 } from "./zotero-windows-file-safety";
-
-export const LOCAL_PAPER_ROOT = "E:\\paper";
 
 export interface ZoteroLocalPaperNameSyncHandle {
   shutdown(): void;
@@ -88,8 +87,40 @@ export class ZoteroLocalPaperNameSyncObserver {
   }
 }
 
+export function manageZoteroLocalPaperNameSync(
+  settings: LocalPaperNameSettingsController,
+  start: (
+    paperRoot: string,
+  ) => ZoteroLocalPaperNameSyncHandle = startZoteroLocalPaperNameSync,
+): ZoteroLocalPaperNameSyncHandle {
+  let activeSync: ZoteroLocalPaperNameSyncHandle | undefined;
+  let activeRoot: string | undefined;
+  const reconcile = (): void => {
+    const state = settings.getState();
+    const nextRoot = state.enabled ? state.paperRoot : undefined;
+    if (nextRoot === activeRoot) return;
+    activeSync?.shutdown();
+    activeSync = undefined;
+    activeRoot = nextRoot;
+    if (nextRoot) activeSync = start(nextRoot);
+  };
+  const unsubscribe = settings.subscribe(reconcile);
+  reconcile();
+  let active = true;
+  return {
+    shutdown() {
+      if (!active) return;
+      active = false;
+      unsubscribe();
+      activeSync?.shutdown();
+      activeSync = undefined;
+      activeRoot = undefined;
+    },
+  };
+}
+
 export function startZoteroLocalPaperNameSync(
-  paperRoot = LOCAL_PAPER_ROOT,
+  paperRoot: string,
 ): ZoteroLocalPaperNameSyncHandle {
   const synchronizer = new LocalPaperNameSynchronizer(
     paperRoot,

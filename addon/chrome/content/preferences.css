@@ -17,6 +17,18 @@
   margin-top: 10px;
 }
 
+.reference-for-zotero-local-paper-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.reference-for-zotero-local-paper-help {
+  color: var(--fill-secondary, #666);
+  margin-inline-start: 22px;
+}
+
 .reference-for-zotero-openalex-control {
   display: flex;
   flex-direction: column;
@@ -73,7 +85,8 @@
 }
 
 #reference-for-zotero-preferences-download-error,
-#reference-for-zotero-preferences-cache-error {
+#reference-for-zotero-preferences-cache-error,
+#reference-for-zotero-preferences-local-paper-error {
   margin-block: 8px 0;
   color: var(--fill-error, #c33);
 }

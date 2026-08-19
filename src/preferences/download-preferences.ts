@@ -5,6 +5,7 @@ import {
 } from "../application/download-settings";
 import type { ModelPreferencesController } from "../application/model-settings";
 import type { OpenAlexSettingsController } from "../application/openalex-settings";
+import type { LocalPaperNameSettingsController } from "../application/local-paper-name-settings";
 import type { OpenAlexConnectionResult } from "../literature/providers/openalex";
 import { mountModelPreferences } from "./model-preferences";
 
@@ -177,6 +178,45 @@ export function mountOpenAlexPreferences(
   };
 }
 
+export function mountLocalPaperNamePreferences(
+  root: Element,
+  settings: LocalPaperNameSettingsController,
+): MountedDownloadPreferences {
+  const enabled = requiredElement<HTMLInputElement>(
+    root,
+    "[data-local-paper-name-sync-enabled]",
+  );
+  const path = requiredElement(root, "[data-local-paper-root-path]");
+  const change = requiredElement(root, "[data-change-local-paper-root]");
+  const error = requiredElement(root, "[data-local-paper-root-error]");
+  const owner = root.ownerDocument.defaultView ?? undefined;
+  const render = (): void => {
+    const state = settings.getState();
+    enabled.checked = state.enabled;
+    renderPath(path, state.paperRoot);
+    renderError(error, state.error);
+  };
+  const onToggle = (): void => settings.setEnabled(enabled.checked);
+  const onChange = (): void => {
+    void settings.changePaperRoot(owner);
+  };
+
+  enabled.addEventListener("change", onToggle);
+  change.addEventListener("click", onChange);
+  const unsubscribe = settings.subscribe(render);
+  render();
+  let active = true;
+  return {
+    destroy() {
+      if (!active) return;
+      active = false;
+      enabled.removeEventListener("change", onToggle);
+      change.removeEventListener("click", onChange);
+      unsubscribe();
+    },
+  };
+}
+
 export async function registerReferenceForZoteroPreferences(options: {
   manager: PreferencePanesPort;
   pluginID: string;
@@ -186,6 +226,7 @@ export async function registerReferenceForZoteroPreferences(options: {
   testOpenAlexConnection: OpenAlexConnectionTest;
   openExternalURL(url: string): void;
   modelSettings: ModelPreferencesController;
+  localPaperNameSettings: LocalPaperNameSettingsController;
 }): Promise<ReferenceForZoteroPreferencesHandle> {
   const paneID = await options.manager.register({
     pluginID: options.pluginID,
@@ -215,12 +256,17 @@ export async function registerReferenceForZoteroPreferences(options: {
         options.openExternalURL,
         options.testOpenAlexConnection,
       );
+      const localPaperNamePreferences = mountLocalPaperNamePreferences(
+        root,
+        options.localPaperNameSettings,
+      );
       const ownerWindow = root.ownerDocument.defaultView;
       const mountedPreferences: MountedDownloadPreferences = {
         destroy() {
           ownerWindow?.removeEventListener("unload", onUnload);
           modelPreferences.destroy();
           openAlexPreferences.destroy();
+          localPaperNamePreferences.destroy();
           downloadPreferences.destroy();
           if (mounted.get(root) === mountedPreferences) mounted.delete(root);
         },

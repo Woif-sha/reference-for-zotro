@@ -51,6 +51,39 @@
       role="alert"
       hidden="hidden"
     ></html:p>
+    <html:div class="reference-for-zotero-local-paper-sync">
+      <html:label>
+        <html:input type="checkbox" data-local-paper-name-sync-enabled="" />
+        自动按 Zotero 附件名重命名本地 PDF
+      </html:label>
+      <html:span class="reference-for-zotero-local-paper-help"
+        >默认关闭；只重命名所选目录中的原始 PDF，不修改 Zotero
+        中的附件。</html:span
+      >
+    </html:div>
+    <html:div
+      id="reference-for-zotero-preferences-local-paper-row"
+      class="reference-for-zotero-directory-row"
+      data-local-paper-root-row=""
+    >
+      <html:span data-local-paper-root-label="">本地论文目录：</html:span>
+      <html:span
+        id="reference-for-zotero-preferences-local-paper-path"
+        class="reference-for-zotero-directory-path"
+        data-local-paper-root-path=""
+        aria-label="当前本地论文目录"
+      ></html:span>
+      <html:button type="button" data-change-local-paper-root="">
+        <html:span data-folder-icon="" aria-hidden="true">📁</html:span>
+        <html:span>更改目录</html:span>
+      </html:button>
+    </html:div>
+    <html:p
+      id="reference-for-zotero-preferences-local-paper-error"
+      data-local-paper-root-error=""
+      role="alert"
+      hidden="hidden"
+    ></html:p>
     <html:div
       id="reference-for-zotero-preferences-openalex-row"
       class="reference-for-zotero-openalex-row"

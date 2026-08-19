@@ -25,9 +25,11 @@ import {
 import { testOpenAlexConnection } from "./literature/providers/openalex";
 import { createProviderPorts } from "./platform/zotero-runtime";
 import {
-  startZoteroLocalPaperNameSync,
+  manageZoteroLocalPaperNameSync,
   type ZoteroLocalPaperNameSyncHandle,
 } from "./platform/zotero-local-paper-name-sync";
+import { createZoteroLocalPaperNameSettings } from "./platform/zotero-local-paper-name-settings";
+import type { LocalPaperNameSettingsController } from "./application/local-paper-name-settings";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -71,6 +73,7 @@ function createRuntime() {
   let preferences: ReferenceForZoteroPreferencesHandle | undefined;
   let modelSubsystem: ZoteroModelSubsystem | undefined;
   let localPaperNameSync: ZoteroLocalPaperNameSyncHandle | undefined;
+  let localPaperNameSettings: LocalPaperNameSettingsController | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -112,7 +115,10 @@ function createRuntime() {
         const openAlexSettings = createZoteroOpenAlexSettings();
         const openAlexConnectionPorts = createProviderPorts();
         modelSubsystem = createZoteroModelSubsystem();
-        localPaperNameSync = startZoteroLocalPaperNameSync();
+        localPaperNameSettings = createZoteroLocalPaperNameSettings();
+        localPaperNameSync = manageZoteroLocalPaperNameSync(
+          localPaperNameSettings,
+        );
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
           pluginID: config.addonID,
@@ -123,6 +129,7 @@ function createRuntime() {
             testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
           openExternalURL: (url) => Zotero.launchURL(url),
           modelSettings: modelSubsystem.settings,
+          localPaperNameSettings,
         });
         handle = startReferenceForZotero({
           factory: createReaderControllerFactory({
@@ -150,6 +157,8 @@ function createRuntime() {
         modelSubsystem = undefined;
         localPaperNameSync?.shutdown();
         localPaperNameSync = undefined;
+        localPaperNameSettings?.dispose();
+        localPaperNameSettings = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

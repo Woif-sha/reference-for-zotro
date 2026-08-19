@@ -7,6 +7,7 @@ import { DownloadSettingsCoordinator } from "../../src/application/download-sett
 import type { ModelPreferencesController } from "../../src/application/model-settings";
 import { DEFAULT_MODEL_CONFIGURATION } from "../../src/model/model-configuration";
 import { OpenAlexSettingsStore } from "../../src/application/openalex-settings";
+import { LocalPaperNameSettingsStore } from "../../src/application/local-paper-name-settings";
 import {
   registerReferenceForZoteroPreferences,
   type PreferencePanesPort,
@@ -56,6 +57,13 @@ test("Reference for Zotero registers and explicitly unregisters its Preferences 
     },
     openExternalURL() {},
     modelSettings: unusedModelSettingsController(),
+    localPaperNameSettings: new LocalPaperNameSettingsStore({
+      getBooleanPreference: () => undefined,
+      getStringPreference: () => undefined,
+      setBooleanPreference() {},
+      setStringPreference() {},
+      choosePaperRoot: async () => undefined,
+    }),
   });
 
   assert.deepEqual(registrations, [

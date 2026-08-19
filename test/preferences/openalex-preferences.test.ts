@@ -29,6 +29,10 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
     first.root,
     "[data-cache-directory-error]",
   );
+  const localPaperError = requiredElement(
+    first.root,
+    "[data-local-paper-root-error]",
+  );
   const label = requiredElement(row, "[data-openalex-api-label]");
   const input = requiredElement<HTMLInputElement>(
     row,
@@ -45,7 +49,8 @@ test("OpenAlex API Key is locally saved, hidden by default, and restored after r
     async () => ({ dailyRemainingUsd: 1 }),
   );
 
-  assert.equal(cacheError.nextElementSibling, row);
+  assert.notEqual(cacheError.nextElementSibling, row);
+  assert.equal(localPaperError.nextElementSibling, row);
   assert.equal(label.textContent?.trim(), "OpenAlex API：");
   assert.equal(link.getAttribute("href"), OPENALEX_SETTINGS_URL);
   assert.match(link.textContent ?? "", /免费注册\/获取 API Key/u);

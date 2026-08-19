@@ -1,7 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { LocalPaperNameSyncResult } from "../../src/application/local-paper-name-sync";
-import { ZoteroLocalPaperNameSyncObserver } from "../../src/platform/zotero-local-paper-name-sync";
+import { LocalPaperNameSettingsStore } from "../../src/application/local-paper-name-settings";
+import {
+  manageZoteroLocalPaperNameSync,
+  ZoteroLocalPaperNameSyncObserver,
+} from "../../src/platform/zotero-local-paper-name-sync";
+
+test("does not start synchronization until the user enables it and chooses a directory", async () => {
+  const selection: { value?: string } = {};
+  const settings = new LocalPaperNameSettingsStore({
+    getBooleanPreference: () => undefined,
+    getStringPreference: () => undefined,
+    setBooleanPreference() {},
+    setStringPreference() {},
+    choosePaperRoot: async () => selection.value,
+  });
+  const started: string[] = [];
+  let shutdowns = 0;
+  const managed = manageZoteroLocalPaperNameSync(settings, (paperRoot) => {
+    started.push(paperRoot);
+    return { shutdown: () => (shutdowns += 1) };
+  });
+
+  assert.deepEqual(started, []);
+  settings.setEnabled(true);
+  assert.deepEqual(started, []);
+
+  selection.value = "E:\\paper";
+  await settings.changePaperRoot();
+  assert.deepEqual(started, ["E:\\paper"]);
+
+  settings.setEnabled(false);
+  assert.equal(shutdowns, 1);
+  managed.shutdown();
+  assert.equal(shutdowns, 1);
+});
 
 test("item add and modify notifications synchronize deduplicated storage paths", async () => {
   const resolutions: number[][] = [];

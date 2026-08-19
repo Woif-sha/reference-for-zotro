@@ -5,6 +5,8 @@ import { JSDOM } from "jsdom";
 
 import { DownloadSettingsCoordinator } from "../../src/application/download-settings";
 import { mountDownloadPreferences } from "../../src/preferences/download-preferences";
+import { LocalPaperNameSettingsStore } from "../../src/application/local-paper-name-settings";
+import { mountLocalPaperNamePreferences } from "../../src/preferences/download-preferences";
 import type { ScanSciPort } from "../../src/scansci/scan-sci-port";
 
 test("Preferences requires both paths, uses colon labels, and has no reset or helper copy", async () => {
@@ -98,7 +100,8 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
   assert.ok(root.querySelector("[data-recommendation-model-settings]"));
   assert.equal(
     root.querySelector("[data-cache-directory-error]")?.nextElementSibling,
-    root.querySelector("[data-openalex-api-row]"),
+    root.querySelector("[data-local-paper-name-sync-enabled]")?.parentElement
+      ?.parentElement,
   );
 
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -138,6 +141,56 @@ test("Preferences requires both paths, uses colon labels, and has no reset or he
   button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
   await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(pickerCalls, 2);
+});
+
+test("local paper renaming preferences are off by default and use a chosen directory", async () => {
+  const fragment = readFileSync(
+    new URL("../../addon/chrome/content/preferences.xhtml", import.meta.url),
+    "utf8",
+  );
+  const dom = new JSDOM(`<!doctype html><body>${fragment}</body>`);
+  const root = dom.window.document.querySelector(
+    "[data-reference-for-zotero-preferences]",
+  );
+  assert.ok(root);
+  const writes: Array<readonly [string, boolean | string]> = [];
+  const settings = new LocalPaperNameSettingsStore({
+    getBooleanPreference: () => undefined,
+    getStringPreference: () => undefined,
+    setBooleanPreference: (key, value) => writes.push([key, value]),
+    setStringPreference: (key, value) => writes.push([key, value]),
+    choosePaperRoot: async (_current, owner) => {
+      assert.equal(owner, dom.window as unknown as Window);
+      return "E:\\paper";
+    },
+  });
+  const mounted = mountLocalPaperNamePreferences(root, settings);
+  const enabled = root.querySelector(
+    "[data-local-paper-name-sync-enabled]",
+  ) as HTMLInputElement | null;
+  const path = root.querySelector("[data-local-paper-root-path]");
+  const error = root.querySelector("[data-local-paper-root-error]");
+  assert.ok(enabled && path && error);
+
+  assert.equal(enabled.checked, false);
+  assert.equal(path.textContent, "未配置");
+  enabled.checked = true;
+  enabled.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  assert.equal(error.textContent, "请先选择本地论文目录。");
+  assert.equal(error.hasAttribute("hidden"), false);
+
+  root
+    .querySelector("[data-change-local-paper-root]")
+    ?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(path.textContent, "E:\\paper");
+  assert.equal(error.hasAttribute("hidden"), true);
+  assert.deepEqual(
+    writes.map((entry) => entry[1]),
+    [true, "E:\\paper"],
+  );
+
+  mounted.destroy();
 });
 
 function settingsController(

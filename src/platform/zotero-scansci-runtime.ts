@@ -8,6 +8,11 @@ import type {
   ScanSciArchitecture,
   ScanSciPort,
 } from "../scansci/scan-sci-port";
+import {
+  assertExistingRegularDirectory,
+  assertExistingRegularFile,
+  assertUnchangedNormalizedPath,
+} from "./zotero-windows-file-safety";
 
 const MAX_STDOUT_CHARACTERS = 1024 * 1024;
 const MAX_STDERR_CHARACTERS = 32 * 1024;
@@ -122,52 +127,32 @@ export function createZoteroScanSciRuntime(
         const destinationParent = Zotero.File.pathToFile(
           parentPath(destinationPath),
         );
-        for (const [label, file] of [
-          ["ScanSci request directory", sourceDirectory],
-          ["ScanSci output", source],
-          ["Download destination", destinationDirectory],
-          ["Final target parent", destinationParent],
-        ] as const) {
-          if (!file.exists()) throw new Error(`${label} does not exist`);
-          if (file.isSymlink()) {
-            throw new Error(`${label} cannot be a symbolic link or junction`);
-          }
-        }
-        if (!sourceDirectory.isDirectory()) {
-          throw new Error("ScanSci request path is not a directory");
-        }
-        if (!source.isFile()) {
-          throw new Error("ScanSci output is not a regular file");
-        }
-        if (
-          !destinationDirectory.isDirectory() ||
-          !destinationParent.isDirectory()
-        ) {
-          throw new Error("Final target parent is not a directory");
-        }
+        assertExistingRegularDirectory(sourceDirectory, "ScanSci request path");
+        assertExistingRegularFile(source, "ScanSci output");
+        assertExistingRegularDirectory(
+          destinationDirectory,
+          "Download destination",
+        );
+        assertExistingRegularDirectory(
+          destinationParent,
+          "Final target parent",
+        );
         const requestedPaths = [
           sourceDirectory.path,
           source.path,
           destinationDirectory.path,
           destinationParent.path,
         ];
-        sourceDirectory.normalize();
-        source.normalize();
-        destinationDirectory.normalize();
-        destinationParent.normalize();
         const normalizedFiles = [
           sourceDirectory,
           source,
           destinationDirectory,
           destinationParent,
         ];
-        if (
-          normalizedFiles.some(
-            (file, index) =>
-              !sameWindowsPath(file.path, requestedPaths[index] ?? ""),
-          )
-        ) {
-          throw new Error(
+        for (const [index, file] of normalizedFiles.entries()) {
+          assertUnchangedNormalizedPath(
+            file,
+            requestedPaths[index] ?? "",
             "Final commit cannot traverse a symbolic link or junction",
           );
         }
@@ -425,13 +410,6 @@ function parentPath(path: string): string {
 
 function joinWindows(left: string, right: string): string {
   return `${left.replace(/[\\/]+$/u, "")}\\${right.replace(/\//gu, "\\").replace(/^[\\/]+/u, "")}`;
-}
-
-function sameWindowsPath(left: string, right: string): boolean {
-  return (
-    left.replace(/\//gu, "\\").toLowerCase() ===
-    right.replace(/\//gu, "\\").toLowerCase()
-  );
 }
 
 function zoteroArchitecture(): ScanSciArchitecture {

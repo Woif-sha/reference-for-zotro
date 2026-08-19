@@ -24,6 +24,10 @@ import {
 } from "./preferences/download-preferences";
 import { testOpenAlexConnection } from "./literature/providers/openalex";
 import { createProviderPorts } from "./platform/zotero-runtime";
+import {
+  startZoteroLocalPaperNameSync,
+  type ZoteroLocalPaperNameSyncHandle,
+} from "./platform/zotero-local-paper-name-sync";
 
 const basicTool = new BasicTool();
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
@@ -66,6 +70,7 @@ function createRuntime() {
   let handle: ReferenceForZoteroHandle | undefined;
   let preferences: ReferenceForZoteroPreferencesHandle | undefined;
   let modelSubsystem: ZoteroModelSubsystem | undefined;
+  let localPaperNameSync: ZoteroLocalPaperNameSyncHandle | undefined;
 
   const onMainWindowLoad = async (window: Window): Promise<void> => {
     (
@@ -107,6 +112,7 @@ function createRuntime() {
         const openAlexSettings = createZoteroOpenAlexSettings();
         const openAlexConnectionPorts = createProviderPorts();
         modelSubsystem = createZoteroModelSubsystem();
+        localPaperNameSync = startZoteroLocalPaperNameSync();
         preferences = await registerReferenceForZoteroPreferences({
           manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
           pluginID: config.addonID,
@@ -142,6 +148,8 @@ function createRuntime() {
         handle = undefined;
         modelSubsystem?.shutdown();
         modelSubsystem = undefined;
+        localPaperNameSync?.shutdown();
+        localPaperNameSync = undefined;
         Zotero.getMainWindows().forEach((window) => {
           void onMainWindowUnload(window);
         });

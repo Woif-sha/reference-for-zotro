@@ -60,6 +60,10 @@ _Avoid_: Import job, Background prefetch
 The per-paper outcome of a Download request: either the actual saved path or the unchanged error from the boundary that failed.
 _Avoid_: Import result, Batch partial result
 
+**Retained local PDF**:
+A PDF the user keeps outside Zotero and that is byte-identical to one stored Zotero attachment. Its filename may follow the stored attachment, but the stored attachment itself remains unchanged by that synchronization.
+_Avoid_: Zotero attachment, Linked attachment
+
 **AI reading recommendation**:
 One complete, schema-validated ordering of every eligible recommendation candidate into Priority and Optional groups for the Current paper.
 _Avoid_: Search result, Score list, Partial stream

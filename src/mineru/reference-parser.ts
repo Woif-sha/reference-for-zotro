@@ -32,6 +32,12 @@ export type ReferenceNormalization = Readonly<{
 
 const BRACKET_MARKER = /^(\s*)\[(\d+)\]\s*/u;
 const NUMERIC_MARKER = /^(\s*)(\d+)[.)]\s+/u;
+const PAGE_COMPONENT_TYPES = new Set([
+  "footer",
+  "page_footnote",
+  "header",
+  "page_number",
+]);
 
 export function normalizeReferenceEntries(
   fullMarkdown: string,
@@ -46,7 +52,13 @@ export function normalizeReferenceEntries(
   const markedIndexes = located.flatMap((block, index) =>
     block.marker ? [index] : [],
   );
-  if (markedIndexes.length === 0) unsupportedMarker();
+  if (markedIndexes.length === 0) {
+    return normalizeUnnumberedReferenceEntries(
+      fullMarkdown,
+      parsed.blocks,
+      located,
+    );
+  }
 
   const firstMarked = markedIndexes[0]!;
   const lastMarked = markedIndexes.at(-1)!;
@@ -159,18 +171,71 @@ export function parseReferenceEntries(
     );
   }
 
+  const hasMarker = referenceTexts.some((text) => tryParseMarker(text));
   let searchStart = 0;
   return referenceTexts.map((markdown, ordinal) => {
-    const marker = parseCanonicalMarker(markdown);
+    const marker = hasMarker ? parseCanonicalMarker(markdown) : undefined;
     const charStart = fullMarkdown.indexOf(markdown, searchStart);
     if (charStart < 0) entryDoesNotMatch();
     searchStart = charStart + markdown.length;
     return {
       ordinal,
-      sourceLabel: marker.sourceLabel,
-      lookupText: markdown.replace(BRACKET_MARKER, "").trim(),
+      ...(marker ? { sourceLabel: marker.sourceLabel } : {}),
+      lookupText: marker
+        ? markdown.replace(BRACKET_MARKER, "").trim()
+        : markdown,
     };
   });
+}
+
+function normalizeUnnumberedReferenceEntries(
+  fullMarkdown: string,
+  blocks: readonly unknown[],
+  references: readonly LocatedReferenceBlock[],
+): ReferenceNormalization {
+  const replacements = references.map((reference) => {
+    const text = normalizeReferenceText(reference.text);
+    return {
+      blockIndex: reference.blockIndex,
+      text,
+      position: reference.charStart,
+      removedLength: reference.charEnd - reference.charStart,
+      insertedLength: text.length,
+    };
+  });
+
+  let normalizedMarkdown = fullMarkdown;
+  for (const replacement of [...replacements].reverse()) {
+    normalizedMarkdown = `${normalizedMarkdown.slice(0, replacement.position)}${replacement.text}${normalizedMarkdown.slice(replacement.position + replacement.removedLength)}`;
+  }
+
+  const textByBlockIndex = new Map(
+    replacements.map(({ blockIndex, text }) => [blockIndex, text]),
+  );
+  const normalizedBlocks = blocks.map((block, blockIndex) => {
+    const text = textByBlockIndex.get(blockIndex);
+    return text === undefined
+      ? block
+      : { ...(block as Record<string, unknown>), text };
+  });
+
+  return {
+    fullMarkdown: normalizedMarkdown,
+    contentListJson: JSON.stringify(normalizedBlocks),
+    edits: replacements
+      .filter(
+        (replacement) =>
+          fullMarkdown.slice(
+            replacement.position,
+            replacement.position + replacement.removedLength,
+          ) !== replacement.text,
+      )
+      .map(({ position, removedLength, insertedLength }) => ({
+        position,
+        removedLength,
+        insertedLength,
+      })),
+  };
 }
 
 function normalizeReferenceText(value: string): string {
@@ -248,19 +313,47 @@ function parseContentList(contentListJson: string): Readonly<{
     throw invalidCache("The MinerU content list is not a JSON array");
   }
 
-  const references: ReferenceBlock[] = [];
-  for (const [blockIndex, block] of contentList.entries()) {
+  const pageComponentTypeByText = new Map<string, string>();
+  for (const block of contentList) {
     if (!block || typeof block !== "object" || Array.isArray(block)) {
       throw invalidCache("The MinerU content list contains an invalid block");
     }
     const record = block as Record<string, unknown>;
-    if (record.type !== "ref_text") continue;
-    if (typeof record.text !== "string" || !record.text.trim()) {
+    if (
+      typeof record.type === "string" &&
+      PAGE_COMPONENT_TYPES.has(record.type) &&
+      typeof record.text === "string" &&
+      record.text.trim()
+    ) {
+      pageComponentTypeByText.set(
+        normalizeReferenceText(record.text),
+        record.type,
+      );
+    }
+    if (
+      record.type === "ref_text" &&
+      (typeof record.text !== "string" || !record.text.trim())
+    ) {
       throw invalidCache("A MinerU Reference block has invalid text");
     }
-    references.push({ blockIndex, text: record.text });
   }
-  return { blocks: contentList, references };
+
+  const blocks = [...contentList];
+  const references: ReferenceBlock[] = [];
+  for (const [blockIndex, block] of contentList.entries()) {
+    const record = block as Record<string, unknown>;
+    if (record.type !== "ref_text") continue;
+    const text = record.text as string;
+    const pageComponentType = pageComponentTypeByText.get(
+      normalizeReferenceText(text),
+    );
+    if (pageComponentType) {
+      blocks[blockIndex] = { ...record, type: pageComponentType };
+      continue;
+    }
+    references.push({ blockIndex, text });
+  }
+  return { blocks, references };
 }
 
 function parseCanonicalMarker(referenceText: string): EntryMarker {

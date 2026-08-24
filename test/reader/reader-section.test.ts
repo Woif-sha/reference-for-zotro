@@ -640,6 +640,117 @@ test("Reader section mounts XHTML content inside Zotero's XUL document", () => {
   mounted.destroy();
 });
 
+test("Reader distinguishes missing Markdown, invalid cache, and unsupported References", () => {
+  const cases: ReadonlyArray<{
+    status: ReaderSectionState["status"];
+    heading: string;
+    detail: RegExp;
+    path: string;
+  }> = [
+    {
+      status: "missing-md",
+      heading: "No MinerU Markdown",
+      detail: /Configure the llm-for-zotero MinerU API and generate Markdown/u,
+      path: "MinerU Markdown not found",
+    },
+    {
+      status: "invalid-md",
+      heading: "Invalid MinerU cache",
+      detail: /cache is incomplete or invalid.*Regenerate Markdown/u,
+      path: "MinerU Markdown cache invalid",
+    },
+    {
+      status: "unsupported-references",
+      heading: "Unsupported References",
+      detail: /Markdown was found.*References structure is not supported/u,
+      path: "MinerU References unsupported",
+    },
+  ];
+
+  for (const expected of cases) {
+    const dom = new JSDOM("<!doctype html><body></body>");
+    const state: ReaderSectionState = {
+      ...readyState(),
+      status: expected.status,
+      mineruDirectory: undefined,
+      references: [],
+    };
+    const mounted = mountReaderSection({
+      body: dom.window.document.body,
+      controller: {
+        ...downloadControllerStubs(),
+        getState: () => state,
+        subscribe: () => () => {},
+        selectTab() {},
+        setCitationLimit() {},
+        selectPaper() {},
+        refresh() {},
+        openPaper() {},
+        performPaperAction() {},
+      },
+    });
+
+    assert.equal(
+      dom.window.document.querySelector(".rfz-status strong")?.textContent,
+      expected.heading,
+    );
+    assert.match(
+      dom.window.document.querySelector(".rfz-status p")?.textContent ?? "",
+      expected.detail,
+    );
+    assert.equal(
+      dom.window.document.querySelector("[data-mineru-path]")?.textContent,
+      expected.path,
+    );
+    assert.equal(
+      dom.window.document
+        .querySelector("[data-open-mineru-folder]")
+        ?.getAttribute("aria-disabled"),
+      "true",
+    );
+    mounted.destroy();
+  }
+});
+
+test("Reader keeps the MinerU cache directory openable after a load failure", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const directory = "E:\\ZoteroData\\llm-for-zotero-mineru\\42";
+  const state: ReaderSectionState = {
+    ...readyState(),
+    status: "unsupported-references",
+    mineruDirectory: directory,
+    references: [],
+  };
+  const opened: string[] = [];
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe: () => () => {},
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+      openMineruDirectory: () => opened.push(directory),
+    },
+  });
+
+  const openFolder = dom.window.document.querySelector(
+    "[data-open-mineru-folder]",
+  ) as HTMLElement;
+  assert.equal(
+    dom.window.document.querySelector("[data-mineru-path]")?.textContent,
+    directory,
+  );
+  assert.equal(openFolder.getAttribute("aria-disabled"), "false");
+  openFolder.click();
+  assert.deepEqual(opened, [directory]);
+  mounted.destroy();
+});
+
 test("download checkboxes preserve focus and stay isolated from paper actions", () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,

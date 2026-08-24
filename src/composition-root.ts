@@ -235,7 +235,7 @@ export function createReaderControllerFactory(
 
 export async function resolveReferenceEntry(
   ordinal: number,
-  sourceLabel: string,
+  sourceLabel: string | undefined,
   lookupText: string,
   gateway: RelatedLiteratureGateway,
   fetchPort: FetchPort,

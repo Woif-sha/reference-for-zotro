@@ -60,15 +60,8 @@ export function referenceForMarkerNumber(
   references: readonly ReaderPaper[],
   markerNumber: number,
 ): ReaderPaper | undefined {
-  return (
-    references.find(
-      (reference) => numericSourceLabel(reference.sourceLabel) === markerNumber,
-    ) ??
-    references.find(
-      (reference) =>
-        numericSourceLabel(reference.sourceLabel) === undefined &&
-        reference.ordinal + 1 === markerNumber,
-    )
+  return references.find(
+    (reference) => numericSourceLabel(reference.sourceLabel) === markerNumber,
   );
 }
 

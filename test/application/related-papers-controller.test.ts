@@ -690,6 +690,58 @@ test("Reference entries show parsed titles before matching and after a failure",
   );
 });
 
+test("ACM publication markers do not replace titles while matching", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ordinal: 0,
+        lookupText:
+          "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004a. Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 377–380.",
+      },
+      {
+        ordinal: 1,
+        lookupText:
+          "DAVIS, T. A. AND HU, Y. To appear. University of Florida sparse matrix collection. ACM Trans. Math. Softw. To appear.",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaperResult[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 2);
+
+  assert.deepEqual(
+    controller.getState().references.map(({ title, year, status }) => ({
+      title,
+      year,
+      status,
+    })),
+    [
+      {
+        title:
+          "Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm",
+        year: "2004",
+        status: "matching",
+      },
+      {
+        title: "University of Florida sparse matrix collection",
+        year: undefined,
+        status: "matching",
+      },
+    ],
+  );
+
+  finish.resolve([]);
+  await refresh;
+});
+
 test("Reference entries render before online resolution completes", async () => {
   const resolution =
     deferred<

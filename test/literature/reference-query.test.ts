@@ -218,6 +218,62 @@ test("initial-first ACM references expose the title after their publication year
   assert.equal(result.year, 2001);
 });
 
+test("ACM year suffixes and forthcoming status remain metadata instead of titles", () => {
+  const references = [
+    "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004a. Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 377–380.",
+    "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004b. A column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 353–376.",
+    "DAVIS, T. A. AND HU, Y. To appear. University of Florida sparse matrix collection. ACM Trans. Math. Softw. To appear; (see also http://www.cise.ufl.edu/sparse/matrices).",
+    "DAVIS, T. A. AND PALAMADAI NATARAJAN, E. To appear. Sparse matrix methods for circuit simulation problems. In Proceedings of the Conference on Scientific Computing in Electrical Engineering (SCEE'10).",
+    "DUFF, I. S. 1981a. Algorithm 575: Permutations for a zero-free diagonal. ACM Trans. Math. Softw. 7, 1, 387–390.",
+    "DUFF, I. S. 1981b. On algorithms for obtaining a maximum transversal. ACM Trans. Math. Softw. 7, 1, 315–330.",
+    "DUFF, I. S. AND REID, J. K. 1978a. Algorithm 529: Permutations to block triangular form. ACM Trans. Math. Softw. 4, 2, 189–192.",
+    "DUFF, I. S. AND REID, J. K. 1978b. An implementation of Tarjan's algorithm for the block triangularization of a matrix. ACM Trans. Math. Softw. 4, 2, 137–147.",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => {
+      const query = parseReferenceQuery(reference);
+      return { title: query.title, year: query.year };
+    }),
+    [
+      {
+        title:
+          "Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm",
+        year: 2004,
+      },
+      {
+        title: "A column approximate minimum degree ordering algorithm",
+        year: 2004,
+      },
+      {
+        title: "University of Florida sparse matrix collection",
+        year: null,
+      },
+      {
+        title: "Sparse matrix methods for circuit simulation problems",
+        year: null,
+      },
+      {
+        title: "Algorithm 575: Permutations for a zero-free diagonal",
+        year: 1981,
+      },
+      {
+        title: "On algorithms for obtaining a maximum transversal",
+        year: 1981,
+      },
+      {
+        title: "Algorithm 529: Permutations to block triangular form",
+        year: 1978,
+      },
+      {
+        title:
+          "An implementation of Tarjan's algorithm for the block triangularization of a matrix",
+        year: 1978,
+      },
+    ],
+  );
+});
+
 test("parenthesized years between authors and titles remain metadata", () => {
   const result = parseReferenceQuery(
     "S. Venugopalan et al. (2016). BSIM-CMG 110. [Online]. Available: http://bsim.berkeley.edu/models/bsimcmg/",

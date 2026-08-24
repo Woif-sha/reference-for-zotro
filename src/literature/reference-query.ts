@@ -47,7 +47,7 @@ function findYearSeparatedMetadata(
   value: string,
 ): { authorRegion: string; title: string; venue?: string } | undefined {
   const match =
-    /^(.+?)\.\s+(?:19|20|21)\d{2}\.\s+(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)/u.exec(
+    /^(.+?)\.\s+(?:(?:19|20|21)\d{2}[a-z]?|To appear)\.\s+(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)/iu.exec(
       value,
     );
   if (!match?.[1] || !match[2] || !isYearSeparatedAuthorRegion(match[1])) {
@@ -320,7 +320,9 @@ function extractYear(value: string): number | null {
     .replace(/https?:\/\/\S+/giu, " ")
     .replace(/\b10\.\d{4,9}\/[-._;()/:a-z0-9]+/giu, " ")
     .replace(/\barxiv\s*:\s*\S+/giu, " ");
-  const years = [...metadata.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})\b/gu)];
+  const years = [
+    ...metadata.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})[a-z]?\b/giu),
+  ];
   const last = years.at(-1)?.[1];
   return last ? Number(last) : null;
 }

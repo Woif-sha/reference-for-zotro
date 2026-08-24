@@ -390,3 +390,259 @@ test("model numbers inside a bounded title are not rejected as publication years
   assert.deepEqual(result.authors, ["Lee"]);
   assert.equal(result.year, 2020);
 });
+
+test("semicolon-separated family-first authors remain author metadata", () => {
+  const result = parseReferenceQuery(
+    "Dufrechou, E.; Ezzatti, P. Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm. In Proceedings of the 2018 26th Euromicro International Conference on Parallel, Distributed and Network-based Processing (PDP), Cambridge, UK, 21–23 March 2018; pp. 196–203.",
+  );
+
+  assert.equal(
+    result.title,
+    "Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm",
+  );
+  assert.deepEqual(result.authors, ["Dufrechou", "Ezzatti"]);
+  assert.equal(result.year, 2018);
+  assert.equal(
+    result.venue,
+    "Proceedings of the 2018 26th Euromicro International Conference on Parallel, Distributed and Network-based Processing (PDP)",
+  );
+});
+
+test("semicolon-separated references stop venues before a following year", () => {
+  const result = parseReferenceQuery(
+    "Cern y, D.; Dobeš, J. Common LISP as Simulation Program (CLASP) of Electronic Circuits. ` Radioengineering 2011, 20, 880–889.",
+  );
+
+  assert.equal(
+    result.title,
+    "Common LISP as Simulation Program (CLASP) of Electronic Circuits",
+  );
+  assert.deepEqual(result.authors, ["Dobeš"]);
+  assert.equal(result.year, 2011);
+  assert.equal(result.venue, "Radioengineering");
+});
+
+test("compact-initial comma-style references stop titles before conference fields", () => {
+  const result = parseReferenceQuery(
+    "G. Domenech-Asensi, T.J. Kazmierski, High-speed analog simulation of CMOS vision chips using explicit integration techniques on many-core processors, in 2020 DesignAutomation and Test in Europe Conference, Grenoble, France, 646-649 (2020) https://doi.org/10.23919/DATE48585.2020.9116270.",
+  );
+
+  assert.equal(
+    result.title,
+    "High-speed analog simulation of CMOS vision chips using explicit integration techniques on many-core processors",
+  );
+  assert.deepEqual(result.authors, ["Domenech-Asensi", "Kazmierski"]);
+  assert.equal(result.year, 2020);
+  assert.equal(result.channel, "conference");
+});
+
+test("conference fields exclude MinerU quote artifacts and following locations", () => {
+  const result = parseReferenceQuery(
+    'K. Gulati, J.F. Croix, S.P. Khatri, R. Shastry, Fast circuit simulation on graphics processing units", in 2009 Asia and South Pacific Design Automation Conference. Yokohama, Japan 403–408 (2009). https://doi.org/10.1109/ASPDAC.2009.4796514',
+  );
+
+  assert.equal(
+    result.title,
+    "Fast circuit simulation on graphics processing units",
+  );
+  assert.deepEqual(result.authors, ["Gulati", "Croix", "Khatri", "Shastry"]);
+  assert.equal(
+    result.venue,
+    "Asia and South Pacific Design Automation Conference",
+  );
+  assert.equal(result.year, 2009);
+});
+
+test("publication years cannot override an author-bounded title", () => {
+  const result = parseReferenceQuery(
+    "Blackford, L.S.; Petitet, A.; Pozo, R.; Remington, K.; Whaley, R.C.; Demmel, J.; Dongarra, J.; Duff, I.; Hammarling, S.; Henry, G.; et al. An updated set of basic linear algebra subprograms (BLAS). ACM Trans. Math. Softw. 2002. 28. 135–151.",
+  );
+
+  assert.equal(
+    result.title,
+    "An updated set of basic linear algebra subprograms (BLAS)",
+  );
+  assert.equal(result.year, 2002);
+  assert.equal(result.venue, "ACM Trans. Math. Softw.");
+});
+
+test("journal field tokens bound comma-style titles without terminal punctuation", () => {
+  const result = parseReferenceQuery(
+    "T.A. Davis, E.P. Natarajan, Algorithm 907: KLU, a direct sparse solver for circuit simulation problems ACM Trans. Math. Softw. 37. 1–17 (2010). https://doi.org/10.1145/1824801.1824814",
+  );
+
+  assert.equal(
+    result.title,
+    "Algorithm 907: KLU, a direct sparse solver for circuit simulation problems",
+  );
+  assert.deepEqual(result.authors, ["Davis", "Natarajan"]);
+  assert.equal(result.year, 2010);
+  assert.equal(result.venue, "ACM Trans. Math. Softw.");
+});
+
+test("handbook fields remain venue metadata instead of extending the title", () => {
+  const result = parseReferenceQuery(
+    "B. Jahne, Multiresolutional signal representation, in Handbook ofComputer Vision and Applications. ed. by B. Jähne, H. Haußecker, P. Geißler (Academic Press, Cambridge, 1999), pp.67–92",
+  );
+
+  assert.equal(result.title, "Multiresolutional signal representation");
+  assert.deepEqual(result.authors, ["Jahne"]);
+  assert.equal(result.year, 1999);
+  assert.equal(result.venue, "Handbook ofComputer Vision and Applications");
+});
+
+test("page fields cannot extend titles or become venues", () => {
+  const result = parseReferenceQuery(
+    "A. M. Bradley, A Hybrid Multithreaded Direct Sparse Triangular Solver, pp. 13–22.",
+  );
+
+  assert.equal(
+    result.title,
+    "A Hybrid Multithreaded Direct Sparse Triangular Solver",
+  );
+  assert.deepEqual(result.authors, ["Bradley"]);
+  assert.equal(result.venue, undefined);
+});
+
+test("a short quoted phrase inside a title cannot replace the complete title", () => {
+  const result = parseReferenceQuery(
+    'Andrew B. Kahng, Uday Mallappa, Lawrence Saul, and Shangyuan Tong. "unobserved corner" prediction: Reducing timing analysis effort for faster design convergence in advanced-node design. In Proceedings of Design, Automation Test in Europe Conference & Exhibition (DATE), pages 168–173, 2019.',
+  );
+
+  assert.equal(
+    result.title,
+    '"unobserved corner" prediction: Reducing timing analysis effort for faster design convergence in advanced-node design',
+  );
+  assert.deepEqual(result.authors, ["Kahng", "Mallappa", "Saul", "Tong"]);
+  assert.equal(result.year, 2019);
+  assert.equal(
+    result.venue,
+    "Proceedings of Design, Automation Test in Europe Conference & Exhibition (DATE)",
+  );
+});
+
+test("uppercase family-first ACM entries preserve authors and journal venue", () => {
+  const references = [
+    "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004a. Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 377–380.",
+    "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004b. A column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 353–376.",
+    "DUFF, I. S. 1981a. Algorithm 575: Permutations for a zero-free diagonal. ACM Trans. Math. Softw. 7, 1, 387–390.",
+    "DUFF, I. S. 1981b. On algorithms for obtaining a maximum transversal. ACM Trans. Math. Softw. 7, 1, 315–330.",
+    "DUFF, I. S. AND REID, J. K. 1978a. Algorithm 529: Permutations to block triangular form. ACM Trans. Math. Softw. 4, 2, 189–192.",
+    "DUFF, I. S. AND REID, J. K. 1978b. An implementation of Tarjan's algorithm for the block triangularization of a matrix. ACM Trans. Math. Softw. 4, 2, 137–147.",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => {
+      const result = parseReferenceQuery(reference);
+      return { authors: result.authors, venue: result.venue };
+    }),
+    [
+      {
+        authors: ["DAVIS", "GILBERT", "LARIMORE", "NG"],
+        venue: "ACM Trans. Math. Softw.",
+      },
+      {
+        authors: ["DAVIS", "GILBERT", "LARIMORE", "NG"],
+        venue: "ACM Trans. Math. Softw.",
+      },
+      { authors: ["DUFF"], venue: "ACM Trans. Math. Softw." },
+      { authors: ["DUFF"], venue: "ACM Trans. Math. Softw." },
+      { authors: ["DUFF", "REID"], venue: "ACM Trans. Math. Softw." },
+      { authors: ["DUFF", "REID"], venue: "ACM Trans. Math. Softw." },
+    ],
+  );
+});
+
+test("publication statuses between authors and titles remain metadata", () => {
+  const references = [
+    "Smith, J. In press. A Reliable Paper Title. Journal of Tests.",
+    "Doe, A. Forthcoming. Another Reliable Paper Title. Journal of Tests.",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => {
+      const result = parseReferenceQuery(reference);
+      return {
+        title: result.title,
+        authors: result.authors,
+        year: result.year,
+      };
+    }),
+    [
+      {
+        title: "A Reliable Paper Title",
+        authors: ["Smith"],
+        year: null,
+      },
+      {
+        title: "Another Reliable Paper Title",
+        authors: ["Doe"],
+        year: null,
+      },
+    ],
+  );
+});
+
+test("field introducers require citation structure instead of title words", () => {
+  const vision = parseReferenceQuery(
+    "Smith, J. Advances in 2020 vision systems. Journal of Tests, 2021.",
+  );
+  assert.equal(vision.title, "Advances in 2020 vision systems");
+
+  const transactions = parseReferenceQuery(
+    "Smith, J. Analysis of IEEE Transactions papers. Journal of Tests, 2021.",
+  );
+  assert.equal(transactions.title, "Analysis of IEEE Transactions papers");
+
+  const conference = parseReferenceQuery(
+    "R.E. Poore, GPU-accelerated time-domain circuit simulation, in 2009 IEEE Custom Integrated Circuits Conference, San Jose, CA, USA (2009), pp.629–632. https://doi.org/10.1109/CICC.2009.5280743",
+  );
+  assert.equal(
+    conference.title,
+    "GPU-accelerated time-domain circuit simulation",
+  );
+  assert.equal(conference.venue, "IEEE Custom Integrated Circuits Conference");
+});
+
+test("a complete quoted title may be followed directly by a venue introducer", () => {
+  const result = parseReferenceQuery(
+    'Smith, J. "Exact title" in Proceedings of Tests, 2024.',
+  );
+
+  assert.equal(result.title, "Exact title");
+  assert.deepEqual(result.authors, ["Smith"]);
+  assert.equal(result.year, 2024);
+  assert.equal(result.venue, "Proceedings of Tests");
+  assert.equal(result.channel, "conference");
+});
+
+test("page field variants remain outside titles and venues", () => {
+  const references = [
+    "A. M. Bradley, A Hybrid Multithreaded Direct Sparse Triangular Solver, p 13–22.",
+    "A. M. Bradley, A Hybrid Multithreaded Direct Sparse Triangular Solver, pp 13–22.",
+    "A. M. Bradley, A Hybrid Multithreaded Direct Sparse Triangular Solver, page 13–22.",
+    "A. M. Bradley, A Hybrid Multithreaded Direct Sparse Triangular Solver, pages 13–22.",
+  ];
+
+  assert.deepEqual(
+    references.map((reference) => {
+      const result = parseReferenceQuery(reference);
+      return { title: result.title, venue: result.venue };
+    }),
+    references.map(() => ({
+      title: "A Hybrid Multithreaded Direct Sparse Triangular Solver",
+      venue: undefined,
+    })),
+  );
+});
+
+test("publication status terminates a journal venue", () => {
+  const result = parseReferenceQuery(
+    "DAVIS, T. A. AND HU, Y. To appear. University of Florida sparse matrix collection. ACM Trans. Math. Softw. To appear; (see also http://www.cise.ufl.edu/sparse/matrices).",
+  );
+
+  assert.equal(result.title, "University of Florida sparse matrix collection");
+  assert.deepEqual(result.authors, ["DAVIS", "HU"]);
+  assert.equal(result.year, null);
+  assert.equal(result.venue, "ACM Trans. Math. Softw.");
+});

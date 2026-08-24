@@ -742,6 +742,58 @@ test("ACM publication markers do not replace titles while matching", async () =>
   await refresh;
 });
 
+test("reachable MinerU bibliography formats preserve field-based titles while matching", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ordinal: 0,
+        lookupText:
+          "Dufrechou, E.; Ezzatti, P. Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm. In Proceedings of the 2018 26th Euromicro International Conference on Parallel, Distributed and Network-based Processing (PDP), Cambridge, UK, 21–23 March 2018; pp. 196–203.",
+      },
+      {
+        ordinal: 1,
+        lookupText:
+          "R.E. Poore, GPU-accelerated time-domain circuit simulation, in 2009 IEEE Custom Integrated Circuits Conference, San Jose, CA, USA (2009), pp.629–632. https://doi.org/10.1109/CICC.2009.5280743",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaperResult[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 2);
+
+  assert.deepEqual(
+    controller.getState().references.map(({ title, year, status }) => ({
+      title,
+      year,
+      status,
+    })),
+    [
+      {
+        title:
+          "Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm",
+        year: "2018",
+        status: "matching",
+      },
+      {
+        title: "GPU-accelerated time-domain circuit simulation",
+        year: "2009",
+        status: "matching",
+      },
+    ],
+  );
+
+  finish.resolve([]);
+  await refresh;
+});
+
 test("Reference entries render before online resolution completes", async () => {
   const resolution =
     deferred<

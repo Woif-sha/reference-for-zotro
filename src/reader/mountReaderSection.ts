@@ -17,7 +17,13 @@ const TRANSLATION_POPOVER_WIDTH = 340;
 
 export type ReaderTab = "references" | "citations" | "ai-recommendation";
 export type ReaderPaperAction = "copy-title" | "copy-doi" | "google-search";
-export type ReaderStatus = "loading" | "ready" | "error" | "no-md";
+export type ReaderStatus =
+  | "loading"
+  | "ready"
+  | "error"
+  | "missing-md"
+  | "invalid-md"
+  | "unsupported-references";
 export type CitingPapersStatus =
   | Readonly<{ status: "idle" }>
   | Readonly<{ status: "loading" }>
@@ -760,7 +766,11 @@ function escapeAttribute(value: string): string {
 function mineruPathLabel(state: ReaderSectionState): string {
   if (state.mineruDirectory) return state.mineruDirectory;
   if (state.status === "loading") return "Locating MinerU Markdown…";
-  if (state.status === "no-md") return "MinerU Markdown not found";
+  if (state.status === "missing-md") return "MinerU Markdown not found";
+  if (state.status === "invalid-md") return "MinerU Markdown cache invalid";
+  if (state.status === "unsupported-references") {
+    return "MinerU References unsupported";
+  }
   return "MinerU Markdown unavailable";
 }
 
@@ -779,10 +789,20 @@ function renderContent(
         state.message ??
           "The request failed. Refresh to try the current paper again.",
       ],
-      "no-md": [
+      "missing-md": [
         "No MinerU Markdown",
         state.message ??
           "Configure the llm-for-zotero MinerU API and generate Markdown for this paper.",
+      ],
+      "invalid-md": [
+        "Invalid MinerU cache",
+        state.message ??
+          "The MinerU Markdown cache is incomplete or invalid. Regenerate Markdown for this paper.",
+      ],
+      "unsupported-references": [
+        "Unsupported References",
+        state.message ??
+          "MinerU Markdown was found, but its References structure is not supported.",
       ],
     }[state.status];
     if (!content) return "";

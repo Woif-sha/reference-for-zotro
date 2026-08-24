@@ -53,9 +53,11 @@ test("explicit MinerU source labels take precedence over list position", () => {
   assert.equal(referenceForMarkerNumber(references, 2), undefined);
   assert.equal(referenceForMarkerNumber(references, 99), undefined);
   assert.equal(
-    referenceForMarkerNumber([{ ...references[1]!, sourceLabel: undefined }], 2)
-      ?.id,
-    "ref-2",
+    referenceForMarkerNumber(
+      [{ ...references[1]!, sourceLabel: undefined }],
+      2,
+    ),
+    undefined,
   );
 });
 

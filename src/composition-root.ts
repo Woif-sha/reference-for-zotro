@@ -46,7 +46,7 @@ import { RelatedPaperRecommendationService } from "./recommendation/related-pape
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 17;
+export const PROVIDER_QUERY_VERSION = 19;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -235,7 +235,7 @@ export function createReaderControllerFactory(
 
 export async function resolveReferenceEntry(
   ordinal: number,
-  sourceLabel: string,
+  sourceLabel: string | undefined,
   lookupText: string,
   gateway: RelatedLiteratureGateway,
   fetchPort: FetchPort,

@@ -69,6 +69,32 @@ export async function loadMineruReferences(
     CACHE_ROOT_NAME,
     String(identity.attachmentID),
   );
+  try {
+    return await loadMineruReferencesFromCache(
+      attachmentID,
+      identity,
+      cacheDirectory,
+      ports,
+    );
+  } catch (error) {
+    if (error instanceof MinerUContractError) {
+      throw new MinerUContractError(
+        error.code,
+        error.message,
+        error.filenames,
+        cacheDirectory,
+      );
+    }
+    throw error;
+  }
+}
+
+async function loadMineruReferencesFromCache(
+  attachmentID: number,
+  identity: MinerUIdentity,
+  cacheDirectory: string,
+  ports: MinerUPorts,
+): Promise<LoadedMinerUReferences> {
   const paths = REQUIRED_FILENAMES.map((filename) =>
     ports.files.join(cacheDirectory, filename),
   );

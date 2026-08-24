@@ -848,14 +848,42 @@ export class RelatedPapersController implements ReaderSectionController {
 
   private publishLoadFailure(error: unknown): void {
     const code = getErrorCode(error);
-    if (isMinerUContractFailure(code)) {
+    const mineruDirectory = getErrorCacheDirectory(error);
+    if (code === "md-not-generated") {
       this.update({
-        status: "no-md",
-        message: `${conciseError(error)} Configure the llm-for-zotero MinerU API and generate Markdown for this paper.`,
+        status: "missing-md",
+        message:
+          "Configure the llm-for-zotero MinerU API and generate Markdown for this paper.",
+        mineruDirectory,
       });
       return;
     }
-    this.update({ status: "error", message: conciseError(error) });
+    if (code === "md-cache-incomplete" || code === "md-cache-invalid") {
+      this.update({
+        status: "invalid-md",
+        message:
+          "The MinerU Markdown cache is incomplete or invalid. Regenerate Markdown for this paper.",
+        mineruDirectory,
+      });
+      return;
+    }
+    if (
+      code === "references-section-empty" ||
+      code === "references-entry-structure-unsupported"
+    ) {
+      this.update({
+        status: "unsupported-references",
+        message:
+          "MinerU Markdown was found, but its References structure is not supported.",
+        mineruDirectory,
+      });
+      return;
+    }
+    this.update({
+      status: "error",
+      message: conciseError(error),
+      mineruDirectory,
+    });
   }
 
   private async persistResults(context: ResolutionContext): Promise<void> {
@@ -1050,12 +1078,17 @@ function getErrorCode(error: unknown): string {
   return "";
 }
 
-function isMinerUContractFailure(code: string): boolean {
-  return (
-    code.startsWith("md-") ||
-    code.startsWith("references-") ||
-    code === "unsupported-reader-item"
-  );
+function getErrorCacheDirectory(error: unknown): string | undefined {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "cacheDirectory" in error &&
+    typeof error.cacheDirectory === "string" &&
+    error.cacheDirectory.length > 0
+  ) {
+    return error.cacheDirectory;
+  }
+  return undefined;
 }
 
 function conciseError(error: unknown): string {

@@ -278,6 +278,32 @@ test("distinguishes an ungenerated cache from a partially missing cache", async 
   );
 });
 
+test("reports the resolved cache directory with MinerU contract failures", async () => {
+  const cases = [
+    () => loadMineruReferences(ATTACHMENT_ID, createPorts({})),
+    () =>
+      loadMineruReferences(
+        ATTACHMENT_ID,
+        createPorts({
+          ...validFiles("[1] Actual"),
+          [`${CACHE_DIRECTORY}/content_list.json`]: {
+            text: JSON.stringify([{ type: "ref_text", text: "[1] Different" }]),
+            revision: "content-list-mismatch",
+          },
+        }),
+      ),
+  ];
+
+  for (const operation of cases) {
+    await assert.rejects(
+      operation(),
+      (error) =>
+        error instanceof MinerUContractError &&
+        error.cacheDirectory === CACHE_DIRECTORY,
+    );
+  }
+});
+
 test("rejects Reader items that are not the exact live attachment and parent pair", async () => {
   const valid = createPorts(validFiles("## References\n[1] First"));
   const invalidItems: readonly MinerUPorts["items"][] = [

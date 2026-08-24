@@ -32,6 +32,82 @@ test("parses canonical Reference entries in semantic encounter order", () => {
   ]);
 });
 
+test("normalizes and parses unnumbered Reference entries without inventing markers", () => {
+  const first =
+    "Davis, T. A. &amp; Hu, Y. 2011. The University of Florida sparse matrix collection.";
+  const second =
+    "Duff, I. S. 2004. MA57—A code for the solution of sparse symmetric definite systems.";
+  const normalized = normalizeReferenceEntries(
+    `${first}\n\n${second}`,
+    contentList(first, second),
+  );
+
+  assert.equal(
+    normalized.fullMarkdown,
+    "Davis, T. A. & Hu, Y. 2011. The University of Florida sparse matrix collection.\n\nDuff, I. S. 2004. MA57—A code for the solution of sparse symmetric definite systems.",
+  );
+  assert.deepEqual(JSON.parse(normalized.contentListJson), [
+    {
+      type: "ref_text",
+      text: "Davis, T. A. & Hu, Y. 2011. The University of Florida sparse matrix collection.",
+    },
+    {
+      type: "ref_text",
+      text: "Duff, I. S. 2004. MA57—A code for the solution of sparse symmetric definite systems.",
+    },
+  ]);
+  assert.deepEqual(
+    parseReferenceEntries(normalized.fullMarkdown, normalized.contentListJson),
+    [
+      {
+        ordinal: 0,
+        lookupText:
+          "Davis, T. A. & Hu, Y. 2011. The University of Florida sparse matrix collection.",
+      },
+      {
+        ordinal: 1,
+        lookupText:
+          "Duff, I. S. 2004. MA57—A code for the solution of sparse symmetric definite systems.",
+      },
+    ],
+  );
+});
+
+test("excludes an unnumbered Reference block that duplicates an explicit page footer", () => {
+  const first = "Davis, T. A. and Hu, Y. 2011. The sparse matrix collection.";
+  const footer = "ACM Transactions on Mathematical Software, Vol. 10, No. 3.";
+  const second = "Duff, I. S. 2004. A sparse symmetric solver.";
+  const misclassifiedFooter =
+    "ACM  Transactions on Mathematical Software, Vol. 10, No. 3.";
+  const fullMarkdown = [first, footer, second, misclassifiedFooter].join(
+    "\n\n",
+  );
+  const normalized = normalizeReferenceEntries(
+    fullMarkdown,
+    JSON.stringify([
+      { type: "ref_text", text: first },
+      { type: "footer", text: footer },
+      { type: "ref_text", text: second },
+      { type: "ref_text", text: misclassifiedFooter },
+    ]),
+  );
+
+  assert.equal(normalized.fullMarkdown, fullMarkdown);
+  assert.deepEqual(JSON.parse(normalized.contentListJson), [
+    { type: "ref_text", text: first },
+    { type: "footer", text: footer },
+    { type: "ref_text", text: second },
+    { type: "footer", text: misclassifiedFooter },
+  ]);
+  assert.deepEqual(
+    parseReferenceEntries(normalized.fullMarkdown, normalized.contentListJson),
+    [
+      { ordinal: 0, lookupText: first },
+      { ordinal: 1, lookupText: second },
+    ],
+  );
+});
+
 test("normalizes marker, whitespace, markup, quotes, escapes and identifier spacing", () => {
   const raw =
     "1)  Smith, J. &amp; Doe, A. <sup>2024</sup>. “A  title,” https: //doi.org/10.1000/ example\\_id";
@@ -193,11 +269,6 @@ test("normalization is idempotent", () => {
 test("rejects invalid content lists and unsupported Reference structures", () => {
   const cases: readonly [string, string, MinerUErrorCode][] = [
     ["# Paper", "[]", "references-section-empty"],
-    [
-      "Author. Title. 2024.",
-      contentList("Author. Title. 2024."),
-      "references-entry-structure-unsupported",
-    ],
     [
       "[1] Actual",
       contentList("[1] Different"),

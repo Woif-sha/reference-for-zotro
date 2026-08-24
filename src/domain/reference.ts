@@ -1,6 +1,6 @@
 export type ReferenceEntry = Readonly<{
   ordinal: number;
-  sourceLabel: string;
+  sourceLabel?: string;
   lookupText: string;
 }>;
 
@@ -24,6 +24,7 @@ export class MinerUContractError extends Error {
     readonly code: MinerUErrorCode,
     message: string,
     readonly filenames: readonly string[] = [],
+    readonly cacheDirectory?: string,
   ) {
     super(message);
     this.name = "MinerUContractError";

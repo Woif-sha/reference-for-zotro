@@ -4,6 +4,20 @@ import type { ScholarlyIdentifiers } from "./providers/types";
 
 export const UNPARSED_REFERENCE_TITLE = "Title unavailable";
 
+const PUBLICATION_STATUS_PATTERN = String.raw`(?:To\s+appear|In\s+press|Forthcoming)`;
+const YEAR_OR_STATUS_SEPARATED_METADATA = new RegExp(
+  String.raw`^(.+?)\.\s+(?:(?:19|20|21)\d{2}[a-z]?|${PUBLICATION_STATUS_PATTERN})\.\s+(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)`,
+  "iu",
+);
+const EXACT_PUBLICATION_STATUS = new RegExp(
+  String.raw`^${PUBLICATION_STATUS_PATTERN}\.?$`,
+  "iu",
+);
+const VENUE_BEFORE_PUBLICATION_STATUS = new RegExp(
+  String.raw`^(.+?\.)(?=\s+${PUBLICATION_STATUS_PATTERN}(?:[;.,]|$))`,
+  "iu",
+);
+
 export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   const stable = extractStableIdentifiers(lookupText);
   const identifiers: ScholarlyIdentifiers = {
@@ -11,10 +25,8 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
     ...(stable.arxiv ? { arxiv: stable.arxiv } : {}),
     ...extractBiomedicalIdentifiers(lookupText),
   };
-  const yearSeparated = findYearSeparatedMetadata(lookupText);
-  const authorBoundary = yearSeparated
-    ? undefined
-    : leadingAuthorsEnd(lookupText);
+  const authorBoundary = leadingAuthorsEnd(lookupText);
+  const yearSeparated = findYearSeparatedMetadata(lookupText, authorBoundary);
   const quoted = findQuotedTitle(lookupText);
   const unquoted =
     yearSeparated ??
@@ -33,7 +45,7 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
   return {
     identifiers,
     title:
-      normalizedTitle && !containsBibliographicMetadata(normalizedTitle)
+      normalizedTitle && isValidTitleCandidate(normalizedTitle)
         ? normalizedTitle
         : null,
     authors,
@@ -45,12 +57,17 @@ export function parseReferenceQuery(lookupText: string): ReferenceQuery {
 
 function findYearSeparatedMetadata(
   value: string,
+  authorBoundary: number | undefined,
 ): { authorRegion: string; title: string; venue?: string } | undefined {
-  const match =
-    /^(.+?)\.\s+(?:19|20|21)\d{2}\.\s+(.+?)(?:\.(?:\s+|$)|(?<=[?!])\s+)/u.exec(
-      value,
-    );
-  if (!match?.[1] || !match[2] || !isYearSeparatedAuthorRegion(match[1])) {
+  const match = YEAR_OR_STATUS_SEPARATED_METADATA.exec(value);
+  if (
+    !match?.[1] ||
+    !match[2] ||
+    !isYearSeparatedAuthorRegion(match[1]) ||
+    (authorBoundary !== undefined &&
+      normalizeAuthorRegion(value.slice(0, authorBoundary)) !==
+        normalizeAuthorRegion(match[1]))
+  ) {
     return undefined;
   }
   const afterTitle = value.slice(match[0].length);
@@ -59,6 +76,10 @@ function findYearSeparatedMetadata(
     title: match[2],
     venue: extractVenue(afterTitle),
   };
+}
+
+function normalizeAuthorRegion(value: string): string {
+  return value.replace(/[\s,.;]+$/u, "");
 }
 
 function isYearSeparatedAuthorRegion(value: string): boolean {
@@ -108,12 +129,28 @@ function findUnquotedMetadata(
   const journalBoundary =
     /^(.+?)\s+(?=(?:Nature|Science|Cell)\s+\d+\s*,\s*\d+)/u.exec(remainder);
   const proceedingsBoundary = /^(.+?)\s+(?=In\s+Proc\.)/u.exec(remainder);
+  const scholarlyVenueBoundary =
+    /^(.+?)(?=\s+(?:ACM|IEEE)\s+(?:Trans\.|Transactions\b)[^\n]+?\b\d+\s*[,.:]\s*\d+)/iu.exec(
+      remainder,
+    );
+  const conferenceFieldBoundary =
+    /^(.+?)(?=,\s+in\s+(?:19|20|21)\d{2}\b)/iu.exec(remainder);
+  const handbookFieldBoundary = /^(.+?)(?=,\s+in\s+Handbook\b)/iu.exec(
+    remainder,
+  );
+  const pageFieldBoundary = /^(.+?)(?=,\s+(?:pp?|pages?)\.?\s*\d)/iu.exec(
+    remainder,
+  );
   const versionBoundary = /^(.+?)(?=,\s+Version\s+\d)/iu.exec(remainder);
   const reportBoundary = /^(.+?)(?=;\s+Technical\s+Report\b)/iu.exec(remainder);
   const match = [
     titleMatch,
     journalBoundary,
     proceedingsBoundary,
+    scholarlyVenueBoundary,
+    conferenceFieldBoundary,
+    handbookFieldBoundary,
+    pageFieldBoundary,
     versionBoundary,
     reportBoundary,
   ]
@@ -153,10 +190,10 @@ function leadingFamilyNameAuthorsEnd(value: string): number | undefined {
     end += author[0].length;
 
     const remainder = value.slice(end);
-    const etAl = /^(?:,\s*)?et\s+al\.\s*/iu.exec(remainder);
+    const etAl = /^(?:[,;]\s*)?et\s+al\.\s*/iu.exec(remainder);
     if (etAl) return end + etAl[0].length;
 
-    const separator = /^(?:,\s*|&\s*|and\s+)/iu.exec(remainder);
+    const separator = /^(?:,\s*(?:and\s+)?|;\s*|&\s*|and\s+)/iu.exec(remainder);
     if (
       !separator ||
       !LEADING_FAMILY_NAME_AUTHOR.test(remainder.slice(separator[0].length))
@@ -236,10 +273,19 @@ function findQuotedTitle(
   if (!match) return undefined;
   const prefixLength = match[1]?.length ?? 0;
   const start = match.index + prefixLength;
+  const end = match.index + match[0].length;
+  const following = value.slice(end);
+  if (
+    !/[.,?!]\s*$/u.test(match[2]!) &&
+    /^\s+\p{Ll}/u.test(following) &&
+    !/^\s+in\b/iu.test(following)
+  ) {
+    return undefined;
+  }
   return {
     title: match[2]!,
     start,
-    end: match.index + match[0].length,
+    end,
   };
 }
 
@@ -277,18 +323,41 @@ function isCleanTitle(value: string): boolean {
   return (
     Boolean(value.trim()) &&
     !/[“”]/u.test(value) &&
-    !containsBibliographicMetadata(value)
+    isValidTitleCandidate(value)
+  );
+}
+
+function isValidTitleCandidate(value: string): boolean {
+  const candidate = value.trim();
+  return (
+    !containsBibliographicMetadata(candidate) &&
+    !/^\d+[a-z]?\.?$/iu.test(candidate) &&
+    !EXACT_PUBLICATION_STATUS.test(candidate) &&
+    !/^(?:pp?|pages?)\.?$/iu.test(candidate) &&
+    !/^[\p{L}][\p{L}'’\- ]*,\s*(?:\p{Lu}\.?\s*){1,4}$/u.test(candidate)
   );
 }
 
 function containsBibliographicMetadata(value: string): boolean {
-  return /https?\s*:\s*\/\s*\/|\bdoi\s*:|\barxiv\s*:|\[Online\]|\bAvailable\s*:|\bIn\s+Proc\.|\bpp?\.\s*\d|\bpages?\s+\d/iu.test(
+  return /https?\s*:\s*\/\s*\/|\bdoi\s*:|\barxiv\s*:|\[Online\]|\bAvailable\s*:|\bIn\s+Proc\.|\b(?:pp?|pages?)\.?\s*\d/iu.test(
     value,
   );
 }
 
 function extractFamilyNames(value: string): string[] {
   const authorText = value.replace(/\s+et\.?\s+al\.?,?\s*$/iu, "");
+  const grammarFamilyFirstAuthors = [
+    ...authorText.matchAll(
+      /(?:^|[\s;&])([\p{L}][\p{L}'’-]+),\s*(?:[\p{L}]\.?)/gu,
+    ),
+  ].map((match) => match[1]);
+  if (
+    LEADING_FAMILY_NAME_AUTHOR.test(authorText) &&
+    grammarFamilyFirstAuthors.length > 0
+  ) {
+    return grammarFamilyFirstAuthors;
+  }
+
   const initialFirst = authorText
     .split(/\s*,\s*|\s+and\s+/iu)
     .map((part) =>
@@ -300,12 +369,19 @@ function extractFamilyNames(value: string): string[] {
     .filter((family): family is string => Boolean(family));
   if (initialFirst.length > 0) return initialFirst;
 
-  const familyFirst = [
-    ...authorText.matchAll(
-      /(?:^|[\s;&])([\p{L}][\p{L}'’-]+),\s*(?:[\p{L}]\.?)/gu,
-    ),
-  ].map((match) => match[1]);
-  if (familyFirst.length > 0) return familyFirst;
+  const fullNameParts = authorText
+    .replace(/[.\s]+$/u, "")
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/iu);
+  if (
+    fullNameParts.length > 0 &&
+    fullNameParts.every((part) =>
+      new RegExp(`^(?:${FULL_PERSON_NAME})$`, "u").test(part),
+    )
+  ) {
+    return fullNameParts.map((part) => part.trim().split(/\s+/u).at(-1)!);
+  }
+
+  if (grammarFamilyFirstAuthors.length > 0) return grammarFamilyFirstAuthors;
 
   return authorText
     .replace(/[.\s]+$/u, "")
@@ -320,7 +396,9 @@ function extractYear(value: string): number | null {
     .replace(/https?:\/\/\S+/giu, " ")
     .replace(/\b10\.\d{4,9}\/[-._;()/:a-z0-9]+/giu, " ")
     .replace(/\barxiv\s*:\s*\S+/giu, " ");
-  const years = [...metadata.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})\b/gu)];
+  const years = [
+    ...metadata.matchAll(/\b(1[6-9]\d{2}|20\d{2}|21\d{2})[a-z]?\b/giu),
+  ];
   const last = years.at(-1)?.[1];
   return last ? Number(last) : null;
 }
@@ -329,15 +407,50 @@ function extractVenue(value: string): string | undefined {
   const metadata = value
     .replace(/\s*\[Online\][\s\S]*$/iu, "")
     .replace(/\s*(?:Available\s*:|https?:\/\/)[\s\S]*$/iu, "")
-    .replace(/^[\s.,;:]+/u, "")
+    .replace(/^[\s`.,;:]+/u, "")
     .trim();
+  if (/^(?:pp?|pages?)\.?\s*\d/iu.test(metadata)) return undefined;
+  const parenthesizedConference =
+    /^in\s+(?:\d{4}\s+)?(.+?\b(?:Conference|Symposium)\b.*?\((?=[^)]*\p{L})[^)]*\))(?=,\s)/iu.exec(
+      metadata,
+    );
+  const namedConference =
+    /^in\s+(?:\d{4}\s+)?(.+?\b(?:Conference|Symposium)(?:\s*\([^)]*\))?)(?=[.,]\s|$)/iu.exec(
+      metadata,
+    );
+  const handbook = /^in\s+(Handbook\b.+?)(?=\.\s+ed\.\s+by\b)/iu.exec(metadata);
   const conference =
-    /^in\s+(?:\d{4}\s+)?(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|pp?|ser|eds?)\.)|$)/iu.exec(
+    /^in\s+(?:\d{4}\s+)?(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|ser|eds?)\.|(?:pp?|pages?)\.?\s+\d)|$)/iu.exec(
       metadata,
     );
   const publication =
-    /^(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|pp?|ser|eds?)\.)|$)/iu.exec(metadata);
-  const venue = (conference?.[1] ?? publication?.[1] ?? metadata)
+    /^(.+?)(?=,\s*(?:\d{4}\b|(?:vol|no|ser|eds?)\.|(?:pp?|pages?)\.?\s+\d)|$)/iu.exec(
+      metadata,
+    );
+  const yearTerminatedPublication =
+    /^(.+?\.)(?=\s+(?:19|20|21)\d{2}[a-z]?\.)/iu.exec(metadata);
+  const yearPrefixedPublication = /^(.+?)(?=\s+(?:19|20|21)\d{2}\b)/iu.exec(
+    metadata,
+  );
+  const volumeTerminatedPublication = /^(.+?\.)(?=\s+\d+\.\s+\d)/iu.exec(
+    metadata,
+  );
+  const commaVolumePublication = /^(.+?\.)(?=\s+\d+,\s+\d)/iu.exec(metadata);
+  const statusTerminatedPublication =
+    VENUE_BEFORE_PUBLICATION_STATUS.exec(metadata);
+  const venue = (
+    parenthesizedConference?.[1] ??
+    namedConference?.[1] ??
+    handbook?.[1] ??
+    conference?.[1] ??
+    yearTerminatedPublication?.[1] ??
+    yearPrefixedPublication?.[1] ??
+    volumeTerminatedPublication?.[1] ??
+    commaVolumePublication?.[1] ??
+    statusTerminatedPublication?.[1] ??
+    publication?.[1] ??
+    metadata
+  )
     .replace(/[\s,;:]+$/u, "")
     .trim();
   return venue || undefined;
@@ -376,5 +489,7 @@ function classifyChannel(
 }
 
 function trimTitlePunctuation(value: string): string {
-  return value.replace(/[,;]+$/u, "").trim();
+  const trimmed = value.replace(/[,;]+$/u, "").trim();
+  const quoteCount = trimmed.match(/"/gu)?.length ?? 0;
+  return quoteCount % 2 === 1 ? trimmed.replace(/"$/u, "").trim() : trimmed;
 }

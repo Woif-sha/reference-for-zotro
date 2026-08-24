@@ -24,6 +24,32 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [2.0.1] - 2026-08-24
+
+### 新增
+
+- 新增默认关闭的本地原始 PDF 自动重命名：用户选择目录并启用后，插件会把该目录及其子目录中与 Zotero 受管附件内容完全一致的 PDF 同步为附件当前文件名。
+
+### 调整
+
+- Reader 现在分别提示 MinerU Markdown 未生成、缓存无效和 References 结构不受支持，并在已解析出缓存目录时保留“打开文件夹”入口；无编号参考文献保持无编号的规范 Markdown，且不再参与正文数字引用跳转。
+- Reference 检索改为按作者、年份或出版状态、题名、期刊或会议等字段边界解析和校验，不再依赖固定位置映射。
+
+### 修复
+
+- 支持 MinerU 输出的无编号作者—年份参考文献，并排除被误标为 Reference 的重复页眉、页脚和页码内容，修复 Markdown 已存在却显示无法检索的问题。
+- 修复 ACM 等格式中 `2004a`、`2004b`、`To appear`、`In press` 和 `Forthcoming` 被误识别为论文题名的问题。
+- 修复逗号式、分号作者式、全大写姓氏、引号题名、会议与页码等参考文献格式导致题名被异常截断，或作者、年份、期刊字段互相污染的问题。
+- 修复本地 PDF 自动重命名设置与现有 Preferences 布局和交互不一致的问题。
+
+### 安全
+
+- 本地 PDF 自动重命名仅处理用户明确选择目录中的唯一 SHA-256 内容匹配项，不修改 Zotero 附件、不覆盖已有文件，并拒绝符号链接、目录越界、跨目录移动和名称冲突。
+
+### 工程
+
+- 增加无编号 MinerU 文献、字段化 Reference 解析、Reader 状态和本地 PDF 同步的回归测试，并以真实 MinerU 语料验证解析结果。
+
 ## [2.0.0] - 2026-08-18
 
 ### 新增
@@ -235,3 +261,4 @@ All notable changes to Reference for Zotero are documented in this file.
 [1.1.3]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.3
 [1.1.4]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v1.1.4
 [2.0.0]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v2.0.0
+[2.0.1]: https://github.com/Woif-sha/reference-for-zotro/releases/tag/v2.0.1

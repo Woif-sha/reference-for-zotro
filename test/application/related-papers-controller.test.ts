@@ -690,6 +690,110 @@ test("Reference entries show parsed titles before matching and after a failure",
   );
 });
 
+test("ACM publication markers do not replace titles while matching", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ordinal: 0,
+        lookupText:
+          "DAVIS, T. A., GILBERT, J. R., LARIMORE, S. I., AND NG, E. G. 2004a. Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm. ACM Trans. Math. Softw. 30, 3, 377–380.",
+      },
+      {
+        ordinal: 1,
+        lookupText:
+          "DAVIS, T. A. AND HU, Y. To appear. University of Florida sparse matrix collection. ACM Trans. Math. Softw. To appear.",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaperResult[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 2);
+
+  assert.deepEqual(
+    controller.getState().references.map(({ title, year, status }) => ({
+      title,
+      year,
+      status,
+    })),
+    [
+      {
+        title:
+          "Algorithm 836: COLAMD, a column approximate minimum degree ordering algorithm",
+        year: "2004",
+        status: "matching",
+      },
+      {
+        title: "University of Florida sparse matrix collection",
+        year: undefined,
+        status: "matching",
+      },
+    ],
+  );
+
+  finish.resolve([]);
+  await refresh;
+});
+
+test("reachable MinerU bibliography formats preserve field-based titles while matching", async () => {
+  const paper: LoadedPaper = {
+    ...loadedPaper,
+    entries: [
+      {
+        ordinal: 0,
+        lookupText:
+          "Dufrechou, E.; Ezzatti, P. Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm. In Proceedings of the 2018 26th Euromicro International Conference on Parallel, Distributed and Network-based Processing (PDP), Cambridge, UK, 21–23 March 2018; pp. 196–203.",
+      },
+      {
+        ordinal: 1,
+        lookupText:
+          "R.E. Poore, GPU-accelerated time-domain circuit simulation, in 2009 IEEE Custom Integrated Circuits Conference, San Jose, CA, USA (2009), pp.629–632. https://doi.org/10.1109/CICC.2009.5280743",
+      },
+    ],
+  };
+  const finish = deferred<readonly ReaderPaperResult[]>();
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => paper,
+    resolveReferences: () => finish.promise,
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await waitFor(() => controller.getState().references.length === 2);
+
+  assert.deepEqual(
+    controller.getState().references.map(({ title, year, status }) => ({
+      title,
+      year,
+      status,
+    })),
+    [
+      {
+        title:
+          "Solving Sparse Triangular Linear Systems in Modern GPUs: A Synchronization-Free Algorithm",
+        year: "2018",
+        status: "matching",
+      },
+      {
+        title: "GPU-accelerated time-domain circuit simulation",
+        year: "2009",
+        status: "matching",
+      },
+    ],
+  );
+
+  finish.resolve([]);
+  await refresh;
+});
+
 test("Reference entries render before online resolution completes", async () => {
   const resolution =
     deferred<
@@ -788,7 +892,7 @@ test("missing MinerU Markdown blocks both relationship paths with actionable tex
   controller.selectTab("citations");
   await tick();
 
-  assert.equal(controller.getState().status, "no-md");
+  assert.equal(controller.getState().status, "missing-md");
   assert.match(
     controller.getState().message ?? "",
     /llm-for-zotero.*MinerU API/i,
@@ -797,13 +901,15 @@ test("missing MinerU Markdown blocks both relationship paths with actionable tex
   assert.equal(citationCalls, 0);
 });
 
-test("unsupported References structure blocks both relationship paths with actionable text", async () => {
+test("unsupported References structure is distinct from missing Markdown and retains its cache directory", async () => {
   let resolveCalls = 0;
   let citationCalls = 0;
+  const revealed: string[] = [];
   const controller = new RelatedPapersController(42, {
     loadPaper: async () => {
       throw Object.assign(new Error("unsupported bibliography structure"), {
         code: "references-entry-structure-unsupported",
+        cacheDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
       });
     },
     resolveReferences: async () => {
@@ -814,6 +920,7 @@ test("unsupported References structure blocks both relationship paths with actio
       citationCalls += 1;
       return [];
     },
+    revealMineruDirectory: (directory) => revealed.push(directory),
     openURL() {},
   });
 
@@ -821,17 +928,41 @@ test("unsupported References structure blocks both relationship paths with actio
   controller.selectTab("citations");
   await tick();
 
-  assert.equal(controller.getState().status, "no-md");
+  assert.equal(controller.getState().status, "unsupported-references");
   assert.match(
     controller.getState().message ?? "",
-    /llm-for-zotero.*MinerU API.*generate Markdown/i,
+    /Markdown was found.*References structure is not supported/i,
   );
-  assert.match(
-    controller.getState().message ?? "",
-    /unsupported bibliography structure/i,
+  assert.doesNotMatch(controller.getState().message ?? "", /MinerU API/i);
+  assert.equal(
+    controller.getState().mineruDirectory,
+    "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   );
+  controller.openMineruDirectory();
+  assert.deepEqual(revealed, ["E:\\ZoteroData\\llm-for-zotero-mineru\\42"]);
   assert.equal(resolveCalls, 0);
   assert.equal(citationCalls, 0);
+});
+
+test("invalid MinerU cache is distinct from missing Markdown", async () => {
+  for (const code of ["md-cache-incomplete", "md-cache-invalid"]) {
+    const controller = new RelatedPapersController(42, {
+      loadPaper: async () => {
+        throw Object.assign(new Error("broken cache"), { code });
+      },
+      resolveReferences: async () => [],
+      loadCitingPapers: async () => [],
+      openURL() {},
+    });
+
+    await controller.refreshAsync();
+
+    assert.equal(controller.getState().status, "invalid-md");
+    assert.match(
+      controller.getState().message ?? "",
+      /cache is incomplete or invalid.*Regenerate Markdown/i,
+    );
+  }
 });
 
 test("resolved papers open their Primary result and unresolved papers search Google Scholar by title", async () => {

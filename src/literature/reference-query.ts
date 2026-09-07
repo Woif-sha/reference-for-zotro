@@ -171,8 +171,8 @@ function findUnquotedMetadata(
 function leadingAuthorsEnd(value: string): number | undefined {
   return (
     leadingFamilyNameAuthorsEnd(value) ??
-    leadingInitialFirstAuthorsEnd(value) ??
     leadingFullNameAuthorsEnd(value) ??
+    leadingInitialFirstAuthorsEnd(value) ??
     leadingCorporateAuthorEnd(value)
   );
 }
@@ -207,8 +207,9 @@ function leadingFamilyNameAuthorsEnd(value: string): number | undefined {
 const LEADING_INITIAL_FIRST_AUTHOR =
   /^(?:(?:\p{Lu}\.(?:-\p{Lu}\.)?)\s*)+[\p{Lu}][\p{L}'’-]*(?:\s+[\p{Lu}][\p{L}'’-]*)*/u;
 
-const FULL_NAME_PART = String.raw`(?:\p{Lu}\.(?:-\p{Lu}\.)?|\p{Lu}[\p{L}'’-]*)`;
-const FULL_PERSON_NAME = `${FULL_NAME_PART}(?:\\s+${FULL_NAME_PART}){1,2}`;
+const FULL_NAME_PART = String.raw`(?:\p{Lu}\.(?:-\p{Lu}\.)?\s*|\p{L}[\p{L}'’-]*\s+)`;
+// A terminal surname must be a word, so a middle initial cannot end the author list.
+const FULL_PERSON_NAME = String.raw`(?=\p{Lu})(?:${FULL_NAME_PART})+\p{L}[\p{L}'’-]+`;
 const LEADING_FULL_NAME_AUTHORS = new RegExp(
   `^(?:${FULL_PERSON_NAME})(?:,\\s+(?:${FULL_PERSON_NAME}))*(?:,?\\s+and\\s+(?:${FULL_PERSON_NAME}))?\\.\\s+`,
   "u",
@@ -358,6 +359,16 @@ function extractFamilyNames(value: string): string[] {
     return grammarFamilyFirstAuthors;
   }
 
+  const fullNameParts = authorText
+    .replace(/[.\s]+$/u, "")
+    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/iu);
+  const fullNameFamilies = fullNameParts
+    .filter((part) => new RegExp(`^(?:${FULL_PERSON_NAME})$`, "u").test(part))
+    .map((part) => /[\p{L}'’-]+$/u.exec(part)![0]);
+  if (fullNameFamilies.length === fullNameParts.length) {
+    return fullNameFamilies;
+  }
+
   const initialFirst = authorText
     .split(/\s*,\s*|\s+and\s+/iu)
     .map((part) =>
@@ -369,26 +380,9 @@ function extractFamilyNames(value: string): string[] {
     .filter((family): family is string => Boolean(family));
   if (initialFirst.length > 0) return initialFirst;
 
-  const fullNameParts = authorText
-    .replace(/[.\s]+$/u, "")
-    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/iu);
-  if (
-    fullNameParts.length > 0 &&
-    fullNameParts.every((part) =>
-      new RegExp(`^(?:${FULL_PERSON_NAME})$`, "u").test(part),
-    )
-  ) {
-    return fullNameParts.map((part) => part.trim().split(/\s+/u).at(-1)!);
-  }
-
   if (grammarFamilyFirstAuthors.length > 0) return grammarFamilyFirstAuthors;
 
-  return authorText
-    .replace(/[.\s]+$/u, "")
-    .split(/\s*,\s*(?:and\s+)?|\s+and\s+/iu)
-    .filter((part) => new RegExp(`^(?:${FULL_PERSON_NAME})$`, "u").test(part))
-    .map((part) => part.trim().split(/\s+/u).at(-1)!)
-    .map((family) => family.replace(/\.$/u, ""));
+  return fullNameFamilies;
 }
 
 function extractYear(value: string): number | null {

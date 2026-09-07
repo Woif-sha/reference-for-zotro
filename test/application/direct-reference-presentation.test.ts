@@ -14,7 +14,67 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("Reader reference projection changes invalidate previous cached results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 19);
+  assert.equal(PROVIDER_QUERY_VERSION, 20);
+});
+
+test("MinerU mixed-name references reach the gateway and Reader with the paper title", async () => {
+  const lookupText =
+    "Patrick R. Amestoy, I.S. Duf, and J.-Y. L'Excellent. 2000. Multifrontal parallel distributed symmetric and unsymmetric solvers. Computer Methods in Applied Mechanics and Engineering 184, 2 (2000), 501–520.";
+  const title =
+    "Multifrontal parallel distributed symmetric and unsymmetric solvers";
+  const identity = {
+    libraryID: 1,
+    attachmentID: 255,
+    attachmentKey: "ATTACHMENT",
+    parentItemKey: "PARENT",
+  };
+  const context: ResolutionContext = {
+    paper: {
+      identity,
+      sourceFingerprint: "fingerprint",
+      fullMarkdown: "Current paper",
+      fullMdSha256: "full-md-sha256",
+      entries: [],
+    },
+    token: { ...identity, sourceFingerprint: "fingerprint", generation: 1 },
+    signal: new AbortController().signal,
+  };
+  let queries = 0;
+  const gateway: RelatedLiteratureGateway = {
+    resolveReference: async (query) => {
+      queries += 1;
+      assert.equal(query.title, title);
+      assert.deepEqual(query.authors, ["Amestoy", "Duf", "L'Excellent"]);
+      assert.equal(query.year, 2000);
+      return {
+        status: "unresolved",
+        reason: "no-candidate",
+        outcomes: [{ source: "crossref", status: "no-candidate" }],
+      };
+    },
+    getCitingPapers: () => {
+      throw new Error("not used");
+    },
+    dispose() {},
+  };
+
+  const paper = await resolveReferenceEntry(
+    7,
+    "8",
+    lookupText,
+    gateway,
+    () => {
+      throw new Error("not used");
+    },
+    context,
+  );
+
+  assert.equal(queries, 1);
+  assert.equal(paper.title, title);
+  assert.equal(paper.referenceText, lookupText);
+  assert.equal(paper.sourceLabel, "8");
+  assert.equal(paper.year, "2000");
+  assert.equal(paper.status, "unresolved");
 });
 
 test("trusted scholarly URLs display the parsed paper title instead of the full bibliography entry", async () => {

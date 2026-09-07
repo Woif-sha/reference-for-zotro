@@ -1,6 +1,123 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parseReferenceQuery } from "../../src/literature/reference-query";
+import {
+  normalizeReferenceEntries,
+  parseReferenceEntries,
+} from "../../src/mineru/reference-parser";
+
+for (const { sourceLabel, reference, title } of [
+  {
+    sourceLabel: "5",
+    reference:
+      "Emmanuel Agullo, Patrick R. Amestoy, Alfredo Buttari, Abdou Guer mouche, Jean-Yves L'Excellent, and François-Henry Rouet. 2016. Ro bust Memory-Aware Mappings for Parallel Multifrontal Factoriza tions. SIAM Journal on Scientific Computing 38, 3 (2016), C256–C279.",
+    title:
+      "Ro bust Memory-Aware Mappings for Parallel Multifrontal Factoriza tions",
+  },
+  {
+    sourceLabel: "8",
+    reference:
+      "Patrick R. Amestoy, I.S. Duf, and J.-Y. L'Excellent. 2000. Multifrontal parallel distributed symmetric and unsymmetric solvers. Computer Methods in Applied Mechanics and Engineering 184, 2 (2000), 501–520.",
+    title:
+      "Multifrontal parallel distributed symmetric and unsymmetric solvers",
+  },
+  {
+    sourceLabel: "35",
+    reference:
+      "James W. Demmel, Stanley C. Eisenstat, John R. Gilbert, Xiaoye S. Li, and Joseph W. H. Liu. 1999. A Supernodal Approach to Sparse Partial Pivoting. SIAM J. Matrix Anal. Appl. 20, 3 (1999).",
+    title: "A Supernodal Approach to Sparse Partial Pivoting",
+  },
+  {
+    sourceLabel: "43",
+    reference:
+      "Robert D. Falgout, Ruipeng Li, Björn Sjögreen, Lu Wang, and Ul rike Meier Yang. 2021. Porting hypre to heterogeneous computer architectures: Strategies and experiences. Parallel Comput. 108 (2021).",
+    title:
+      "Porting hypre to heterogeneous computer architectures: Strategies and experiences",
+  },
+  {
+    sourceLabel: "57",
+    reference:
+      "M. Ozan Karsavuran, Esmond G. Ng, and Barry W. Peyton. 2025. GPU Accelerated Sparse Cholesky Factorization. In SC.",
+    title: "GPU Accelerated Sparse Cholesky Factorization",
+  },
+  {
+    sourceLabel: "81",
+    reference:
+      "V. Krishna Nandivada, Jun Shirako, Jisheng Zhao, and Vivek Sarkar. 2013. A Transformation Framework for Optimizing Task-Parallel Programs. ACM Transactions on Programming Languages and Systems 35, 1 (2013).",
+    title: "A Transformation Framework for Optimizing Task-Parallel Programs",
+  },
+  {
+    sourceLabel: "82",
+    reference:
+      "Dimitrios S. Nikolopoulos, Theodore S. Papatheodorou, Constan tine D. Polychronopoulos, Jesús Labarta, and Eduard Ayguadé. 2000. Is Data Distribution Necessary in OpenMP?. In SC.",
+    title: "Is Data Distribution Necessary in OpenMP?",
+  },
+]) {
+  test(`MinerU 255 reference [${sourceLabel}] keeps the complete author list out of its title`, () => {
+    const text = `[${sourceLabel}] ${reference}`;
+    const markdown = `# References\n\n${text}`;
+    const normalized = normalizeReferenceEntries(
+      markdown,
+      JSON.stringify([{ type: "ref_text", text }]),
+    );
+    assert.equal(normalized.fullMarkdown, markdown);
+    const [entry] = parseReferenceEntries(
+      normalized.fullMarkdown,
+      normalized.contentListJson,
+    );
+    assert.equal(entry?.sourceLabel, sourceLabel);
+    assert.equal(entry.lookupText, reference);
+    const query = parseReferenceQuery(entry.lookupText);
+    assert.equal(query.title, title);
+    assert.ok(query.venue);
+    assert.ok(!query.venue.includes(title));
+  });
+}
+
+test("mixed full names and compact initials retain every author matching signal", () => {
+  const query = parseReferenceQuery(
+    "Patrick R. Amestoy, I.S. Duf, and J.-Y. L'Excellent. 2000. Multifrontal parallel distributed symmetric and unsymmetric solvers. Computer Methods in Applied Mechanics and Engineering 184, 2 (2000), 501–520.",
+  );
+  assert.deepEqual(query.authors, ["Amestoy", "Duf", "L'Excellent"]);
+  assert.equal(query.year, 2000);
+});
+
+test("multiple middle initials remain part of an author's name", () => {
+  const query = parseReferenceQuery(
+    "Joseph W. H. Liu. 1999. A Supernodal Approach to Sparse Partial Pivoting. SIAM J. Matrix Anal. Appl. 20, 3 (1999).",
+  );
+  assert.equal(query.title, "A Supernodal Approach to Sparse Partial Pivoting");
+  assert.deepEqual(query.authors, ["Liu"]);
+});
+
+test("unpunctuated middle initials in MinerU names retain the final author", () => {
+  const query = parseReferenceQuery(
+    "Michael Heroux, Wajih Boukaram, Yuxi Hong, Yang Liu, Tianyi Shi, and Xiaoye S Li. 2024. Batched sparse direct solver design and evalua tion in SuperLU_DIST. The International Journal ofHigh Performance Computing Applications 38, 6 (2024).",
+  );
+  assert.equal(
+    query.title,
+    "Batched sparse direct solver design and evalua tion in SuperLU_DIST",
+  );
+  assert.deepEqual(query.authors, [
+    "Heroux",
+    "Boukaram",
+    "Hong",
+    "Liu",
+    "Shi",
+    "Li",
+  ]);
+});
+
+test("compact initials adjacent to surnames stay out of author matching signals", () => {
+  const query = parseReferenceQuery(
+    "T.A.Davis, E.P.Natarajan. 2010. Algorithm 907: KLU, a direct sparse solver for circuit simulation problems. ACM Trans. Math. Softw. 37. 1–17 (2010).",
+  );
+  assert.equal(
+    query.title,
+    "Algorithm 907: KLU, a direct sparse solver for circuit simulation problems",
+  );
+  assert.deepEqual(query.authors, ["Davis", "Natarajan"]);
+});
 
 test("quoted bibliography metadata becomes a conservative gateway query", () => {
   assert.deepEqual(

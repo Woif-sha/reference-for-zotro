@@ -13,6 +13,11 @@ REPOSITORY = Path(__file__).resolve().parents[2]
 BUILD_DIRECTORY = REPOSITORY / "build"
 POLICY_PATH = REPOSITORY / "test" / "xpi" / "package-policy.json"
 PACKAGE_METADATA = json.loads((REPOSITORY / "package.json").read_text(encoding="utf-8"))
+SOURCE_MANIFEST = json.loads((REPOSITORY / "addon" / "manifest.json").read_text(encoding="utf-8"))
+EXPECTED_ZOTERO_COMPATIBILITY = {
+    key: SOURCE_MANIFEST["applications"]["zotero"][key]
+    for key in ("strict_min_version", "strict_max_version")
+}
 EXPECTED_ADDON_NAME = PACKAGE_METADATA["config"]["addonName"]
 EXPECTED_ADDON_VERSION = PACKAGE_METADATA["version"]
 EXPECTED_XPI_FILENAME = "reference-for-zotero.xpi"
@@ -154,10 +159,11 @@ def _validate_manifest(manifest: object) -> None:
         raise ValueError("XPI version does not match package metadata")
     if zotero.get("update_url") != EXPECTED_UPDATE_URL:
         raise ValueError("XPI update_url is unexpected")
-    if zotero.get("strict_min_version") != "9.0.6" or zotero.get(
-        "strict_max_version"
-    ) != "9.0.*":
-        raise ValueError("Test XPI Zotero compatibility range is unexpected")
+    if any(
+        zotero.get(key) != value
+        for key, value in EXPECTED_ZOTERO_COMPATIBILITY.items()
+    ):
+        raise ValueError("XPI Zotero compatibility range differs from source manifest")
 
 
 def _validate_production_bundle(production_javascript: str) -> None:

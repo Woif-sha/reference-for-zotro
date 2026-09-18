@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Reference for Zotero requires a current Node.js release, npm and Zotero 9 for runtime validation.
+Reference for Zotero requires a current Node.js release, npm and a supported Zotero version for runtime validation.
 
 ```powershell
 git clone https://github.com/Woif-sha/reference-for-zotro.git

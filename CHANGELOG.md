@@ -24,6 +24,16 @@ All notable changes to Reference for Zotero are documented in this file.
 
 - 暂无。
 
+## [2.0.3] - 2026-09-18
+
+### 修复
+
+- 将插件兼容范围扩展到 Zotero 10.0.x，修复 Zotero 10.0.3 因版本声明过旧而禁用插件的问题。
+
+### 工程
+
+- XPI 审计从插件清单读取兼容范围，并验证发布包与清单一致，避免构建检查保留旧版本上限。
+
 ## [2.0.2] - 2026-09-07
 
 ### 调整

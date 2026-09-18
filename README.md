@@ -1,8 +1,8 @@
 # Reference for Zotero
 
-Reference for Zotero 是一个 Zotero 9 Reader 插件。它把论文末尾那串难以阅读的参考文献，整理成可以查看、核验和继续追踪的论文列表。你可以留在 Zotero 里看当前论文引用了谁、后来谁引用了它，还能补全摘要，让 AI 帮你判断下一步先读什么。
+Reference for Zotero 是一个 Zotero Reader 插件。它把论文末尾那串难以阅读的参考文献，整理成可以查看、核验和继续追踪的论文列表。你可以留在 Zotero 里看当前论文引用了谁、后来谁引用了它，还能补全摘要，让 AI 帮你判断下一步先读什么。
 
-> Reference for Zotero is a Zotero 9 Reader extension for exploring references, citing papers, abstracts, and AI-assisted reading suggestions without leaving the reading workflow.
+> Reference for Zotero is a Zotero Reader extension for exploring references, citing papers, abstracts, and AI-assisted reading suggestions without leaving the reading workflow.
 
 ## 为什么需要它
 
@@ -129,7 +129,7 @@ Reference 规范化可能同步更新当前附件唯一的 MinerU `full.md`、`c
 
 基础功能需要：
 
-- Zotero `9.0.6` 至 `9.0.x`；
+- Zotero `9.0.6` 至 `10.0.x`；
 - 当前 Reader 附件已有由 `llm-for-zotero` MinerU 工作流生成的有效 Markdown；
 - 联网元数据功能能够访问 DOI、Crossref、DataCite、OpenCitations、OpenAlex 和 Semantic Scholar。
 

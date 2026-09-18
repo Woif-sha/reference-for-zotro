@@ -16,6 +16,7 @@ from audit_scansci_xpi import (
     EXPECTED_ADDON_NAME,
     EXPECTED_ADDON_VERSION,
     EXPECTED_UPDATE_URL,
+    EXPECTED_ZOTERO_COMPATIBILITY,
     REQUIRED_ASSETS,
     audit_archive,
 )
@@ -28,8 +29,7 @@ def valid_files() -> dict[str, bytes]:
         "applications": {
             "zotero": {
                 "update_url": EXPECTED_UPDATE_URL,
-                "strict_min_version": "9.0.6",
-                "strict_max_version": "9.0.*",
+                **EXPECTED_ZOTERO_COMPATIBILITY,
             }
         },
     }
@@ -97,6 +97,18 @@ class XpiToolsTest(unittest.TestCase):
                 ),
             ):
                 xpi_audit.audit_archive(archive)
+
+    def test_audit_rejects_an_outdated_zotero_range(self):
+        files = valid_files()
+        manifest = json.loads(files["manifest.json"])
+        manifest["applications"]["zotero"]["strict_max_version"] = "9.0.*"
+        files["manifest.json"] = json.dumps(manifest).encode()
+
+        with tempfile.TemporaryDirectory() as root:
+            archive = Path(root) / "outdated.xpi"
+            write_archive(archive, files)
+            with self.assertRaisesRegex(ValueError, "differs from source manifest"):
+                audit_archive(archive)
 
     def test_audit_rejects_duplicate_traversal_secret_and_link_members(self):
         cases = []

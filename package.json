@@ -1,7 +1,7 @@
 {
   "name": "reference-for-zotero",
   "version": "2.0.2",
-  "description": "References and citing papers in the Zotero 9 Reader.",
+  "description": "References and citing papers in the Zotero Reader.",
   "config": {
     "addonName": "Reference for Zotero",
     "addonID": "referenceforzotero@woif-sha.github.io",

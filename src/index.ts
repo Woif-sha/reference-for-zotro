@@ -46,6 +46,8 @@ if (!zotero[config.addonInstance]) {
     "fetch",
     "IOUtils",
     "PathUtils",
+    "ReadableStream",
+    "Response",
     "Services",
     "TextDecoder",
     "TextEncoder",

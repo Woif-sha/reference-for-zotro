@@ -529,6 +529,8 @@ class PythonScanSciPort implements ScanSciPort {
       arguments: [
         "-E",
         "-s",
+        "-X",
+        "utf8",
         joinWindows(this.options.moduleRoot, "sidecar.py"),
       ],
       stdin: `${JSON.stringify(request)}\n`,

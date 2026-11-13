@@ -201,6 +201,7 @@ export function mountReaderSection(options: {
   let translationRequest = 0;
   let detailWasOpenAtPointerDown = false;
   let jumpHighlightTimer: number | undefined;
+  let renderedTab: ReaderTab | undefined;
   const externalInteractionDocuments = new Set<Document>();
 
   const dismissSelectedPaper = (): void => {
@@ -303,6 +304,10 @@ export function mountReaderSection(options: {
   };
 
   function render(state: ReaderSectionState): void {
+    const scrollTop =
+      renderedTab === state.activeTab
+        ? (root.querySelector<HTMLElement>(".rfz-content")?.scrollTop ?? 0)
+        : 0;
     const rootTranslation =
       root.querySelector<HTMLElement>("[data-translation]");
     const overlayTranslation =
@@ -375,6 +380,8 @@ export function mountReaderSection(options: {
       ].find((element) => element.dataset.focusKey === focusKey);
       replacement?.focus();
     }
+    root.querySelector<HTMLElement>(".rfz-content")!.scrollTop = scrollTop;
+    renderedTab = state.activeTab;
     const detailCard = renderDetailCard(state, detailPapers);
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);

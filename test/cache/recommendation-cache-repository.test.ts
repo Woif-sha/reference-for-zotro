@@ -50,7 +50,6 @@ const identity: RecommendationCacheIdentity = {
   model: {
     authMode: "codex_auth",
     providerId: "provider-codex",
-    providerName: "Legacy Codex",
     modelId: "model-codex",
     model: "gpt-5.4",
     apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -234,13 +233,6 @@ test("every recommendation identity field invalidates while secrets, generation 
       "active model",
       { ...identity, model: { ...identity.model, model: "gpt-next" } },
     ],
-    [
-      "provider name",
-      {
-        ...identity,
-        model: { ...identity.model, providerName: "Renamed provider" },
-      },
-    ],
     ["effort", { ...identity, model: { ...identity.model, effort: "high" } }],
     ["prompt version", { ...identity, promptVersion: 2 }],
   ];
@@ -258,6 +250,35 @@ test("every recommendation identity field invalidates while secrets, generation 
   storage.values.set(key, JSON.stringify(file));
   assert.deepEqual(await repository.read(identity), result);
   assert.doesNotMatch(storage.values.get(key) ?? "", /apiKey|expiresAt/u);
+});
+
+test("existing recommendation caches ignore their legacy provider display name", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  await repository.write(identity, result);
+  const key = "3-ABCDEFGH/recommendation.json";
+  const file = JSON.parse(storage.values.get(key) ?? "{}");
+  file.model.providerName = "Old provider display name";
+  storage.values.set(key, JSON.stringify(file));
+
+  assert.deepEqual(await repository.read(identity), result);
+});
+
+test("new recommendation cache files contain only model runtime identity fields", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  const modelWithDisplayName = {
+    ...identity.model,
+    providerName: "Display only",
+  };
+
+  await repository.write({ ...identity, model: modelWithDisplayName }, result);
+
+  assert.doesNotMatch(
+    storage.values.get("3-ABCDEFGH/recommendation.json") ?? "",
+    /providerName/u,
+  );
+  assert.deepEqual(await repository.read(identity), result);
 });
 
 test("recommendations are isolated by validated library and attachment keys", async () => {

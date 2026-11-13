@@ -79,6 +79,7 @@ test("paper cache uses readable permanent files and restores landing URLs", asyn
   assert.match(references, /"landingURL": "https:\/\/example\.test\/paper"/u);
   assert.doesNotMatch(references, /abstract|primaryResultURL/u);
   assert.deepEqual(await cache.read(identity), {
+    retrievedAt: snapshotRetrievedAt(storage),
     references: [
       {
         id: "reference:0",
@@ -130,6 +131,7 @@ test("paper cache restores OpenAlex Abstracts by DOI", async () => {
   assert.match(abstracts, /"doi": "10\.1000\/paper"/u);
   assert.match(abstracts, /"source": "openalex"/u);
   assert.deepEqual(await cache.read(identity), {
+    retrievedAt: snapshotRetrievedAt(storage),
     references: [
       {
         ...openAlexResults.references[0],
@@ -229,7 +231,10 @@ test("paper cache restores Semantic Scholar Abstracts by DOI", async () => {
 
   const abstracts = storage.values.get("3-ABCDEFGH/abstract.json") ?? "";
   assert.match(abstracts, /"source": "semantic-scholar"/u);
-  assert.deepEqual(await cache.read(identity), semanticScholarResults);
+  assert.deepEqual(await cache.read(identity), {
+    ...semanticScholarResults,
+    retrievedAt: snapshotRetrievedAt(storage),
+  });
 });
 
 test("an existing paper cache without abstract.json remains readable", async () => {
@@ -257,6 +262,165 @@ test("paper cache misses when the source or provider identity changes", async ()
     undefined,
   );
 });
+
+test("resolved snapshots expire after the landing-page TTL", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  await cache.write(identity, results);
+  ageCache(storage, 24 * 60 * 60 * 1000 + 1000);
+
+  assert.equal(await cache.read(identity), undefined);
+});
+
+test("writing Abstract updates preserves the restored snapshot retrieval time", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  await cache.write(identity, results);
+  ageCache(storage, 23 * 60 * 60 * 1000);
+  const retrievedAt = snapshotRetrievedAt(storage);
+  const restored = await cache.read(identity);
+  assert.ok(restored);
+
+  await cache.write(identity, {
+    ...restored,
+    references: restored.references.map((paper) => ({
+      ...paper,
+      doi: "10.1000/paper",
+      abstract: "Fetched Abstract",
+      abstractSource: "openalex",
+      abstractSourceRecordID: "https://openalex.org/W123",
+      abstractRetrievedAt: new Date().toISOString(),
+    })),
+  });
+
+  assert.equal(restored.retrievedAt, retrievedAt);
+  assert.equal(snapshotRetrievedAt(storage), retrievedAt);
+  const manifest = JSON.parse(
+    storage.values.get("3-ABCDEFGH/manifest.json") ?? "{}",
+  );
+  assert.notEqual(manifest.updatedAt, retrievedAt);
+});
+
+test("Abstract updates cannot mix paper files from an earlier revision", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  await cache.write(identity, results);
+  ageCache(storage, 23 * 60 * 60 * 1000);
+  const key = "3-ABCDEFGH/references.json";
+  const previousReferences = storage.values.get(key)!;
+  const restored = await cache.read(identity);
+  assert.ok(restored);
+
+  await cache.write(identity, {
+    ...restored,
+    references: restored.references.map((paper) => ({
+      ...paper,
+      title: "Updated title",
+    })),
+  });
+  storage.values.set(key, previousReferences);
+
+  await assert.rejects(cache.read(identity), /different revisions/u);
+});
+
+test("source snapshot expiry is independent from a recent file revision", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  const retrievedAt = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  await cache.write(identity, results);
+  const key = "3-ABCDEFGH/manifest.json";
+  const manifest = JSON.parse(storage.values.get(key) ?? "{}");
+  storage.values.set(key, JSON.stringify({ ...manifest, retrievedAt }));
+
+  assert.equal(await cache.read(identity), undefined);
+});
+
+test("existing schema 2 manifests use their revision time as source snapshot time", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+  await cache.write(identity, results);
+  const key = "3-ABCDEFGH/manifest.json";
+  const manifest = JSON.parse(storage.values.get(key) ?? "{}");
+  delete manifest.retrievedAt;
+  storage.values.set(key, JSON.stringify(manifest));
+  ageCache(storage, 23 * 60 * 60 * 1000);
+
+  assert.equal(
+    (await cache.read(identity))?.retrievedAt,
+    snapshotRetrievedAt(storage),
+  );
+  ageCache(storage, 25 * 60 * 60 * 1000);
+  assert.equal(await cache.read(identity), undefined);
+});
+
+test("an invalid source snapshot time cannot be persisted", async () => {
+  const storage = new MemoryStorage();
+  const cache = new LiteratureCacheRepository(storage);
+
+  await assert.rejects(
+    cache.write(identity, { ...results, retrievedAt: "not-a-date" }),
+    /manifest.*invalid/u,
+  );
+  assert.equal(storage.values.size, 0);
+});
+
+test("negative search and empty Citations snapshots expire after one hour", async () => {
+  for (const snapshot of [
+    {
+      ...results,
+      references: [
+        {
+          id: "reference:0",
+          ordinal: 0,
+          title: "Paper",
+          status: "unresolved" as const,
+        },
+      ],
+    },
+    { ...results, citingPapersLoaded: 10 },
+  ]) {
+    const storage = new MemoryStorage();
+    const cache = new LiteratureCacheRepository(storage);
+    await cache.write(identity, snapshot);
+    ageCache(storage, 60 * 60 * 1000 + 1000);
+
+    assert.equal(await cache.read(identity), undefined);
+  }
+});
+
+test("old caches containing transient failures are not restored", async () => {
+  for (const status of ["failed", "unreachable"] as const) {
+    const storage = new MemoryStorage();
+    const cache = new LiteratureCacheRepository(storage);
+    await cache.write(identity, results);
+    const key = "3-ABCDEFGH/references.json";
+    const file = JSON.parse(storage.values.get(key) ?? "{}");
+    file.papers[0].status = status;
+    delete file.papers[0].landingURL;
+    file.papers[0].statusText = "rate-limited";
+    storage.values.set(key, JSON.stringify(file));
+
+    assert.equal(await cache.read(identity), undefined);
+  }
+});
+
+function ageCache(storage: MemoryStorage, elapsedMs: number): void {
+  const updatedAt = new Date(Date.now() - elapsedMs).toISOString();
+  for (const [key, raw] of storage.values) {
+    const file = { ...JSON.parse(raw), updatedAt };
+    if (key.endsWith("manifest.json") && "retrievedAt" in file) {
+      file.retrievedAt = updatedAt;
+    }
+    storage.values.set(key, JSON.stringify(file));
+  }
+}
+
+function snapshotRetrievedAt(storage: MemoryStorage): string {
+  const manifest = JSON.parse(
+    storage.values.get("3-ABCDEFGH/manifest.json") ?? "{}",
+  );
+  return (manifest.retrievedAt ?? manifest.updatedAt) as string;
+}
 
 test("persistent write failure is exposed instead of becoming memory success", async () => {
   const storage = new MemoryStorage();

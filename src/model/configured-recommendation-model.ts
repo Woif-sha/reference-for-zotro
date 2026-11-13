@@ -29,7 +29,6 @@ const RECOMMENDATION_RESPONSE_SCHEMA: LegacyCodexResponseSchema = {
 export type RecommendationModelIdentity = Readonly<{
   authMode: ModelAuthMode;
   providerId: string;
-  providerName: string;
   modelId: string;
   model: string;
   apiBase: string;
@@ -175,7 +174,6 @@ function modelIdentity(model: RuntimeModel): RecommendationModelIdentity {
   return {
     authMode: model.authMode,
     providerId: model.providerId,
-    providerName: model.providerName,
     modelId: model.id,
     model: model.model,
     apiBase: model.apiBase,

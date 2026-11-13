@@ -45,7 +45,9 @@ export type MinerUPorts = Readonly<{
     join(...segments: string[]): string;
     exists(path: string): Promise<boolean>;
     readUtf8(path: string): Promise<MinerUReadResult>;
-    writeUtf8(path: string, text: string): Promise<void>;
+    writeUtf8Batch(
+      files: readonly Readonly<{ path: string; text: string }>[],
+    ): Promise<void>;
   }>;
   sha256(text: string): Promise<string>;
 }>;
@@ -83,6 +85,7 @@ export async function loadMineruReferences(
         error.message,
         error.filenames,
         cacheDirectory,
+        { cause: error.cause },
       );
     }
     throw error;
@@ -264,14 +267,20 @@ async function persistNormalization(
   normalized: readonly MinerUReadResult[],
   ports: MinerUPorts,
 ): Promise<void> {
-  const writeOrder = [1, 2, 3] as const;
+  const writeOrder = [1, 3, 2] as const;
+  const changes = writeOrder.flatMap((index) =>
+    original[index]!.text === normalized[index]!.text
+      ? []
+      : [{ path: paths[index]!, text: normalized[index]!.text }],
+  );
+  if (changes.length === 0) return;
   try {
-    for (const index of writeOrder) {
-      if (original[index]!.text === normalized[index]!.text) continue;
-      await ports.files.writeUtf8(paths[index]!, normalized[index]!.text);
-    }
-  } catch {
-    throw invalidCache("The MinerU Reference cache could not be normalized");
+    await ports.files.writeUtf8Batch(changes);
+  } catch (error) {
+    throw invalidCache(
+      "The MinerU Reference cache could not be normalized",
+      error,
+    );
   }
 }
 
@@ -404,6 +413,8 @@ function unsupportedReaderItem(): MinerUContractError {
   );
 }
 
-function invalidCache(message: string): MinerUContractError {
-  return new MinerUContractError("md-cache-invalid", message);
+function invalidCache(message: string, cause?: unknown): MinerUContractError {
+  return new MinerUContractError("md-cache-invalid", message, [], undefined, {
+    cause,
+  });
 }

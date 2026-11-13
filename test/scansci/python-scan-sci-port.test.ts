@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   createPythonScanSciPort,
@@ -6,6 +10,122 @@ import {
   type PythonProcessResult,
   type PythonScanSciRuntime,
 } from "../../src/scansci/python-scan-sci-port";
+
+test(
+  "real Windows Python preserves Chinese JSONL paths in a download request",
+  {
+    skip: process.platform !== "win32",
+  },
+  async () => {
+    const temporaryRoot = await mkdtemp(path.join(tmpdir(), "rfz-jsonl-"));
+    try {
+      const destination = path.join(temporaryRoot, "论文");
+      const cache = path.join(temporaryRoot, "中文缓存");
+      const fixture = path.join(temporaryRoot, "sidecar-fixture.py");
+      const moduleRoot = path.resolve(
+        "addon/python/reference_for_zotero_scansci",
+      );
+      await writeFile(
+        fixture,
+        `
+import json
+import sys
+from pathlib import Path
+sys.dont_write_bytecode = True
+sys.path.insert(0, ${JSON.stringify(moduleRoot)})
+import sidecar
+
+def download(request):
+    output = Path(request["outputDirectory"]) / "原始论文.pdf"
+    output.write_bytes(b"%PDF-1.7\\nfixture")
+    return {"outputPath": str(output), "source": {
+        "id": "arxiv", "url": "https://arxiv.org/pdf/2101.00001.pdf",
+        "egressHosts": ["arxiv.org"]}}
+
+def emit(message):
+    print(json.dumps(message, ensure_ascii=False), flush=True)
+
+print(json.dumps({"stdin": sys.stdin.encoding, "stdout": sys.stdout.encoding,
+                  "utf8Mode": sys.flags.utf8_mode}), file=sys.stderr)
+instance = sidecar.Sidecar(emit, sys.stderr, download=download)
+for line in sys.stdin:
+    emit(instance.handle(json.loads(line)))
+`,
+        "utf8",
+      );
+      const target = path.join(destination, "中文论文.pdf");
+      const runtime = runtimeWith(
+        async (request) => {
+          if (request.arguments.includes("-0p")) {
+            return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+          }
+          const input = protocolInput(request);
+          if (input.operation === "probe") {
+            return sidecarComplete(
+              input,
+              probePayload(request.command, "3.12.10"),
+            );
+          }
+          const child = execFileSync(
+            "python",
+            [...request.arguments.slice(0, -1), fixture],
+            {
+              input: request.stdin,
+              encoding: "utf8",
+              windowsHide: true,
+              env: { ...process.env, PYTHONUTF8: "0", PYTHONIOENCODING: "gbk" },
+              stdio: ["pipe", "pipe", "pipe"],
+            },
+          );
+          return processResult(child);
+        },
+        {
+          async createDirectory(directory) {
+            await mkdir(directory, { recursive: true });
+          },
+          async createDirectoryExclusive(directory) {
+            await mkdir(directory);
+          },
+          async commitExclusiveContained(
+            _sourceRoot,
+            source,
+            _destinationRoot,
+            finalTarget,
+          ) {
+            await writeFile(finalTarget, await readFile(source));
+          },
+          async removeDirectory(directory) {
+            await rm(directory, { recursive: true });
+          },
+        },
+      );
+      const port = createPythonScanSciPort(runtime, {
+        moduleRoot,
+        hostArchitecture: "x64",
+      });
+
+      const [outcome] = await port.downloadPapers({
+        items: [
+          {
+            itemID: "paper",
+            paper: { title: "中文论文", arxivID: "2101.00001" },
+            canonicalFinalTarget: target,
+          },
+        ],
+        downloadDestination: destination,
+        cacheDirectory: cache,
+      });
+
+      assert.deepEqual(outcome?.result, {
+        status: "downloaded",
+        savedPath: target,
+      });
+      assert.equal(await readFile(target, "utf8"), "%PDF-1.7\nfixture");
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
 
 test("automatic detection establishes capability only through sidecar probe", async () => {
   const calls: PythonProcessRequest[] = [];

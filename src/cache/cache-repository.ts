@@ -6,6 +6,7 @@ import {
 import type { CachedRelatedPapers } from "../application/related-papers-controller";
 import type { ReaderPaper } from "../reader/mountReaderSection";
 import { normalizeDoi } from "../literature/identifiers";
+import { relatedPapersCacheLifetime } from "./related-papers-cache-policy";
 
 export type LiteratureCacheFileName =
   "manifest.json" | "references.json" | "citations.json" | "abstract.json";
@@ -29,6 +30,7 @@ export interface CacheStorage {
 type CacheManifest = LiteratureCacheIdentity & {
   schemaVersion: 2;
   updatedAt: string;
+  retrievedAt?: string;
 };
 
 type CachedPaperRecord = Record<string, unknown> & {
@@ -104,7 +106,8 @@ export class LiteratureCacheRepository {
     const abstractsByDoi = new Map(
       abstracts?.abstracts.map((record) => [record.doi, record]),
     );
-    return {
+    const results = {
+      retrievedAt: manifest.retrievedAt ?? manifest.updatedAt,
       references: references.papers.map((record) =>
         restorePaper(record, abstractsByDoi),
       ),
@@ -113,6 +116,11 @@ export class LiteratureCacheRepository {
       ),
       citingPapersLoaded: citations.loadedLimit,
     };
+    const lifetime = relatedPapersCacheLifetime(results);
+    return lifetime !== undefined &&
+      Date.parse(results.retrievedAt) + lifetime > Date.now()
+      ? results
+      : undefined;
   }
 
   async write(
@@ -121,12 +129,16 @@ export class LiteratureCacheRepository {
     signal?: AbortSignal,
   ): Promise<void> {
     throwIfAborted(signal);
+    if (relatedPapersCacheLifetime(results) === undefined) return;
     const updatedAt = new Date().toISOString();
     const manifest: CacheManifest = {
       schemaVersion: CACHE_SCHEMA_VERSION,
       ...identity,
       updatedAt,
+      retrievedAt: results.retrievedAt ?? updatedAt,
     };
+    const serializedManifest = serialize(manifest);
+    parseManifest(serializedManifest);
     const references: CachedPaperFile = {
       schemaVersion: CACHE_SCHEMA_VERSION,
       updatedAt,
@@ -146,7 +158,7 @@ export class LiteratureCacheRepository {
     await this.storage.write(
       createLiteratureCacheDirectory(identity),
       {
-        "manifest.json": serialize(manifest),
+        "manifest.json": serializedManifest,
         "references.json": serialize(references),
         "citations.json": serialize(citations),
         "abstract.json": serialize(abstracts),
@@ -173,7 +185,10 @@ function parseManifest(raw: string): CacheManifest {
     !Number.isInteger(manifest.providerQueryVersion) ||
     typeof manifest.normalizedRequestKey !== "string" ||
     typeof manifest.updatedAt !== "string" ||
-    !Number.isFinite(Date.parse(manifest.updatedAt))
+    !Number.isFinite(Date.parse(manifest.updatedAt)) ||
+    (manifest.retrievedAt !== undefined &&
+      (typeof manifest.retrievedAt !== "string" ||
+        !Number.isFinite(Date.parse(manifest.retrievedAt))))
   ) {
     throw new Error("Literature cache manifest is invalid");
   }

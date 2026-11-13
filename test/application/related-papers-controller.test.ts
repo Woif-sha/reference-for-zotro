@@ -132,6 +132,157 @@ test("entering AI recommendation explains when no recommendation model is availa
   });
 });
 
+test("finishing relationship persistence cannot replace an active recommendation analysis", async () => {
+  const writeStarted = deferred<void>();
+  const finishWrite = deferred<void>();
+  const modelStarted = deferred<void>();
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  let cacheReads = 0;
+  let modelCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [
+      {
+        ...resolvedPaper("Reference", "10.1000/reference"),
+        abstract: "Reference Abstract",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    async writeCachedResults() {
+      writeStarted.resolve();
+      await finishWrite.promise;
+    },
+    async readCachedRecommendation() {
+      cacheReads += 1;
+      return undefined;
+    },
+    recommendPapers() {
+      modelCalls += 1;
+      modelStarted.resolve();
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await writeStarted.promise;
+  const analysis = controller.generateRecommendations();
+  await modelStarted.promise;
+  finishWrite.resolve();
+  await refresh;
+  recommendation.resolve({ status: "completed", priority: [], optional: [] });
+  await analysis;
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "completed",
+    priority: [],
+    optional: [],
+    restoredFromCache: false,
+  });
+  assert.equal(cacheReads, 1);
+  assert.equal(modelCalls, 1);
+});
+
+test("an obsolete session finishing persistence cannot take over the current recommendation", async () => {
+  const firstWriteStarted = deferred<void>();
+  const finishFirstWrite = deferred<void>();
+  const modelStarted = deferred<void>();
+  const recommendation = deferred<{
+    status: "completed";
+    priority: readonly [];
+    optional: readonly [];
+  }>();
+  let loads = 0;
+  const cacheFingerprints: string[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => ({
+      ...loadedPaper,
+      sourceFingerprint: `fingerprint-${++loads}`,
+    }),
+    resolveReferences: async () => [
+      {
+        ...resolvedPaper("Reference", "10.1000/reference"),
+        abstract: "Reference Abstract",
+      },
+    ],
+    loadCitingPapers: async () => [],
+    async writeCachedResults(paper) {
+      if (paper.sourceFingerprint === "fingerprint-1") {
+        firstWriteStarted.resolve();
+        await finishFirstWrite.promise;
+      }
+    },
+    async readCachedRecommendation(request) {
+      cacheFingerprints.push(request.currentPaper.sourceFingerprint);
+      return undefined;
+    },
+    recommendPapers() {
+      modelStarted.resolve();
+      return recommendation.promise;
+    },
+    openURL() {},
+  });
+
+  const firstRefresh = controller.refreshAsync();
+  await firstWriteStarted.promise;
+  await controller.refreshAsync();
+  const analysis = controller.generateRecommendations();
+  await modelStarted.promise;
+  finishFirstWrite.resolve();
+  await firstRefresh;
+  recommendation.resolve({ status: "completed", priority: [], optional: [] });
+  await analysis;
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "completed",
+    priority: [],
+    optional: [],
+    restoredFromCache: false,
+  });
+  assert.deepEqual(cacheFingerprints, ["fingerprint-2", "fingerprint-2"]);
+});
+
+test("entering AI recommendation during automatic cache lookup continues once after a miss", async () => {
+  const cacheStarted = deferred<void>();
+  const cache = deferred<undefined>();
+  let cacheReads = 0;
+  let modelCalls = 0;
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    readCachedRecommendation() {
+      cacheReads += 1;
+      cacheStarted.resolve();
+      return cache.promise;
+    },
+    async recommendPapers() {
+      modelCalls += 1;
+      return { status: "no-candidates" };
+    },
+    openURL() {},
+  });
+
+  const refresh = controller.refreshAsync();
+  await cacheStarted.promise;
+  controller.selectTab("ai-recommendation");
+  controller.selectTab("ai-recommendation");
+  const analysis = controller.generateRecommendations();
+  assert.equal(modelCalls, 0);
+  cache.resolve(undefined);
+  await Promise.all([refresh, analysis]);
+
+  assert.deepEqual(controller.getState().recommendation, {
+    status: "no-candidates",
+  });
+  assert.equal(cacheReads, 1);
+  assert.equal(modelCalls, 1);
+});
+
 test("a complete recommendation survives a Controller restart without a second model call", async () => {
   const values = new Map<string, string>();
   const storage: RecommendationCacheStorage = {
@@ -1156,6 +1307,60 @@ test("unchanged MinerU identity reuses persisted results while manual refresh by
   );
   assert.equal(cacheReads, 1);
   assert.equal(resolveCalls, 1);
+});
+
+test("Abstract enrichment preserves cached source retrieval time and refresh starts a new snapshot", async () => {
+  const cachedRetrievedAt = "2026-11-01T00:00:00.000Z";
+  const reference = {
+    ...resolvedPaper("Cached paper", "10.1000/cached"),
+    doi: "10.1000/cached",
+  };
+  const writes: (string | undefined)[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    readCachedResults: async () => ({
+      references: [reference],
+      citingPapers: [],
+      citingPapersLoaded: 10,
+      retrievedAt: cachedRetrievedAt,
+    }),
+    resolveReferences: async () => [
+      { ...reference, abstract: "Freshly resolved Abstract" },
+    ],
+    loadCitingPapers: async () => [],
+    loadAbstract: async () => ({
+      text: "Enriched Abstract",
+      source: "openalex",
+      sourceRecordID: "openalex:cached",
+    }),
+    async writeCachedResults(_paper, results) {
+      writes.push(results.retrievedAt);
+    },
+    openURL() {},
+  });
+
+  await controller.refreshAsync();
+  await waitFor(() => writes.length === 1);
+
+  assert.equal(
+    controller.getState().references[0]?.abstract,
+    "Enriched Abstract",
+  );
+  assert.deepEqual(writes, [cachedRetrievedAt]);
+
+  const refreshStartedAt = Date.now();
+  await controller.refreshAsync({ bypassCache: true });
+  await waitFor(
+    () => controller.getState().citingPapersStatus.status === "ready",
+  );
+
+  const freshRetrievedAt = writes[1];
+  assert.ok(freshRetrievedAt);
+  assert.ok(Date.parse(freshRetrievedAt) >= refreshStartedAt);
+  assert.ok(Date.parse(freshRetrievedAt) <= Date.now());
+  assert.ok(
+    writes.slice(1).every((timestamp) => timestamp === freshRetrievedAt),
+  );
 });
 
 test("late smaller citation responses cannot discard a larger cumulative prefix", async () => {

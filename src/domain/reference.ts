@@ -25,8 +25,9 @@ export class MinerUContractError extends Error {
     message: string,
     readonly filenames: readonly string[] = [],
     readonly cacheDirectory?: string,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "MinerUContractError";
   }
 }

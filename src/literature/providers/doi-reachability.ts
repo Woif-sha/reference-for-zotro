@@ -24,21 +24,26 @@ export async function verifyDoiLandingPage(
     if (isAbortError(error)) throw error;
     return unreachable();
   }
-  if (REDIRECTS.has(response.status)) {
-    const location = response.headers.get("Location");
-    if (!location) return unreachable();
-    const landingURL = new URL(location, resolverURL).toString();
-    return isSafeLandingURL(landingURL)
+  try {
+    if (isPdfResponse(response)) return unreachable();
+    if (REDIRECTS.has(response.status)) {
+      const location = response.headers.get("Location");
+      if (!location) return unreachable();
+      const landingURL = new URL(location, resolverURL).toString();
+      return isSafeLandingURL(landingURL)
+        ? { status: "reachable", landingURL }
+        : unreachable();
+    }
+    const landingURL = response.url || resolverURL;
+    const accessControlled =
+      landingURL !== resolverURL &&
+      (response.status === 401 || response.status === 403);
+    return (response.ok || accessControlled) && isSafeLandingURL(landingURL)
       ? { status: "reachable", landingURL }
       : unreachable();
+  } finally {
+    await response.body?.cancel();
   }
-  const landingURL = response.url || resolverURL;
-  const accessControlled =
-    landingURL !== resolverURL &&
-    (response.status === 401 || response.status === 403);
-  return (response.ok || accessControlled) && isSafeLandingURL(landingURL)
-    ? { status: "reachable", landingURL }
-    : unreachable();
 }
 
 export async function verifyLandingPage(
@@ -59,13 +64,25 @@ export async function verifyLandingPage(
     if (isAbortError(error)) throw error;
     return unreachable();
   }
-  const landingURL = response.url || initialURL;
-  const contentType = response.headers.get("Content-Type")?.toLowerCase();
-  return response.ok &&
-    isSafeLandingURL(landingURL) &&
-    !contentType?.includes("application/pdf")
-    ? { status: "reachable", landingURL }
-    : unreachable();
+  try {
+    const landingURL = response.url || initialURL;
+    return response.ok &&
+      isSafeLandingURL(landingURL) &&
+      !isPdfResponse(response)
+      ? { status: "reachable", landingURL }
+      : unreachable();
+  } finally {
+    await response.body?.cancel();
+  }
+}
+
+function isPdfResponse(response: Response): boolean {
+  return Boolean(
+    response.headers
+      .get("Content-Type")
+      ?.toLowerCase()
+      .includes("application/pdf"),
+  );
 }
 
 function isAbortError(error: unknown): boolean {

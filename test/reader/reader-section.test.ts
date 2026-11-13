@@ -2306,6 +2306,60 @@ test("translation stays open after the selection gesture and closes on the next 
   mounted.destroy();
 });
 
+test("same-tab Abstract, status, and recommendation updates preserve list scrolling", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const document: Document = dom.window.document;
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {};
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  for (const tab of ["references", "citations", "ai-recommendation"] as const) {
+    state = { ...state, activeTab: tab };
+    listener?.(state);
+    const content = document.querySelector<HTMLElement>(".rfz-content");
+    assert.ok(content);
+    content.scrollTop = 240;
+    state = {
+      ...state,
+      references: state.references.map((paper) => ({
+        ...paper,
+        abstract: "Newly retrieved Abstract",
+      })),
+      citingPapersStatus: { status: "loading" },
+      recommendation: {
+        status: "analyzing",
+        totalCandidates: 2,
+        priority: [],
+        optional: [],
+      },
+    };
+    listener?.(state);
+
+    assert.equal(
+      document.querySelector<HTMLElement>(".rfz-content")?.scrollTop,
+      240,
+      `${tab} keeps the reader's position during background updates`,
+    );
+  }
+  mounted.destroy();
+});
+
 test("controller rerenders do not discard a visible translation", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {
     pretendToBeVisual: true,

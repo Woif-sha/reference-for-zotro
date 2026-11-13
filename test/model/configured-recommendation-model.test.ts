@@ -24,7 +24,6 @@ test("recommendation model routes once to the selected provider and returns a se
   assert.deepEqual(result.identity, {
     authMode: "openai_compatible",
     providerId: "provider-api",
-    providerName: "Example API",
     modelId: "model-api",
     model: "example-model",
     apiBase: "https://api.example.com/v1/chat/completions",
@@ -34,6 +33,27 @@ test("recommendation model routes once to the selected provider and returns a se
     JSON.stringify(result.identity),
     /private-key|access_token|refresh_token|auth\.json/u,
   );
+});
+
+test("provider display name and credentials do not change the recommendation runtime identity", () => {
+  let configured = configuration("model-api");
+  const model = new ConfiguredRecommendationModel(
+    () => configured,
+    transports([]),
+  );
+  const identity = model.identity();
+
+  configured = {
+    ...configured,
+    providers: configured.providers.map((provider) => ({
+      ...provider,
+      name: "Renamed provider",
+      apiKey: "rotated-key",
+    })),
+  };
+
+  assert.deepEqual(model.identity(), identity);
+  assert.doesNotMatch(JSON.stringify(identity), /providerName|apiKey/u);
 });
 
 test("Legacy recommendations use a strict JSON schema instead of rejected JSON object mode", async () => {

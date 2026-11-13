@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { decideRelatedPapersCacheWrite } from "../../src/cache/related-papers-cache-policy";
 
-test("completed results remain cacheable until an explicit refresh", () => {
+test("a completed resolved snapshot is cacheable", () => {
   const results = {
     references: [
       {
         id: "reference:0",
         ordinal: 0,
-        title: "Temporarily blocked paper",
-        status: "unreachable" as const,
-        statusText: "Paper landing page is unreachable",
+        title: "Paper",
+        status: "resolved" as const,
+        primaryResultURL: "https://publisher.example/paper",
       },
     ],
     citingPapers: [],
@@ -21,6 +21,27 @@ test("completed results remain cacheable until an explicit refresh", () => {
     kind: "write",
     value: results,
   });
+});
+
+test("provider and landing failures are never persisted as negative results", () => {
+  for (const status of ["failed", "unreachable"] as const) {
+    assert.deepEqual(
+      decideRelatedPapersCacheWrite({
+        references: [
+          {
+            id: "reference:0",
+            ordinal: 0,
+            title: "Temporarily blocked paper",
+            status,
+            statusText: "rate-limited",
+          },
+        ],
+        citingPapers: [],
+        citingPapersLoaded: 0,
+      }),
+      { kind: "skip" },
+    );
+  }
 });
 
 test("an incomplete matching snapshot cannot replace a complete cache", () => {

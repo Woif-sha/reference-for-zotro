@@ -69,6 +69,7 @@ export class RecommendationCacheRepository {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       ...identity,
+      model: runtimeModelIdentity(identity.model),
       ...result,
     };
     parseCacheFile(file);
@@ -102,7 +103,8 @@ function matchesIdentity(
       JSON.stringify(current.currentPaper) &&
     JSON.stringify(cached.visibleCandidates) ===
       JSON.stringify(current.visibleCandidates) &&
-    JSON.stringify(cached.model) === JSON.stringify(current.model) &&
+    JSON.stringify(runtimeModelIdentity(cached.model)) ===
+      JSON.stringify(runtimeModelIdentity(current.model)) &&
     cached.promptVersion === current.promptVersion &&
     current.analyzedCandidates.every((candidate) =>
       cached.analyzedCandidates.some(
@@ -112,6 +114,19 @@ function matchesIdentity(
       ),
     )
   );
+}
+
+function runtimeModelIdentity(
+  model: RecommendationModelIdentity,
+): RecommendationModelIdentity {
+  return {
+    authMode: model.authMode,
+    providerId: model.providerId,
+    modelId: model.modelId,
+    model: model.model,
+    apiBase: model.apiBase,
+    effort: model.effort,
+  };
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -246,25 +261,31 @@ function validateCurrentPaper(value: unknown): void {
 }
 
 function validateModel(value: unknown): void {
+  // Schema 1 previously persisted this display field; it is not runtime identity.
+  const model = isRecord(value) ? { ...value } : value;
+  if (isRecord(model) && "providerName" in model) {
+    if (!isNonEmptyString(model.providerName)) {
+      return invalidCache("model display name is invalid");
+    }
+    delete model.providerName;
+  }
   if (
-    !isRecord(value) ||
-    !hasExactKeys(value, [
+    !isRecord(model) ||
+    !hasExactKeys(model, [
       "authMode",
       "providerId",
-      "providerName",
       "modelId",
       "model",
       "apiBase",
       "effort",
     ]) ||
-    (value.authMode !== "codex_auth" &&
-      value.authMode !== "openai_compatible") ||
-    !isNonEmptyString(value.providerId) ||
-    !isNonEmptyString(value.providerName) ||
-    !isNonEmptyString(value.modelId) ||
-    !isNonEmptyString(value.model) ||
-    !isNonEmptyString(value.apiBase) ||
-    typeof value.effort !== "string"
+    (model.authMode !== "codex_auth" &&
+      model.authMode !== "openai_compatible") ||
+    !isNonEmptyString(model.providerId) ||
+    !isNonEmptyString(model.modelId) ||
+    !isNonEmptyString(model.model) ||
+    !isNonEmptyString(model.apiBase) ||
+    typeof model.effort !== "string"
   ) {
     invalidCache("model identity is invalid");
   }

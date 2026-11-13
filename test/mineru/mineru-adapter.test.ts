@@ -73,9 +73,9 @@ test("silently numbers an unmarked Reference entry and persists one consistent c
     ...base,
     files: {
       ...base.files,
-      async writeUtf8(path, text) {
-        writes.push(path);
-        await base.files.writeUtf8(path, text);
+      async writeUtf8Batch(changes) {
+        writes.push(...changes.map(({ path }) => path));
+        await base.files.writeUtf8Batch(changes);
       },
     },
   };
@@ -120,8 +120,8 @@ test("silently numbers an unmarked Reference entry and persists one consistent c
   );
   assert.deepEqual(writes, [
     `${CACHE_DIRECTORY}/full.md`,
-    `${CACHE_DIRECTORY}/manifest.json`,
     `${CACHE_DIRECTORY}/content_list.json`,
+    `${CACHE_DIRECTORY}/manifest.json`,
   ]);
 
   await loadMineruReferences(ATTACHMENT_ID, ports);
@@ -652,8 +652,10 @@ function createPorts(files: Record<string, MinerUReadResult>): MinerUPorts {
         if (!result) throw new Error(`Unexpected read: ${path}`);
         return result;
       },
-      writeUtf8: async (path, text) => {
-        files[path] = { text, revision: `written:${text.length}` };
+      writeUtf8Batch: async (changes) => {
+        for (const { path, text } of changes) {
+          files[path] = { text, revision: `written:${text.length}` };
+        }
       },
     },
     sha256: async () => "known-full-md-sha256",

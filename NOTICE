@@ -22,6 +22,23 @@ as the upstream lineage for the Legacy Codex authentication and provider
 transport design; llm-for-zotero is not a second direct implementation source
 for this project.
 
+The model-catalog discovery, sorting and display filtering, catalog-backed
+model selector, searchable multi-model picker, and related Preferences styles
+are directly adapted from Paper Translate for Zotero commit
+110a74aa7edf2bc4f8e7904d6daba62615a97363 (v1.5.8), Copyright (C) 2026
+Woif-sha and contributors, AGPL-3.0-or-later. Source modules include
+src/models/modelDiscovery.ts, modelCatalogSort.ts and modelCatalogFilter.ts,
+src/modules/providerModelSelect.ts, modelPicker.ts and preferenceWindow.ts,
+and addon/chrome/content/providerPreferences.css. The adapted catalog uses
+Reference for Zotero's existing authentication transport and independent
+preferences. Paper Translate records llm-for-zotero commit
+e99ab04709ac0db63c9c591577fddc2c182c8e42 (v3.9.17) as upstream lineage for
+the catalog and Gecko popup safety behavior.
+The catalog and provider-editor design also retain Paper Translate's credit
+for Nebula-Zhang's contribution in PR #26, reviewed revision
+152dbf0900ebf0a9c21f9c2d5605fb7dd1a93030:
+https://github.com/Woif-sha/paper-translate-for-zotero/pull/26.
+
 The packaged ScanSci compatibility module contains modified pure-Python
 fragments from scansci-pdf, Copyright 2024-2026 scansci-pdf contributors,
 licensed under Apache-2.0 and fixed to upstream commit

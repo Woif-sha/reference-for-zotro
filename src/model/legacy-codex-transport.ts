@@ -15,6 +15,8 @@ import { findSseFrameBoundary } from "./sse";
 const CODEX_REFRESH_TOKEN_ENDPOINT = "https://auth.openai.com/oauth/token";
 const CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_REFRESH_TIMEOUT_MS = 30_000;
+export const LEGACY_CODEX_MODELS_ENDPOINT =
+  "https://chatgpt.com/backend-api/codex/models?client_version=0.162.1";
 // Codex Responses streams include non-visible reasoning and completion items.
 const DEFAULT_CODEX_STREAM_MAX_BYTES = 8 * 1024 * 1024;
 const LOGIN_REQUIRED_MESSAGE =
@@ -97,20 +99,11 @@ export class LegacyCodexTransport {
   async run(request: LegacyCodexRequest): Promise<TextModelResult> {
     if (this.stopped) throw new Error("Legacy Codex transport is shut down");
     validateRequest(request);
-    let auth = await this.loadAuth(request.signal);
+    const { response, auth } = await this.fetchAuthenticatedRequest(
+      (auth) => this.postRequest(request, auth.accessToken),
+      request.signal,
+    );
     try {
-      let response = await this.postRequest(request, auth.accessToken);
-      if (response.status === 401) {
-        await response.body?.cancel();
-        auth = await this.refreshAccessToken(auth, request.signal);
-        response = await this.postRequest(request, auth.accessToken);
-      }
-      if (response.status === 401) {
-        await response.body?.cancel();
-        throw new CodexLoginRequiredError(
-          new Error("Codex rejected the refreshed access token with HTTP 401"),
-        );
-      }
       if (!response.ok) {
         const detail = await readBoundedBody(
           response,
@@ -131,6 +124,69 @@ export class LegacyCodexTransport {
         throw new Error("Codex legacy response has no streaming body");
       }
       return await readCodexStream(response, request);
+    } catch (error) {
+      throw redactCodexError(error, auth);
+    }
+  }
+
+  /** Codex credentials can only reach the fixed official model catalog. */
+  async fetchModels(signal?: AbortSignal): Promise<Response> {
+    if (this.stopped) throw new Error("Legacy Codex transport is shut down");
+    try {
+      const { response } = await this.fetchAuthenticatedRequest((auth) => {
+        const accountId = tokenValue(auth.document.tokens?.account_id);
+        return this.runtime.fetch(LEGACY_CODEX_MODELS_ENDPOINT, {
+          method: "GET",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${auth.accessToken}`,
+            ...(accountId ? { "ChatGPT-Account-ID": accountId } : {}),
+          },
+          redirect: "error",
+          signal,
+        });
+      }, signal);
+      return response;
+    } catch (error) {
+      if (signal?.aborted) {
+        // eslint-disable-next-line preserve-caught-error -- Abort reasons may include credentials.
+        throw new Error("Codex model catalog request aborted");
+      }
+      if (error instanceof CodexLoginRequiredError) {
+        throw new CodexLoginRequiredError(
+          new Error("Codex model catalog authentication failed"),
+        );
+      }
+      // Auth, OAuth and transport errors may contain credentials or server bodies.
+      // eslint-disable-next-line preserve-caught-error -- Credential-bearing causes must not escape the catalog boundary.
+      throw new Error(
+        "获取 Codex 模型列表失败，请检查登录状态和网络 / Codex model catalog request failed",
+      );
+    }
+  }
+
+  private async fetchAuthenticatedRequest(
+    send: (auth: CodexAuthState) => Promise<Response>,
+    signal?: AbortSignal,
+  ): Promise<{ response: Response; auth: CodexAuthState }> {
+    if (signal) assertSignalActive(signal);
+    let auth = await this.loadAuth(signal);
+    try {
+      if (signal) assertSignalActive(signal);
+      let response = await send(auth);
+      if (response.status === 401) {
+        await response.body?.cancel();
+        auth = await this.refreshAccessToken(auth, signal);
+        if (signal) assertSignalActive(signal);
+        response = await send(auth);
+      }
+      if (response.status === 401) {
+        await response.body?.cancel();
+        throw new CodexLoginRequiredError(
+          new Error("Codex rejected the refreshed access token with HTTP 401"),
+        );
+      }
+      return { response, auth };
     } catch (error) {
       throw redactCodexError(error, auth);
     }

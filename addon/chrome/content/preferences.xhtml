@@ -125,13 +125,17 @@
   <groupbox
     id="reference-for-zotero-preferences-model-group"
     data-recommendation-model-settings=""
+    class="reference-model-preferences pt-provider-preferences"
   >
     <label><html:h2>推荐模型</html:h2></label>
-    <html:div data-model-provider-cards=""></html:div>
+    <html:p class="pt-provider-description"
+      >选择模型后保存服务商，点击“使用”设为推荐模型。</html:p
+    >
+    <html:div data-model-provider-cards="" class="pt-provider-list"></html:div>
     <html:button
       type="button"
       data-add-model-provider=""
-      style="margin-top: 10px; align-self: flex-start"
+      class="pt-provider-add"
     >
       添加服务商
     </html:button>

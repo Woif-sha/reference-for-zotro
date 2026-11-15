@@ -6,6 +6,7 @@ import {
 } from "../model/legacy-codex-transport";
 import { ModelSettingsStore } from "../model/model-configuration";
 import { ModelConnectionTester } from "../model/model-connection-tester";
+import { fetchProviderModels } from "../model/model-catalog";
 import {
   runOpenAICompatibleRequest,
   testOpenAICompatibleConnection,
@@ -54,6 +55,12 @@ export function createZoteroModelSubsystem(): ZoteroModelSubsystem {
     store,
     connectionTester,
     () => recommendationModel.cancelActiveRequests(),
+    (provider, signal) =>
+      fetchProviderModels(provider, {
+        fetch: runtime.fetch,
+        fetchCodexModels: (catalogSignal) => legacy.fetchModels(catalogSignal),
+        signal,
+      }),
   );
   let active = true;
   return {

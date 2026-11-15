@@ -6,6 +6,7 @@ import {
   LOCAL_PAPER_NAME_SYNC_ENABLED_PREFERENCE,
   LOCAL_PAPER_ROOT_PREFERENCE,
 } from "../../src/application/local-paper-name-settings";
+import { REFERENCE_FOR_ZOTERO_PREFERENCES_ID } from "../../src/preferences/download-preferences";
 
 test("disabling the plugin while UI readiness is pending prevents late registrations", async (t) => {
   const ready = deferred();
@@ -47,7 +48,9 @@ test("the assembled plugin registers and removes its pane, Reader section, and l
   const harness = installRuntime(t);
   const hooks = await harness.load("ready");
   await setImmediate();
-  assert.deepEqual([...harness.panes], ["preferences"]);
+  assert.deepEqual(harness.panes, [
+    { id: REFERENCE_FOR_ZOTERO_PREFERENCES_ID, registration: 1 },
+  ]);
   assert.deepEqual([...harness.observers], ["local-names"]);
   assert.deepEqual([...harness.sections], ["reader"]);
 
@@ -60,11 +63,129 @@ test("the assembled plugin registers and removes its pane, Reader section, and l
   assert.deepEqual(harness.errors, []);
 });
 
+test("reenabling the plugin preserves the new Preferences pane after the old registration finishes", async (t) => {
+  const registered = deferred();
+  const registrationStarted = deferred();
+  const harness = installRuntime(t, {
+    register: async (registration) => {
+      if (registration !== 1) return;
+      registrationStarted.resolve();
+      await registered.promise;
+    },
+  });
+  const oldHooks = await harness.load("reenable-old");
+  await registrationStarted.promise;
+  oldHooks.onShutdown();
+  const newHooks = await harness.load("reenable-new");
+  await setImmediate();
+
+  try {
+    registered.resolve();
+    await setImmediate();
+
+    assert.deepEqual(harness.panes, [
+      { id: REFERENCE_FOR_ZOTERO_PREFERENCES_ID, registration: 2 },
+    ]);
+    assert.deepEqual([...harness.observers], ["local-names"]);
+    assert.deepEqual([...harness.sections], ["reader"]);
+    assert.deepEqual(harness.errors, []);
+  } finally {
+    newHooks.onShutdown();
+  }
+  assert.deepEqual(harness.panes, []);
+  assert.deepEqual([...harness.observers], []);
+  assert.deepEqual([...harness.sections], []);
+});
+
+test("disabling a runtime waiting for the previous registration lets the next enable start once", async (t) => {
+  const registered = deferred();
+  const registrationStarted = deferred();
+  const harness = installRuntime(t, {
+    register: async (registration) => {
+      if (registration !== 1) return;
+      registrationStarted.resolve();
+      await registered.promise;
+    },
+  });
+  const firstHooks = await harness.load("waiting-first");
+  await registrationStarted.promise;
+  firstHooks.onShutdown();
+  const secondHooks = await harness.load("waiting-second");
+  await setImmediate();
+  secondHooks.onShutdown();
+  const thirdHooks = await harness.load("waiting-third");
+  await setImmediate();
+
+  try {
+    registered.resolve();
+    await setImmediate();
+
+    assert.deepEqual(harness.registrations, [
+      "local-names",
+      "preferences",
+      "local-names",
+      "preferences",
+      "reader",
+    ]);
+    assert.deepEqual(harness.panes, [
+      { id: REFERENCE_FOR_ZOTERO_PREFERENCES_ID, registration: 2 },
+    ]);
+    assert.deepEqual([...harness.observers], ["local-names"]);
+    assert.deepEqual([...harness.sections], ["reader"]);
+    assert.deepEqual(harness.errors, []);
+  } finally {
+    thirdHooks.onShutdown();
+  }
+  assert.deepEqual(harness.panes, []);
+  assert.deepEqual([...harness.observers], []);
+  assert.deepEqual([...harness.sections], []);
+});
+
+test("a failed old Preferences registration reports its error and releases the next enable", async (t) => {
+  const registered = deferred();
+  const registrationStarted = deferred();
+  const failure = new Error("Preferences registration failed");
+  const harness = installRuntime(t, {
+    register: async (registration) => {
+      if (registration !== 1) return;
+      registrationStarted.resolve();
+      await registered.promise;
+      throw failure;
+    },
+  });
+  const oldHooks = await harness.load("failed-old");
+  await registrationStarted.promise;
+  oldHooks.onShutdown();
+  const newHooks = await harness.load("failed-new");
+  await setImmediate();
+
+  try {
+    registered.resolve();
+    await setImmediate();
+
+    assert.deepEqual(harness.panes, [
+      { id: REFERENCE_FOR_ZOTERO_PREFERENCES_ID, registration: 2 },
+    ]);
+    assert.deepEqual([...harness.observers], ["local-names"]);
+    assert.deepEqual([...harness.sections], ["reader"]);
+    assert.deepEqual(harness.errors, [failure]);
+  } finally {
+    newHooks.onShutdown();
+  }
+  assert.deepEqual(harness.panes, []);
+  assert.deepEqual([...harness.observers], []);
+  assert.deepEqual([...harness.sections], []);
+});
+
 function installRuntime(
   t: TestContext,
-  options: { uiReady?: Promise<void>; register?(): Promise<void> } = {},
+  options: {
+    uiReady?: Promise<void>;
+    register?(registration: number): Promise<void>;
+  } = {},
 ) {
-  const panes = new Set<string>();
+  const panes: { id: string; registration: number }[] = [];
+  let preferenceRegistrations = 0;
   const observers = new Set<string>();
   const sections = new Set<string>();
   const registrations: string[] = [];
@@ -83,14 +204,22 @@ function installRuntime(
       },
     },
     PreferencePanes: {
-      async register() {
+      async register({ id }: { id: string }) {
+        if (panes.some((pane) => pane.id === id)) {
+          throw new Error(`Preferences pane already registered: ${id}`);
+        }
+        const registration = ++preferenceRegistrations;
         registrations.push("preferences");
-        await options.register?.();
-        panes.add("preferences");
-        return "preferences";
+        await options.register?.(registration);
+        panes.push({ id, registration });
+        return id;
       },
       unregister(id: string) {
-        assert.equal(panes.delete(id), true);
+        panes.splice(
+          0,
+          panes.length,
+          ...panes.filter((pane) => pane.id !== id),
+        );
       },
     },
     ItemPaneManager: {

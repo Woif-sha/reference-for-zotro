@@ -32,6 +32,7 @@ import { createZoteroLocalPaperNameSettings } from "./platform/zotero-local-pape
 import type { LocalPaperNameSettingsController } from "./application/local-paper-name-settings";
 
 const basicTool = new BasicTool();
+const PENDING_PREFERENCES_REGISTRATION_KEY = `${config.addonInstance}PendingPreferencesRegistration`;
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
   [key: string]: unknown;
 };
@@ -103,6 +104,8 @@ function createRuntime() {
           Zotero.uiReadyPromise,
         ]);
         if (!active) return;
+        await zotero[PENDING_PREFERENCES_REGISTRATION_KEY];
+        if (!active) return;
         await Promise.all(
           Zotero.getMainWindows().map((window) => onMainWindowLoad(window)),
         );
@@ -124,25 +127,41 @@ function createRuntime() {
         localPaperNameSync = manageZoteroLocalPaperNameSync(
           localPaperNameSettings,
         );
-        const registeredPreferences =
-          await registerReferenceForZoteroPreferences({
-            manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
-            pluginID: config.addonID,
-            rootURI: packagedRootURI,
-            settings: downloadSetup,
-            openAlexSettings,
-            testOpenAlexConnection: (apiKey, signal) =>
-              testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
-            openExternalURL: (url) => Zotero.launchURL(url),
-            modelSettings: modelSubsystem.settings,
-            localPaperNameSettings,
-          });
-        if (!active) {
-          registeredPreferences.unregister();
-          downloadSetup.dispose();
-          return;
+        let finishPreferencesRegistration!: () => void;
+        const registrationFinished = new Promise<void>((resolve) => {
+          finishPreferencesRegistration = resolve;
+        });
+        // Keep fixed-ID registration and late cleanup ordered across bundle reloads.
+        zotero[PENDING_PREFERENCES_REGISTRATION_KEY] = registrationFinished;
+        try {
+          const registeredPreferences =
+            await registerReferenceForZoteroPreferences({
+              manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
+              pluginID: config.addonID,
+              rootURI: packagedRootURI,
+              settings: downloadSetup,
+              openAlexSettings,
+              testOpenAlexConnection: (apiKey, signal) =>
+                testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
+              openExternalURL: (url) => Zotero.launchURL(url),
+              modelSettings: modelSubsystem.settings,
+              localPaperNameSettings,
+            });
+          if (!active) {
+            registeredPreferences.unregister();
+            downloadSetup.dispose();
+            return;
+          }
+          preferences = registeredPreferences;
+        } finally {
+          if (
+            zotero[PENDING_PREFERENCES_REGISTRATION_KEY] ===
+            registrationFinished
+          ) {
+            delete zotero[PENDING_PREFERENCES_REGISTRATION_KEY];
+          }
+          finishPreferencesRegistration();
         }
-        preferences = registeredPreferences;
         handle = startReferenceForZotero({
           factory: createReaderControllerFactory({
             downloadPapers: createScanSciDownloadPapers({

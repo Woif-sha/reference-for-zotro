@@ -1357,6 +1357,44 @@ test("opening a Current paper silently loads Citations and deduplicated Abstract
   assert.equal(controller.getState().references[0]?.abstractLoading, false);
 });
 
+for (const bypassCache of [false, true]) {
+  test(`refresh reloads the selected Citations limit with bypassCache=${bypassCache}`, async () => {
+    const requestedLimits: number[] = [];
+    const controller = new RelatedPapersController(42, {
+      loadPaper: async () => loadedPaper,
+      resolveReferences: async () => [],
+      readCachedResults: async () => ({
+        references: [],
+        citingPapers: papers(10),
+        citingPapersLoaded: 10,
+      }),
+      loadCitingPapers: async (limit) => {
+        requestedLimits.push(limit);
+        return papers(limit);
+      },
+      loadAbstract: async () => {
+        throw new Error("No DOI requires an Abstract lookup");
+      },
+      openURL() {},
+    });
+    await controller.refreshAsync();
+    controller.setCitationLimit(50);
+    await waitFor(() => controller.getState().citingPapersLoaded === 50);
+    requestedLimits.length = 0;
+
+    await controller.refreshAsync({ bypassCache });
+    await waitFor(
+      () => controller.getState().citingPapersStatus.status === "ready",
+    );
+
+    assert.deepEqual(requestedLimits, [50]);
+    assert.equal(controller.getState().citingPaperLimit, 50);
+    assert.equal(controller.getState().citingPapersLoaded, 50);
+    assert.equal(controller.getState().citingPapers.length, 50);
+    controller.dispose();
+  });
+}
+
 test("unchanged MinerU identity reuses persisted results while manual refresh bypasses them", async () => {
   let resolveCalls = 0;
   let cacheReads = 0;

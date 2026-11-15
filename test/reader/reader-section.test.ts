@@ -448,6 +448,54 @@ function downloadControllerStubs(): Pick<
   };
 }
 
+test("a failed Citations expansion keeps loaded papers and displays the provider error", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = {
+    ...readyState(),
+    activeTab: "citations",
+    citingPapers: [readyState().references[0]!],
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {};
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  state = {
+    ...state,
+    citingPaperLimit: 30,
+    citingPapersStatus: {
+      status: "error",
+      message:
+        "OpenCitations 查询失败：source-unavailable (opencitations-meta)",
+    },
+  };
+  listener?.(state);
+
+  assert.match(
+    dom.window.document.querySelector("[role=alert]")?.textContent ?? "",
+    /OpenCitations 查询失败：source-unavailable/,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-paper-title]")?.textContent,
+    "First reference",
+  );
+  mounted.destroy();
+});
+
 test("Reader section renders supported text for LaTeX-formatted Abstracts", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const state: ReaderSectionState = {

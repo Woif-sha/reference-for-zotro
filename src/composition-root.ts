@@ -110,6 +110,7 @@ export function createReaderControllerFactory(
             sourceFingerprint: loaded.sourceFingerprint,
             fullMarkdown: loaded.fullMarkdown,
             fullMdSha256: loaded.fullMdSha256,
+            citingPaperIdentifiers: currentPaperIdentifiers(loaded.identity),
             mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
@@ -132,7 +133,7 @@ export function createReaderControllerFactory(
           return resolved;
         },
         async loadCitingPapers(limit, context) {
-          const identifiers = currentPaperIdentifiers(context);
+          const identifiers = context.paper.citingPaperIdentifiers ?? {};
           const result = await gatewayFor(context).getCitingPapers(
             {
               identifiers,
@@ -327,13 +328,13 @@ export async function resolveReferenceEntry(
   return present(resolutionToReaderPaper(ordinal, displayTitle, resolution));
 }
 
-function currentPaperIdentifiers(context: ResolutionContext): {
+function currentPaperIdentifiers(identity: LoadedPaper["identity"]): {
   doi?: string;
   pmid?: string;
 } {
   const parent = Zotero.Items.getByLibraryAndKey(
-    context.paper.identity.libraryID,
-    context.paper.identity.parentItemKey,
+    identity.libraryID,
+    identity.parentItemKey,
   );
   const doi = String((parent && parent.getField("DOI")) || "")
     .trim()
@@ -365,7 +366,11 @@ function cacheIdentity(paper: LoadedPaper) {
     providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
     provider: GATEWAY_CACHE_PROVIDER,
     providerQueryVersion: PROVIDER_QUERY_VERSION,
-    normalizedRequestKey: GATEWAY_REQUEST_KEY,
+    normalizedRequestKey: JSON.stringify([
+      GATEWAY_REQUEST_KEY,
+      paper.citingPaperIdentifiers?.doi ?? null,
+      paper.citingPaperIdentifiers?.pmid ?? null,
+    ]),
   };
 }
 

@@ -29,6 +29,7 @@ export type LoadedPaper = {
   sourceFingerprint: string;
   fullMarkdown: string;
   fullMdSha256: string;
+  citingPaperIdentifiers?: Readonly<{ doi?: string; pmid?: string }>;
   mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
@@ -809,10 +810,11 @@ export class RelatedPapersController implements ReaderSectionController {
   private async enrichRelatedPapers(context: ResolutionContext): Promise<void> {
     if (!this.sessions.canCommit(context.token)) return;
     if (
-      this.state.citingPapersLoaded < 10 &&
-      this.state.citingPapersStatus.status === "idle"
+      this.state.citingPapersLoaded < this.state.citingPaperLimit &&
+      (this.state.citingPapersStatus.status === "idle" ||
+        this.state.citingPapersStatus.status === "ready")
     ) {
-      await this.loadCitingPapers(10, false);
+      await this.loadCitingPapers(this.state.citingPaperLimit, false);
     }
     if (!this.sessions.canCommit(context.token)) return;
     await this.prefetchMissingAbstracts(context, [

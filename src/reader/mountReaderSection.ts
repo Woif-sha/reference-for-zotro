@@ -834,15 +834,14 @@ function renderContent(
     return `<section class="rfz-status" role="status"><strong>正在查找引用论文…</strong><p>正在使用当前论文的 DOI 等标识查询 OpenCitations。</p></section>`;
   }
 
-  if (
+  const citationError =
     state.activeTab === "citations" &&
-    state.citingPapersStatus.status === "error" &&
-    papers.length === 0
-  ) {
-    return `<section class="rfz-status" role="alert"><strong>引用论文查询失败</strong><p>${escapeHTML(
-      state.citingPapersStatus.message,
-    )}</p></section>`;
-  }
+    state.citingPapersStatus.status === "error"
+      ? `<section class="rfz-status" role="alert"><strong>引用论文查询失败</strong><p>${escapeHTML(
+          state.citingPapersStatus.message,
+        )}</p></section>`
+      : "";
+  if (citationError && papers.length === 0) return citationError;
 
   if (
     state.activeTab === "citations" &&
@@ -858,7 +857,7 @@ function renderContent(
     )}</p></section>`;
   }
 
-  return `<ol class="rfz-paper-list">
+  return `${citationError}<ol class="rfz-paper-list">
     ${papers
       .map((paper) => {
         const status =

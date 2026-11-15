@@ -20,7 +20,7 @@ const loadedPaper: LoadedPaper = {
   },
   sourceFingerprint: "fingerprint",
   fullMarkdown: "# Current paper\n\nComplete MinerU Markdown.",
-  fullMdSha256: "full-md-sha256",
+  fullMdSha256: "a".repeat(64),
   mineruDirectory: "E:\\ZoteroData\\llm-for-zotero-mineru\\42",
   entries: [
     {
@@ -358,6 +358,102 @@ test("a complete recommendation survives a Controller restart without a second m
     restored.status === "completed" && restored.restoredFromCache,
     true,
   );
+});
+
+test("damaged recommendation hashes block model calls and preserve schema 1 and 2 caches", async (t) => {
+  for (const schemaVersion of [1, 2]) {
+    await t.test(`schema ${schemaVersion}`, async () => {
+      let stored: string | undefined;
+      let modelCalls = 0;
+      let writes = 0;
+      const modelIdentity = {
+        authMode: "codex_auth" as const,
+        providerId: "provider-codex",
+        modelId: "model-codex",
+        model: "gpt-5.4",
+        apiBase: "https://chatgpt.com/backend-api/codex/responses",
+        effort: "medium",
+      };
+      const candidate = {
+        ...resolvedPaper("Reference", "10.1000/reference"),
+        doi: "10.1000/reference",
+        abstract: "Reference abstract",
+      };
+      const service = new RelatedPaperRecommendationService(
+        {
+          identity: () => modelIdentity,
+          async generate() {
+            modelCalls += 1;
+            return {
+              identity: modelIdentity,
+              text: JSON.stringify({
+                schemaVersion: 1,
+                priority: [{ id: "paper-1", reason: "直接扩展当前方法。" }],
+                optional: [],
+              }),
+            };
+          },
+        },
+        {
+          cache: new RecommendationCacheRepository({
+            read: async () => stored,
+            async write(_directory, value) {
+              writes += 1;
+              stored = value;
+            },
+          }),
+        },
+      );
+      await service.recommend({
+        currentPaper: {
+          ...loadedPaper.identity,
+          sourceFingerprint: loadedPaper.sourceFingerprint,
+          fullMarkdown: loadedPaper.fullMarkdown,
+          fullMdSha256: loadedPaper.fullMdSha256,
+        },
+        references: [candidate],
+        citingPapers: [],
+      });
+      const file = JSON.parse(stored!);
+      file.schemaVersion = schemaVersion;
+      if (schemaVersion === 1) {
+        file.visibleCandidates = [
+          {
+            candidateKey: "doi:10.1000/reference",
+            paperID: candidate.id,
+            title: candidate.title,
+            sources: ["reference"],
+          },
+        ];
+      }
+      file.currentPaper.fullMdSha256 = "INVALID";
+      const damaged = JSON.stringify(file);
+      stored = damaged;
+      modelCalls = 0;
+      writes = 0;
+      const controller = new RelatedPapersController(42, {
+        loadPaper: async () => loadedPaper,
+        resolveReferences: async () => [candidate],
+        loadCitingPapers: async () => [],
+        readCachedRecommendation: (request) => service.readCached(request),
+        recommendPapers: (request) => service.recommend(request),
+        openURL() {},
+      });
+      t.after(() => controller.dispose());
+
+      await controller.refreshAsync();
+      await controller.generateRecommendations();
+
+      assert.equal(controller.getState().recommendation.status, "failed");
+      assert.match(
+        JSON.stringify(controller.getState().recommendation),
+        /Current paper identity is invalid/iu,
+      );
+      assert.equal(modelCalls, 0);
+      assert.equal(writes, 0);
+      assert.equal(stored, damaged);
+    });
+  }
 });
 
 test("a newly loaded Abstract invalidates a restored recommendation without auto-calling the model", async () => {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { RecommendationCacheRepository } from "../../src/cache/recommendation-cache-repository";
 import type { RecommendationModelPort } from "../../src/model/configured-recommendation-model";
 import { RelatedPaperRecommendationService } from "../../src/recommendation/related-paper-recommendation";
 import type { ReaderPaper } from "../../src/reader/mountReaderSection";
@@ -11,6 +12,124 @@ const currentPaperIdentity = {
   attachmentKey: "ATTACH01",
   parentItemKey: "PARENT01",
 };
+
+test("visible candidate metadata invalidates cached recommendations while input order and UI state do not", async () => {
+  let stored: string | undefined;
+  let modelCalls = 0;
+  const modelIdentity = {
+    authMode: "codex_auth" as const,
+    providerId: "provider-codex",
+    modelId: "model-codex",
+    model: "gpt-5.4",
+    apiBase: "https://chatgpt.com/backend-api/codex/responses",
+    effort: "medium",
+  };
+  const service = new RelatedPaperRecommendationService(
+    {
+      identity: () => modelIdentity,
+      async generate() {
+        modelCalls += 1;
+        return {
+          identity: modelIdentity,
+          text: JSON.stringify({
+            schemaVersion: 1,
+            priority: [{ id: "paper-2", reason: "直接扩展当前方法。" }],
+            optional: [{ id: "paper-1", reason: "提供理论基础。" }],
+          }),
+        };
+      },
+    },
+    {
+      cache: new RecommendationCacheRepository({
+        read: async () => stored,
+        async write(_directory, value) {
+          stored = value;
+        },
+      }),
+    },
+  );
+  const candidate = {
+    ...paper("reference:0", "Theory", "10.1000/theory", "Theory abstract"),
+    authors: "Original author",
+    venue: "Original venue",
+    year: "2020",
+    arxivID: "2001.00001",
+    pmcid: "PMC123456",
+    citationCount: 3,
+    referenceCount: 8,
+  };
+  const other = paper(
+    "reference:1",
+    "Method",
+    "10.1000/method",
+    "Method abstract",
+  );
+  const request = {
+    currentPaper: {
+      ...currentPaperIdentity,
+      fullMarkdown: "Current paper",
+      fullMdSha256: "a".repeat(64),
+      sourceFingerprint: "fingerprint",
+    },
+    references: [candidate, other],
+    citingPapers: [],
+  };
+  const result = await service.recommend(request);
+  assert.deepEqual(
+    await service.readCached({
+      ...request,
+      references: [{ ...candidate, ordinal: 99, abstractLoading: true }, other],
+    }),
+    result,
+  );
+  assert.deepEqual(
+    await service.readCached({
+      ...request,
+      references: [
+        {
+          ...candidate,
+          doi: "https://doi.org/10.1000/THEORY",
+          arxivID: " 2001.00001 ",
+          pmcid: "pmc123456",
+        },
+        other,
+      ],
+    }),
+    result,
+  );
+  const changedCandidates: Array<[string, ReaderPaper]> = [
+    ["title", { ...candidate, title: "Changed title" }],
+    ["authors", { ...candidate, authors: "Changed author" }],
+    ["venue", { ...candidate, venue: "Changed venue" }],
+    ["year", { ...candidate, year: "2026" }],
+    ["doi", { ...candidate, doi: "10.1000/changed" }],
+    ["arxivID", { ...candidate, arxivID: "2001.00002" }],
+    ["pmcid", { ...candidate, pmcid: "PMC123457" }],
+    ["citationCount", { ...candidate, citationCount: 4 }],
+    ["referenceCount", { ...candidate, referenceCount: 9 }],
+    [
+      "status",
+      {
+        ...candidate,
+        status: "unreachable",
+        primaryResultURL: undefined,
+        matchedBy: undefined,
+      },
+    ],
+  ];
+  for (const [name, changed] of changedCandidates) {
+    assert.equal(
+      await service.readCached({ ...request, references: [changed, other] }),
+      undefined,
+      name,
+    );
+  }
+  assert.deepEqual(
+    await service.readCached({ ...request, references: [other, candidate] }),
+    result,
+  );
+  assert.equal(modelCalls, 1);
+});
 
 test("one global model call ranks every abstract-bearing candidate and merges shared scholarly identities", async () => {
   const requests: Array<{ instructions: string; prompt: string }> = [];

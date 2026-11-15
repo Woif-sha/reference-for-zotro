@@ -203,6 +203,151 @@ test("does not guess an unmarked Reference number without a unique sequence", as
   );
 });
 
+test("preserves intervening page content when normalizing a cross-page Reference", async () => {
+  const first = "[8] Michael Hofmann. Modeling negative capacitance";
+  const continuation =
+    "field-effect transistors. In 2017 IEEE Conference. 1–4.";
+  const second = "[9] Eric Jones. SciPy.";
+  const footer = "ACM Transactions on Mathematical Software, Vol. 10, No. 3.";
+  const header = "Sparse solver study";
+  const fullMarkdown = [
+    "## Introduction",
+    "Intro paragraph.",
+    "## References",
+    first,
+    footer,
+    header,
+    continuation,
+    second,
+    "## Appendix",
+    "Appendix text.",
+  ].join("\n\n");
+  const files = validFiles(fullMarkdown);
+  const contentListPath = `${CACHE_DIRECTORY}/content_list.json`;
+  files[contentListPath] = {
+    text: JSON.stringify([
+      { type: "ref_text", text: first, page_idx: 4 },
+      { type: "footer", text: footer, page_idx: 4 },
+      { type: "header", text: header, page_idx: 5 },
+      { type: "ref_text", text: continuation, page_idx: 5 },
+      { type: "ref_text", text: second, page_idx: 5 },
+    ]),
+    revision: "content-list-cross-page-reference",
+  };
+  const referencesStart = fullMarkdown.indexOf("## References");
+  const appendixStart = fullMarkdown.indexOf("## Appendix");
+  files[`${CACHE_DIRECTORY}/manifest.json`] = {
+    text: JSON.stringify({
+      totalChars: fullMarkdown.length,
+      sections: [
+        { charStart: 0, charEnd: referencesStart - 2 },
+        { charStart: referencesStart, charEnd: appendixStart - 2 },
+        { charStart: appendixStart, charEnd: fullMarkdown.length },
+      ],
+    }),
+    revision: "manifest-cross-page-reference",
+  };
+  const base = createPorts(files);
+  const writes: string[] = [];
+  const ports: MinerUPorts = {
+    ...base,
+    files: {
+      ...base.files,
+      async writeUtf8Batch(changes) {
+        writes.push(...changes.map(({ path }) => path));
+        await base.files.writeUtf8Batch(changes);
+      },
+    },
+  };
+
+  const result = await loadMineruReferences(ATTACHMENT_ID, ports);
+  const canonicalReference = `${first} ${continuation}`;
+  const expectedMarkdown = [
+    "## Introduction",
+    "Intro paragraph.",
+    "## References",
+    canonicalReference,
+    footer,
+    header,
+    second,
+    "## Appendix",
+    "Appendix text.",
+  ].join("\n\n");
+
+  assert.equal(result.fullMarkdown, expectedMarkdown);
+  assert.equal(files[`${CACHE_DIRECTORY}/full.md`]!.text, expectedMarkdown);
+  assert.deepEqual(JSON.parse(files[contentListPath]!.text), [
+    { type: "ref_text", text: canonicalReference, page_idx: 4 },
+    { type: "footer", text: footer, page_idx: 4 },
+    { type: "header", text: header, page_idx: 5 },
+    { type: "ref_text", text: second, page_idx: 5 },
+  ]);
+  const normalizedAppendixStart = expectedMarkdown.indexOf("## Appendix");
+  assert.deepEqual(
+    JSON.parse(files[`${CACHE_DIRECTORY}/manifest.json`]!.text),
+    {
+      totalChars: expectedMarkdown.length,
+      sections: [
+        { charStart: 0, charEnd: referencesStart - 2 },
+        { charStart: referencesStart, charEnd: normalizedAppendixStart - 2 },
+        {
+          charStart: normalizedAppendixStart,
+          charEnd: expectedMarkdown.length,
+        },
+      ],
+    },
+  );
+  assert.deepEqual(writes, [
+    `${CACHE_DIRECTORY}/full.md`,
+    contentListPath,
+    `${CACHE_DIRECTORY}/manifest.json`,
+  ]);
+  const normalizedFiles = structuredClone(files);
+
+  await loadMineruReferences(ATTACHMENT_ID, ports);
+
+  assert.deepEqual(files, normalizedFiles);
+  assert.equal(writes.length, 3);
+});
+
+test("rejects multiple unmarked blocks in one missing-number gap without writing the cache", async () => {
+  const references = [
+    "[1] First paper. 2020.",
+    "Second paper title. 2021.",
+    "Third paper title. 2022.",
+    "[3] Last paper. 2023.",
+  ];
+  const fullMarkdown = ["## References", ...references].join("\n\n");
+  const files = validFiles(fullMarkdown);
+  files[`${CACHE_DIRECTORY}/content_list.json`] = {
+    text: JSON.stringify(
+      references.map((text) => ({ type: "ref_text", text })),
+    ),
+    revision: "content-list-ambiguous-missing-marker",
+  };
+  const originalFiles = structuredClone(files);
+  const base = createPorts(files);
+  let writes = 0;
+  const ports: MinerUPorts = {
+    ...base,
+    files: {
+      ...base.files,
+      async writeUtf8Batch(changes) {
+        writes += 1;
+        await base.files.writeUtf8Batch(changes);
+      },
+    },
+  };
+
+  await assertRejectsWithCode(
+    loadMineruReferences(ATTACHMENT_ID, ports),
+    "references-entry-structure-unsupported",
+  );
+
+  assert.equal(writes, 0);
+  assert.deepEqual(files, originalFiles);
+});
+
 test("loads references only from the validated current attachment MinerU cache", async () => {
   const fullMarkdown = "## References\n[1] First paper\n[2] Second paper";
   const files = validFiles(fullMarkdown);

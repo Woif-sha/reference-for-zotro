@@ -63,7 +63,7 @@ export class RecommendationModelSettingsCoordinator implements ModelPreferencesC
     return selectActiveModel(modelId, this.selectionDependencies());
   }
 
-  testDraftModel(
+  async testDraftModel(
     provider: ModelProvider,
     model: ProviderModel,
   ): Promise<string> {

@@ -22,6 +22,11 @@ as the upstream lineage for the Legacy Codex authentication and provider
 transport design; llm-for-zotero is not a second direct implementation source
 for this project.
 
+The Codex provider icon is copied unmodified from
+addon/content/icons/codex-logo.svg in llm-for-zotero, Copyright (C) Yile Wang
+and contributors, AGPL-3.0-or-later, commit
+fe5c99a015b8a121669acf68132e327b2979b470.
+
 The model-catalog discovery, sorting and display filtering, catalog-backed
 model selector, searchable multi-model picker, and related Preferences styles
 are directly adapted from Paper Translate for Zotero commit

@@ -143,6 +143,11 @@
   font-size: 12px;
   font-weight: 600;
 }
+.reference-model-preferences .pt-provider-brand-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
 .reference-model-preferences .pt-provider-toggle {
   display: flex;
   flex: 1;

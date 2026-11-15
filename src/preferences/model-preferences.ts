@@ -1,4 +1,5 @@
 import type { DiscoveredModel } from "../model/model-catalog";
+import { config } from "../../package.json";
 import { attachProviderModelSelect } from "./provider-model-select";
 import { openModelPicker } from "./model-picker";
 import type { ModelPreferencesController } from "../application/model-settings";
@@ -23,6 +24,7 @@ type EditorResources = {
   requests: Map<string, CatalogRequest>;
   selects: Map<string, ModelSelect[]>;
   pickers: Map<string, () => void>;
+  connectionTest?: { card: HTMLElement; button: HTMLButtonElement };
 };
 
 export interface MountedModelPreferences {
@@ -48,6 +50,7 @@ export function mountModelPreferences(
 
   const render = (): void => {
     if (!active) return;
+    cancelConnectionTest(resources, settings);
     disposeEditorResources(resources);
     cards.replaceChildren(
       ...drafts.map((provider, providerIndex) =>
@@ -101,6 +104,7 @@ export function mountModelPreferences(
       active = false;
       addProvider.removeEventListener("click", onAddProvider);
       unsubscribe();
+      resources.connectionTest = undefined;
       settings.cancelConnectionTests();
       disposeEditorResources(resources);
       resources.catalogs.clear();
@@ -192,6 +196,7 @@ function createProviderCard(params: ProviderCardParams): HTMLElement {
   );
   auth.select.dataset.providerAuthMode = "";
   auth.select.addEventListener("change", () => {
+    cancelConnectionTest(params.resources, params.settings, card);
     const next = auth.select.value as ModelAuthMode;
     resetProviderCatalog(params.resources, provider.id);
     provider.authMode = next;
@@ -210,6 +215,7 @@ function createProviderCard(params: ProviderCardParams): HTMLElement {
     apiBase.input.placeholder = "https://api.example.com/v1";
     apiBase.input.dataset.providerApiBase = "";
     apiBase.input.addEventListener("input", () => {
+      cancelConnectionTest(params.resources, params.settings, card);
       provider.apiBase = apiBase.input.value;
       resetProviderCatalog(params.resources, provider.id);
     });
@@ -218,6 +224,7 @@ function createProviderCard(params: ProviderCardParams): HTMLElement {
     apiKey.input.autocomplete = "off";
     apiKey.input.dataset.providerApiKey = "";
     apiKey.input.addEventListener("input", () => {
+      cancelConnectionTest(params.resources, params.settings, card);
       provider.apiKey = apiKey.input.value;
       resetProviderCatalog(params.resources, provider.id);
     });
@@ -302,6 +309,7 @@ function createModelRow(
   applyInputStyle(modelInput);
   modelInput.classList.add("pt-model-input");
   modelInput.addEventListener("input", () => {
+    cancelConnectionTest(params.resources, params.settings, card);
     model.model = modelInput.value;
     updateProviderHeader(card, provider, params.configuration.activeModelId);
   });
@@ -318,6 +326,7 @@ function createModelRow(
     loadModels: (options) =>
       loadProviderCatalog(params, provider, options?.force),
     onModelPicked(id) {
+      cancelConnectionTest(params.resources, params.settings, card);
       model.model = id;
       updateProviderHeader(card, provider, params.configuration.activeModelId);
     },
@@ -341,6 +350,7 @@ function createModelRow(
     effort.style.width = "100px";
     effort.setAttribute("aria-label", "思考强度");
     effort.addEventListener("change", () => {
+      cancelConnectionTest(params.resources, params.settings, card);
       model.effort = effort.value;
     });
     row.append(effort);
@@ -368,15 +378,24 @@ function createModelRow(
   const test = actionButton(params.root, "测试连接");
   test.dataset.testModel = model.id;
   test.addEventListener("click", () => {
+    cancelConnectionTest(params.resources, params.settings);
+    const run = { card, button: test };
+    params.resources.connectionTest = run;
     test.disabled = true;
     showCardStatus(card, "测试中…", false);
     void params.settings
       .testDraftModel(provider, model)
-      .then((reply) => showCardStatus(card, `连接成功：${reply}`, false))
-      .catch((error: unknown) =>
-        showCardStatus(card, `连接失败：${errorMessage(error)}`, true),
-      )
+      .then((reply) => {
+        if (params.resources.connectionTest === run)
+          showCardStatus(card, `连接成功：${reply}`, false);
+      })
+      .catch((error: unknown) => {
+        if (params.resources.connectionTest === run)
+          showCardStatus(card, `连接失败：${errorMessage(error)}`, true);
+      })
       .finally(() => {
+        if (params.resources.connectionTest !== run) return;
+        params.resources.connectionTest = undefined;
         test.disabled = false;
       });
   });
@@ -392,7 +411,7 @@ function createModelRow(
     provider.models = provider.models.filter((entry) => entry.id !== model.id);
     params.onDraftsChanged([...params.drafts]);
   });
-  row.append(use, test, remove);
+  row.append(modelSelect.refreshButton, use, test, remove);
   wrap.append(row, modelSelect.details);
   return wrap;
 }
@@ -464,6 +483,28 @@ function showCardStatus(
   status.hidden = false;
   status.style.color = failed ? "#b42318" : "#168c68";
   status.textContent = message;
+}
+
+function cancelConnectionTest(
+  resources: EditorResources,
+  settings: ModelPreferencesController,
+  card?: HTMLElement,
+): void {
+  const run = resources.connectionTest;
+  if (run && (!card || run.card === card)) {
+    resources.connectionTest = undefined;
+    run.button.disabled = false;
+    settings.cancelConnectionTests();
+    clearCardStatus(run.card);
+  }
+  if (card) clearCardStatus(card);
+}
+
+function clearCardStatus(card: HTMLElement): void {
+  const status = card.querySelector<HTMLElement>("[data-provider-status]");
+  if (!status) return;
+  status.hidden = true;
+  status.textContent = "";
 }
 
 function nextProviderName(providers: readonly ModelProvider[]): string {
@@ -613,7 +654,12 @@ function createProviderHeader(
   const icon = createHtml(params.root, "span");
   icon.className = "pt-provider-brand-icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = provider.authMode === "codex_auth" ? "C" : "API";
+  if (provider.authMode === "codex_auth") {
+    const image = createHtml(params.root, "img") as HTMLImageElement;
+    image.src = `chrome://${config.addonRef}/content/icons/providers/codex.svg`;
+    image.alt = "";
+    icon.append(image);
+  } else icon.textContent = "API";
   const toggle = actionButton(params.root, "");
   toggle.className = "pt-provider-toggle";
   toggle.dataset.toggleProvider = "";

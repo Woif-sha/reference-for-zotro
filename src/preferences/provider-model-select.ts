@@ -13,6 +13,7 @@ export function attachProviderModelSelect(args: {
 }): {
   container: HTMLElement;
   details: HTMLElement;
+  refreshButton: HTMLButtonElement;
   setModels(models: DiscoveredModel[]): void;
   reset(): void;
   dispose(): void;
@@ -228,6 +229,7 @@ export function attachProviderModelSelect(args: {
   return {
     container,
     details,
+    refreshButton: refresh,
     setModels,
     reset() {
       if (disposed) return;

@@ -15,7 +15,10 @@ import path from "node:path";
 import { readdir, rename } from "node:fs/promises";
 import test from "node:test";
 import { startZoteroLocalPaperNameSync } from "../../src/platform/zotero-local-paper-name-sync";
-import { assertNoWindowsReparsePoints } from "../../src/platform/zotero-windows-file-safety";
+import {
+  assertNoWindowsReparsePoints,
+  assertUnchangedNormalizedPath,
+} from "../../src/platform/zotero-windows-file-safety";
 import {
   geckoWindowsFile,
   installNativeWindowsAttributes,
@@ -76,6 +79,25 @@ test("Gecko drive-root attribute contract uses an absolute root rather than the 
   assertNoWindowsReparsePoints(geckoWindowsFile(pdf) as nsIFile, "reparse");
 
   assert.deepEqual(harness.nativeCalls, [pdf, "E:\\papers", "E:\\"]);
+});
+
+test("Gecko drive-root normalization accepts a selected absolute root without accepting drive-relative paths", () => {
+  assert.doesNotThrow(() =>
+    assertUnchangedNormalizedPath(
+      geckoWindowsFile("E:\\") as nsIFile,
+      "E:\\",
+      "Local paper root changed",
+    ),
+  );
+  assert.throws(
+    () =>
+      assertUnchangedNormalizedPath(
+        geckoWindowsFile("E:\\papers") as nsIFile,
+        "E:papers",
+        "Local paper root changed",
+      ),
+    /Local paper root changed/u,
+  );
 });
 
 test(

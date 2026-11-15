@@ -63,9 +63,7 @@ export function assertNoWindowsReparsePoints(
       if (/^\\\\[^\\]+\\[^\\]+\\?$/u.test(ancestor.path)) break;
       // Gecko stores drive roots as "E:", which Win32 otherwise treats as
       // the current directory on that drive rather than its absolute root.
-      const path = /^[A-Za-z]:$/u.test(ancestor.path)
-        ? `${ancestor.path}\\`
-        : ancestor.path;
+      const path = absoluteDriveRoot(ancestor.path);
       const attributes = getFileAttributes(path);
       if (attributes === 0xffffffff) {
         throw new Error(
@@ -81,9 +79,13 @@ export function assertNoWindowsReparsePoints(
 
 export function sameWindowsPath(left: string, right: string): boolean {
   return (
-    left.replace(/\//gu, "\\").toLowerCase() ===
-    right.replace(/\//gu, "\\").toLowerCase()
+    absoluteDriveRoot(left.replace(/\//gu, "\\")).toLowerCase() ===
+    absoluteDriveRoot(right.replace(/\//gu, "\\")).toLowerCase()
   );
+}
+
+function absoluteDriveRoot(path: string): string {
+  return /^[A-Za-z]:$/u.test(path) ? `${path}\\` : path;
 }
 
 function assertExistingNonLink(file: nsIFile, label: string): void {

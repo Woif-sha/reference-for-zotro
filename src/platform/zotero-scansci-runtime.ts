@@ -272,12 +272,17 @@ async function runZoteroSubprocess(
     await process.kill();
   };
   try {
-    if (!process.stdin.write)
-      throw new Error("Subprocess stdin is unavailable");
-    await process.stdin.write(request.stdin);
-    await process.stdin.close();
+    const input = (async () => {
+      if (!process.stdin.write)
+        throw new Error("Subprocess stdin is unavailable");
+      await process.stdin.write(request.stdin);
+      await process.stdin.close();
+    })();
     const outcome = await Promise.race([
-      wait.then((result) => ({ kind: "exit" as const, result })),
+      Promise.all([input, wait]).then(([, result]) => ({
+        kind: "exit" as const,
+        result,
+      })),
       timeout.promise.then(() => ({ kind: "timeout" as const })),
       abort.promise.then(() => ({ kind: "abort" as const })),
     ]);

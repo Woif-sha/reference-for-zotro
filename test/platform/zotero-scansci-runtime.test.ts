@@ -175,6 +175,80 @@ test("Zotero subprocess reports timeout and explicit output truncation", async (
   assert.equal(result.stderrTruncated, true);
 });
 
+for (const stage of ["write", "close"] as const) {
+  for (const interruption of ["timeout", "abort"] as const) {
+    test(`Zotero subprocess handles ${interruption} while stdin ${stage} is blocked`, async () => {
+      const completion = deferred<{ exitCode: number }>();
+      const blocked = deferred<void>();
+      const started = deferred<void>();
+      const stdin = new FakePipe([]);
+      stdin[stage] = async () => {
+        started.resolve();
+        await blocked.promise;
+      };
+      let killed = 0;
+      const handle = processHandle(
+        stdin,
+        new FakePipe([]),
+        new FakePipe([]),
+        completion.promise,
+        () => {
+          killed += 1;
+          completion.resolve({ exitCode: -1 });
+        },
+      );
+      installSubprocess(handle, []);
+      const runtime = createZoteroScanSciRuntime({
+        packagedRootURI: "resource://reference-for-zotero/",
+        moduleRoot: "C:\\profile\\module",
+      });
+      const controller = new AbortController();
+      const running = runtime.runProcess({
+        command: "C:\\Python\\python.exe",
+        arguments: ["sidecar.py"],
+        stdin: "{}\n",
+        timeoutMilliseconds: interruption === "timeout" ? 1 : 10_000,
+        removeEnvironment: [],
+        signal: controller.signal,
+      });
+      const observed = running.then(
+        (result) => ({ kind: "result" as const, result }),
+        (error: unknown) => ({ kind: "error" as const, error }),
+      );
+      await started.promise;
+      if (interruption === "abort") controller.abort();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const outcome = await Promise.race([
+          observed,
+          new Promise<{ kind: "stalled" }>((resolve) => {
+            timer = setTimeout(() => resolve({ kind: "stalled" }), 100);
+          }),
+        ]);
+        assert.notEqual(outcome.kind, "stalled");
+        assert.equal(killed, 1);
+        if (interruption === "timeout") {
+          assert.equal(outcome.kind, "result");
+          if (outcome.kind === "result") {
+            assert.equal(outcome.result.timedOut, true);
+          }
+        } else {
+          assert.equal(outcome.kind, "error");
+          if (outcome.kind === "error") {
+            assert.equal((outcome.error as Error).name, "AbortError");
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+        blocked.reject(new Error("stdin closed after process interruption"));
+        completion.resolve({ exitCode: -1 });
+        await observed;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    });
+  }
+}
+
 test("Zotero final commit moves one regular non-link file exclusively into the destination root", async () => {
   const moved: unknown[] = [];
   installFileSystem(
@@ -511,8 +585,10 @@ function installFileSystem(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

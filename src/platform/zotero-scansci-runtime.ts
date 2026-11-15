@@ -11,6 +11,7 @@ import type {
 import {
   assertExistingRegularDirectory,
   assertExistingRegularFile,
+  assertNoWindowsReparsePoints,
   assertUnchangedNormalizedPath,
 } from "./zotero-windows-file-safety";
 
@@ -150,6 +151,10 @@ export function createZoteroScanSciRuntime(
           destinationParent,
         ];
         for (const [index, file] of normalizedFiles.entries()) {
+          assertNoWindowsReparsePoints(
+            file,
+            "Final commit cannot traverse a symbolic link or junction",
+          );
           assertUnchangedNormalizedPath(
             file,
             requestedPaths[index] ?? "",

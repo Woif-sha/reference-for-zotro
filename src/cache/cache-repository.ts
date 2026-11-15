@@ -16,10 +16,7 @@ export type LiteratureCacheFiles = Readonly<
 >;
 
 export interface CacheStorage {
-  read(
-    directory: string,
-    file: LiteratureCacheFileName,
-  ): Promise<string | undefined>;
+  read(directory: string): Promise<Partial<LiteratureCacheFiles>>;
   write(
     directory: string,
     files: LiteratureCacheFiles,
@@ -75,7 +72,8 @@ export class LiteratureCacheRepository {
     identity: LiteratureCacheIdentity,
   ): Promise<CachedRelatedPapers | undefined> {
     const directory = createLiteratureCacheDirectory(identity);
-    const rawManifest = await this.storage.read(directory, "manifest.json");
+    const files = await this.storage.read(directory);
+    const rawManifest = files["manifest.json"];
     if (rawManifest === undefined) return undefined;
     const manifest = parseManifest(rawManifest);
     if (
@@ -84,11 +82,9 @@ export class LiteratureCacheRepository {
       return undefined;
     }
 
-    const [rawReferences, rawCitations, rawAbstracts] = await Promise.all([
-      this.storage.read(directory, "references.json"),
-      this.storage.read(directory, "citations.json"),
-      this.storage.read(directory, "abstract.json"),
-    ]);
+    const rawReferences = files["references.json"];
+    const rawCitations = files["citations.json"];
+    const rawAbstracts = files["abstract.json"];
     if (rawReferences === undefined || rawCitations === undefined) {
       throw new Error("Literature cache is incomplete");
     }

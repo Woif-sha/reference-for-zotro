@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   LiteratureCacheRepository,
   type CacheStorage,
-  type LiteratureCacheFileName,
   type LiteratureCacheFiles,
 } from "../../src/cache/cache-repository";
 import { lookupOpenAlexAbstract } from "../../src/literature/providers/openalex";
@@ -13,11 +12,15 @@ class MemoryStorage implements CacheStorage {
   readonly values = new Map<string, string>();
   failWrites = false;
 
-  async read(
-    directory: string,
-    file: LiteratureCacheFileName,
-  ): Promise<string | undefined> {
-    return this.values.get(`${directory}/${file}`);
+  async read(directory: string): Promise<Partial<LiteratureCacheFiles>> {
+    return Object.fromEntries(
+      [
+        "manifest.json",
+        "references.json",
+        "citations.json",
+        "abstract.json",
+      ].map((file) => [file, this.values.get(`${directory}/${file}`)]),
+    );
   }
 
   async write(

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { RelatedPapersController } from "../../src/application/related-papers-controller";
 import { loadMineruReferences } from "../../src/mineru/mineru-adapter";
 import {
   createZoteroCacheStorage,
@@ -150,34 +151,7 @@ test("cleanup failure retains commit and rollback errors and their recovery back
 });
 
 test("a MinerU normalization write failure preserves a readable original file set", async (t) => {
-  const directory = `${DATA_DIRECTORY}\\llm-for-zotero-mineru\\42`;
-  const markdown = "## References\n1. First    paper\n2. Second paper";
-  const values = {
-    "_llm_source.json": JSON.stringify({
-      kind: "llm-for-zotero/mineru-cache-source",
-      version: 2,
-      attachmentId: 42,
-      attachmentKey: "ATTACH01",
-      parentItemKey: "PARENT01",
-      origin: "parsed",
-      recordedAt: "2026-07-30T00:00:00.000Z",
-    }),
-    "full.md": markdown,
-    "manifest.json": JSON.stringify({
-      totalChars: markdown.length,
-      sections: [{ charStart: 0, charEnd: markdown.length }],
-    }),
-    "content_list.json": JSON.stringify([
-      { type: "ref_text", text: "1. First    paper" },
-      { type: "ref_text", text: "2. Second paper" },
-    ]),
-  };
-  const files = new Map(
-    Object.entries(values).map(([name, text]) => [
-      `${directory}\\${name}`,
-      encode(text),
-    ]),
-  );
+  const files = mineruFiles();
   const original = new Map(files);
   const io = installRuntime(t, files);
   const write = io.write;
@@ -201,6 +175,48 @@ test("a MinerU normalization write failure preserves a readable original file se
     ["First paper", "Second paper"],
   );
 });
+
+for (const action of ["refreshing", "opening another Reader"] as const) {
+  test(`${action} during MinerU normalization loads the complete cache`, async (t) => {
+    const io = installRuntime(t, mineruFiles());
+    const move = io.move;
+    let normalizationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      normalizationStarted = resolve;
+    });
+    let releaseNormalization!: () => void;
+    const release = new Promise<void>((resolve) => {
+      releaseNormalization = resolve;
+    });
+    io.move = async (source, destination) => {
+      await move(source, destination);
+      if (destination.endsWith("full.md")) {
+        normalizationStarted();
+        await release;
+      }
+    };
+    const initialReader = createMinerUReader();
+    const nextReader =
+      action === "refreshing" ? initialReader : createMinerUReader();
+    t.after(() => {
+      initialReader.dispose();
+      nextReader.dispose();
+    });
+
+    const initial = initialReader.refreshAsync();
+    await started;
+    const next = nextReader.refreshAsync();
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      releaseNormalization();
+    }
+    await Promise.all([initial, next]);
+
+    assert.equal(nextReader.getState().status, "ready");
+    assert.equal(nextReader.getState().message, undefined);
+  });
+}
 
 function installRuntime(t: test.TestContext, files: Map<string, Uint8Array>) {
   const io = {
@@ -262,6 +278,50 @@ function installRuntime(t: test.TestContext, files: Map<string, Uint8Array>) {
 
 function encode(value: string): Uint8Array {
   return new TextEncoder().encode(value);
+}
+
+function createMinerUReader() {
+  const mineru = createZoteroMinerUPorts();
+  return new RelatedPapersController(42, {
+    async loadPaper(itemID) {
+      const paper = await loadMineruReferences(itemID, mineru);
+      return { ...paper, mineruDirectory: paper.cacheDirectory };
+    },
+    resolveReferences: async () => [],
+    loadCitingPapers: async () => [],
+    openURL() {},
+  });
+}
+
+function mineruFiles() {
+  const directory = `${DATA_DIRECTORY}\\llm-for-zotero-mineru\\42`;
+  const markdown = "## References\n1. First    paper\n2. Second paper";
+  const values = {
+    "_llm_source.json": JSON.stringify({
+      kind: "llm-for-zotero/mineru-cache-source",
+      version: 2,
+      attachmentId: 42,
+      attachmentKey: "ATTACH01",
+      parentItemKey: "PARENT01",
+      origin: "parsed",
+      recordedAt: "2026-07-30T00:00:00.000Z",
+    }),
+    "full.md": markdown,
+    "manifest.json": JSON.stringify({
+      totalChars: markdown.length,
+      sections: [{ charStart: 0, charEnd: markdown.length }],
+    }),
+    "content_list.json": JSON.stringify([
+      { type: "ref_text", text: "1. First    paper" },
+      { type: "ref_text", text: "2. Second paper" },
+    ]),
+  };
+  return new Map(
+    Object.entries(values).map(([name, text]) => [
+      `${directory}\\${name}`,
+      encode(text),
+    ]),
+  );
 }
 
 function cacheFiles(value: string) {

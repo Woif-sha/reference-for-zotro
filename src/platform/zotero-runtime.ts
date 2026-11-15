@@ -37,7 +37,6 @@ type IOUtilsLike = {
 
 export function createZoteroMinerUPorts(): MinerUPorts {
   const io = getIOUtils();
-  const queue = createDirectoryWriteQueue();
   return {
     dataDirectory: getDataDirectory(),
     items: {
@@ -64,9 +63,7 @@ export function createZoteroMinerUPorts(): MinerUPorts {
         return { text, revision: `${bytes.byteLength}:${await sha256(text)}` };
       },
       async writeUtf8Batch(changes): Promise<void> {
-        if (changes.length === 0) return;
-        const directory = changes[0]!.path.replace(/[\\/][^\\/]+$/u, "");
-        await queue.enqueue(directory, () => replaceUtf8Files(io, changes));
+        await replaceUtf8Files(io, changes);
       },
     },
     sha256,
@@ -89,15 +86,31 @@ export function createProviderPorts(): ProviderPorts {
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryWriteQueue();
+  const queue = createDirectoryQueue();
   return {
-    async read(directory, file) {
-      await queue.wait(directory);
-      const path = joinPath(root, directory, file);
-      if (!(await io.exists(path))) return undefined;
-      const raw = await io.read(path);
-      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    read(directory) {
+      return queue.enqueue(directory, async () => {
+        const readFile = async (file: LiteratureCacheFileName) => {
+          const path = joinPath(root, directory, file);
+          if (!(await io.exists(path))) return undefined;
+          const raw = await io.read(path);
+          const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+          return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        };
+        const manifest = await readFile("manifest.json");
+        if (manifest === undefined) return {};
+        const [references, citations, abstracts] = await Promise.all([
+          readFile("references.json"),
+          readFile("citations.json"),
+          readFile("abstract.json"),
+        ]);
+        return {
+          "manifest.json": manifest,
+          "references.json": references,
+          "citations.json": citations,
+          "abstract.json": abstracts,
+        };
+      });
     },
     write(directory, files, signal) {
       return queue.enqueue(directory, async () => {
@@ -129,7 +142,7 @@ export function createZoteroCacheStorage(): CacheStorage {
 export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryWriteQueue();
+  const queue = createDirectoryQueue();
   return {
     async read(directory) {
       await queue.wait(directory);
@@ -291,19 +304,19 @@ function paperCacheRoot(): string {
   );
 }
 
-function createDirectoryWriteQueue(): Readonly<{
-  wait(key: string): Promise<void> | undefined;
-  enqueue(key: string, task: () => Promise<void>): Promise<void>;
+function createDirectoryQueue(): Readonly<{
+  wait(key: string): Promise<unknown> | undefined;
+  enqueue<T>(key: string, task: () => Promise<T>): Promise<T>;
 }> {
-  const writes = new Map<string, Promise<void>>();
+  const operations = new Map<string, Promise<unknown>>();
   return {
-    wait: (key) => writes.get(key),
+    wait: (key) => operations.get(key),
     enqueue(key, task) {
-      const previous = writes.get(key) ?? Promise.resolve();
+      const previous = operations.get(key) ?? Promise.resolve();
       const operation = previous.catch(() => undefined).then(task);
-      writes.set(key, operation);
+      operations.set(key, operation);
       return operation.finally(() => {
-        if (writes.get(key) === operation) writes.delete(key);
+        if (operations.get(key) === operation) operations.delete(key);
       });
     },
   };

@@ -62,6 +62,10 @@ export interface RecommendationModelTransports {
 
 export class ConfiguredRecommendationModel implements RecommendationModelPort {
   private readonly active = new Set<AbortController>();
+  private readonly identityListeners = new Set<() => void>();
+  private unsubscribeConfigurationChanges?: () => void;
+  private identityWasRequested = false;
+  private currentIdentity?: string;
   private stopped = false;
 
   constructor(
@@ -73,13 +77,26 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
   ) {}
 
   identity(): RecommendationModelIdentity {
-    return modelIdentity(activeModel(this.getConfiguration()));
+    return modelIdentity(this.readActiveModel());
   }
 
   subscribeIdentityChange(listener: () => void): () => void {
-    return (
-      this.subscribeToConfigurationChanges?.(listener) ?? (() => undefined)
-    );
+    this.identityListeners.add(listener);
+    this.unsubscribeConfigurationChanges ??=
+      this.subscribeToConfigurationChanges?.(() => {
+        const wasRequested = this.identityWasRequested;
+        const previousIdentity = this.currentIdentity;
+        this.readActiveModel();
+        if (!wasRequested || previousIdentity === this.currentIdentity) return;
+        for (const subscriber of [...this.identityListeners]) subscriber();
+      });
+    return () => {
+      this.identityListeners.delete(listener);
+      if (this.identityListeners.size === 0) {
+        this.unsubscribeConfigurationChanges?.();
+        this.unsubscribeConfigurationChanges = undefined;
+      }
+    };
   }
 
   async generate(
@@ -88,7 +105,7 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
     if (this.stopped) {
       throw new Error("Configured recommendation model is shut down");
     }
-    const model = activeModel(this.getConfiguration());
+    const model = this.readActiveModel();
     const controller = new AbortController();
     const onExternalAbort = () => controller.abort(request.signal?.reason);
     if (request.signal?.aborted) onExternalAbort();
@@ -118,6 +135,17 @@ export class ConfiguredRecommendationModel implements RecommendationModelPort {
     if (this.stopped) return;
     this.stopped = true;
     this.cancelActiveRequests();
+    this.unsubscribeConfigurationChanges?.();
+    this.unsubscribeConfigurationChanges = undefined;
+    this.identityListeners.clear();
+  }
+
+  private readActiveModel(): RuntimeModel {
+    this.identityWasRequested = true;
+    this.currentIdentity = undefined;
+    const model = activeModel(this.getConfiguration());
+    this.currentIdentity = JSON.stringify(modelIdentity(model));
+    return model;
   }
 
   private runSelected(

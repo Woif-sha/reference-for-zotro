@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { mkdtemp, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createZoteroScanSciRuntime } from "../../src/platform/zotero-scansci-runtime";
+import {
+  geckoWindowsFile,
+  installNativeWindowsAttributes,
+  nativeWindowsAttributes,
+} from "./windows-file-fixture";
 
 test("Zotero subprocess streams complete JSONL lines and applies bounded environment removal", async () => {
   const stdin = new FakePipe([]);
@@ -241,6 +256,120 @@ test("Zotero final commit rejects directories, links, and reparse traversal", as
   }
 });
 
+test(
+  "Windows final commit rejects a selected destination junction and a junction ancestor",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    for (const beneathJunction of [false, true]) {
+      await t.test(
+        beneathJunction ? "junction ancestor" : "destination junction",
+        async () => {
+          await withWindowsCommitFiles(
+            async ({ root, sourceRoot, source, outside }) => {
+              const junction = path.join(root, "selected");
+              symlinkSync(outside, junction, "junction");
+              const selected = beneathJunction
+                ? path.join(junction, "papers")
+                : junction;
+              if (beneathJunction) mkdirSync(path.join(outside, "papers"));
+              const target = path.join(selected, "Canonical.pdf");
+              const native = nativeWindowsAttributes([source, selected]);
+              assert.equal(native[junction] & 0x400, 0x400);
+              const harness = installNativeCommitFiles(native);
+
+              await assert.rejects(
+                harness.runtime.files.commitExclusiveContained(
+                  sourceRoot,
+                  source,
+                  selected,
+                  target,
+                ),
+                /cannot traverse a symbolic link or junction/u,
+              );
+
+              assert.deepEqual(harness.moves, []);
+              assert.equal(existsSync(source), true);
+              assert.equal(existsSync(target), false);
+            },
+          );
+        },
+      );
+    }
+  },
+);
+
+test(
+  "Windows final commit moves a regular file after checking native ancestor attributes",
+  { skip: process.platform !== "win32" },
+  async () => {
+    await withWindowsCommitFiles(async ({ sourceRoot, source, outside }) => {
+      const target = path.join(outside, "Canonical.pdf");
+      const native = nativeWindowsAttributes([source, outside]);
+      const harness = installNativeCommitFiles(native);
+
+      await harness.runtime.files.commitExclusiveContained(
+        sourceRoot,
+        source,
+        outside,
+        target,
+      );
+
+      assert.deepEqual(harness.moves, [
+        [source, target, { noOverwrite: true }],
+      ]);
+      assert.equal(existsSync(source), false);
+      assert.equal(readFileSync(target, "utf8"), "%PDF-1.7\nrequest output");
+      assert.ok(harness.nativeCalls.includes(source));
+      assert.ok(harness.nativeCalls.includes(outside));
+      assert.ok(harness.nativeCalls.includes(path.parse(outside).root));
+    });
+  },
+);
+
+async function withWindowsCommitFiles(
+  run: (files: {
+    root: string;
+    sourceRoot: string;
+    source: string;
+    outside: string;
+  }) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), "rfz-scansci-commit-"));
+  const sourceRoot = path.join(root, "request");
+  const source = path.join(sourceRoot, "paper.pdf");
+  const outside = path.join(root, "outside");
+  mkdirSync(sourceRoot);
+  mkdirSync(outside);
+  writeFileSync(source, "%PDF-1.7\nrequest output");
+  try {
+    await run({ root, sourceRoot, source, outside });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function installNativeCommitFiles(attributes: Record<string, number>) {
+  const nativeCalls = installNativeWindowsAttributes(attributes);
+  const moves: unknown[] = [];
+  Object.assign(globalThis, {
+    Zotero: { File: { pathToFile: geckoWindowsFile } },
+    IOUtils: {
+      async move(source: string, target: string, options: unknown) {
+        moves.push([source, target, options]);
+        await rename(source, target);
+      },
+    },
+  });
+  return {
+    nativeCalls,
+    moves,
+    runtime: createZoteroScanSciRuntime({
+      packagedRootURI: "resource://reference-for-zotero/",
+      moduleRoot: "C:\\profile\\module",
+    }),
+  };
+}
+
 class FakePipe {
   written = "";
   closed = false;
@@ -359,6 +488,9 @@ function installFileSystem(
   files: Readonly<Record<string, FakeFile>>,
   moved: unknown[],
 ): void {
+  installNativeWindowsAttributes(
+    Object.fromEntries(Object.values(files).map((file) => [file.path, 0])),
+  );
   Object.assign(globalThis, {
     Zotero: {
       File: {

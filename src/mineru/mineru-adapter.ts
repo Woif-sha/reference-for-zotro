@@ -61,6 +61,8 @@ export type LoadedMinerUReferences = Readonly<{
   entries: readonly ReferenceEntry[];
 }>;
 
+const cacheLoads = new Map<string, Promise<LoadedMinerUReferences>>();
+
 export async function loadMineruReferences(
   attachmentID: number,
   ports: MinerUPorts,
@@ -71,13 +73,21 @@ export async function loadMineruReferences(
     CACHE_ROOT_NAME,
     String(identity.attachmentID),
   );
-  try {
-    return await loadMineruReferencesFromCache(
-      attachmentID,
-      identity,
-      cacheDirectory,
-      ports,
+  // Readers sharing a cache must not inspect another Reader's normalization.
+  const previous = cacheLoads.get(cacheDirectory) ?? Promise.resolve();
+  const loading = previous
+    .catch(() => undefined)
+    .then(() =>
+      loadMineruReferencesFromCache(
+        attachmentID,
+        identity,
+        cacheDirectory,
+        ports,
+      ),
     );
+  cacheLoads.set(cacheDirectory, loading);
+  try {
+    return await loading;
   } catch (error) {
     if (error instanceof MinerUContractError) {
       throw new MinerUContractError(
@@ -89,6 +99,10 @@ export async function loadMineruReferences(
       );
     }
     throw error;
+  } finally {
+    if (cacheLoads.get(cacheDirectory) === loading) {
+      cacheLoads.delete(cacheDirectory);
+    }
   }
 }
 

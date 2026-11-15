@@ -63,12 +63,10 @@ test("an aborted staged write cannot overwrite the next generation cache", async
     obsolete.abort();
     const secondWrite = storage.write("1-ABCD1234", cacheFiles("current"));
     let readSettled = false;
-    const readDuringWrite = storage
-      .read("1-ABCD1234", "references.json")
-      .then((value) => {
-        readSettled = true;
-        return value;
-      });
+    const readDuringWrite = storage.read("1-ABCD1234").then((value) => {
+      readSettled = true;
+      return value;
+    });
     await Promise.resolve();
     assert.equal(readSettled, false);
     releaseFirstStage.resolve();
@@ -76,7 +74,7 @@ test("an aborted staged write cannot overwrite the next generation cache", async
     await assert.rejects(firstWrite, { name: "AbortError" });
     await secondWrite;
 
-    assert.equal(await readDuringWrite, "current");
+    assert.equal((await readDuringWrite)["references.json"], "current");
     assert.equal(
       new TextDecoder().decode(files.get(recommendationPath)),
       "recommendation",

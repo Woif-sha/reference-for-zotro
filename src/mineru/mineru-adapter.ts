@@ -260,10 +260,8 @@ function mapNormalizedOffset(
   let delta = 0;
   for (const edit of edits) {
     const editEnd = edit.position + edit.removedLength;
-    if (
-      offset < edit.position ||
-      (offset === edit.position && edge === "start")
-    ) {
+    // Half-open sections ending at an edit start do not include its replacement.
+    if (offset <= edit.position) {
       return offset + delta;
     }
     if (offset > editEnd || (offset === editEnd && edge === "start")) {

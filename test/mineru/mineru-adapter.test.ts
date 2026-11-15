@@ -180,6 +180,48 @@ test("keeps manifest sections aligned when split Reference blocks are merged", a
   );
 });
 
+test("preserves adjacent manifest section boundaries at a normalized Reference", async () => {
+  const reference = "[1] First   title";
+  const fullMarkdown = `Intro 😀\n${reference}\nAppendix`;
+  const referenceStart = fullMarkdown.indexOf(reference);
+  const referenceEnd = referenceStart + reference.length;
+  const files = validFiles(fullMarkdown);
+  const manifestPath = `${CACHE_DIRECTORY}/manifest.json`;
+  files[manifestPath] = {
+    text: JSON.stringify({
+      totalChars: fullMarkdown.length,
+      sections: [
+        { charStart: 0, charEnd: referenceStart },
+        { charStart: referenceStart, charEnd: referenceEnd },
+        { charStart: referenceEnd, charEnd: fullMarkdown.length },
+      ],
+    }),
+    revision: "manifest-with-adjacent-sections",
+  };
+  const ports = createPorts(files);
+
+  const result = await loadMineruReferences(ATTACHMENT_ID, ports);
+  const normalizedReferenceEnd = referenceStart + "[1] First title".length;
+
+  assert.equal(result.fullMarkdown, "Intro 😀\n[1] First title\nAppendix");
+  assert.deepEqual(JSON.parse(files[manifestPath]!.text), {
+    totalChars: result.fullMarkdown.length,
+    sections: [
+      { charStart: 0, charEnd: referenceStart },
+      { charStart: referenceStart, charEnd: normalizedReferenceEnd },
+      {
+        charStart: normalizedReferenceEnd,
+        charEnd: result.fullMarkdown.length,
+      },
+    ],
+  });
+  const normalizedFiles = structuredClone(files);
+
+  await loadMineruReferences(ATTACHMENT_ID, ports);
+
+  assert.deepEqual(files, normalizedFiles);
+});
+
 test("does not guess an unmarked Reference number without a unique sequence", async () => {
   const fullMarkdown = [
     "## References",

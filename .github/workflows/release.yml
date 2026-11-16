@@ -23,13 +23,13 @@ jobs:
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -60,8 +60,25 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
 
-      - name: Run complete source and artifact gate
-        run: npm run verify
+      - name: Run checks
+        run: |
+          timeout 60s npm test
+          npm run test:scansci-python
+          npm run typecheck
+          npm run format:check
+          npm run format:workflows
+          npm run lint
+          npm audit --omit=dev --audit-level=high
+
+      - name: Build XPI
+        run: npm run build
+
+      - name: Verify XPI and update manifest
+        env:
+          REPOSITORY_URL: https://github.com/${{ github.repository }}
+        run: |
+          npm run audit:scansci-xpi
+          node -e "const fs=require('fs');const pkg=require('./package.json');const value=JSON.parse(fs.readFileSync('build/update.json','utf8'));const update=value.addons?.[pkg.config.addonID]?.updates?.[0];const expected=process.env.REPOSITORY_URL+'/releases/download/v'+pkg.version+'/reference-for-zotero.xpi';if(update?.version!==pkg.version||update?.update_link!==expected)throw new Error('Invalid build/update.json')"
 
       - name: Create immutable GitHub Release
         env:
@@ -112,7 +129,7 @@ jobs:
             echo
             echo "## 发布校验"
             echo
-            echo "- GitHub Actions 已执行 \`npm run verify\`，覆盖自动化测试、TypeScript、ESLint、格式检查、生产构建和 XPI 审计。"
+            echo "- GitHub Actions 已完成自动化测试、TypeScript、ESLint、格式检查、生产依赖审计、生产构建及 XPI 与更新清单核对。"
             echo
             echo "## 完整记录"
             echo

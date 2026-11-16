@@ -36,7 +36,7 @@ All notable changes to Reference for Zotero are documented in this file.
 
 ### 工程
 
-- CI 在 Ubuntu 与 Windows 上执行完整校验，统一使用 LF 检出，并增加缓存事务、Reader 生命周期与交互、模型目录、Windows 文件安全和子进程取消的回归测试。
+- CI 对齐 Paper Translate for Zotero 的单任务流程，仅在 dev 推送或 PR 时触发，移除平台矩阵、独立卫生任务和 main 推送后的重复校验；统一使用 LF 检出，并增加缓存事务、Reader 生命周期与交互、模型目录、Windows 文件安全和子进程取消的回归测试。
 - 发布标签统一指向实际构建并完成验证的提交，增加真实 Git 与发布脚本回归，避免标签源码与 XPI 产物不一致；补充模型目录来源说明和隐私说明。
 
 ## [2.0.3] - 2026-09-18

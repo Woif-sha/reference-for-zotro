@@ -2,14 +2,9 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - dev
+    branches: [dev]
   pull_request:
-    branches:
-      - main
-      - dev
-  workflow_dispatch:
+    branches: [dev, main]
 
 permissions:
   contents: read
@@ -19,21 +14,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  check:
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Require dev for main promotions
+        if: github.event_name == 'pull_request' && github.base_ref == 'main'
+        run: |
+          if [[ "$GITHUB_HEAD_REF" != "dev" ]]; then
+            echo "main accepts changes only from dev; received $GITHUB_HEAD_REF" >&2
+            exit 1
+          fi
 
       - name: Set up Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -46,27 +44,37 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run complete source and artifact gate
-        run: npm run verify
+      - name: Run unit tests
+        run: |
+          timeout 60s npm test
+          npm run test:scansci-python
 
-  hygiene:
-    name: Repository hygiene
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
+      - name: Check types
+        run: npm run typecheck
 
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
+      - name: Check formatting
+        run: npm run format:check && npm run format:workflows
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build XPI
+        run: npm run build
+
+      - name: Verify XPI and update manifest
+        env:
+          REPOSITORY_URL: https://github.com/${{ github.repository }}
+        run: |
+          npm run audit:scansci-xpi
+          node -e "const fs=require('fs');const pkg=require('./package.json');const value=JSON.parse(fs.readFileSync('build/update.json','utf8'));const update=value.addons?.[pkg.config.addonID]?.updates?.[0];const expected=process.env.REPOSITORY_URL+'/releases/download/v'+pkg.version+'/reference-for-zotero.xpi';if(update?.version!==pkg.version||update?.update_link!==expected)throw new Error('Invalid build/update.json')"
+
+      - name: Upload XPI artifact
+        uses: actions/upload-artifact@v7
         with:
-          fetch-depth: 0
-
-      - name: Reject unrelated tracked files
-        run: python3 -B scripts/audit_repository.py
-
-      - name: Check pull-request whitespace
-        if: github.event_name == 'pull_request'
-        run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
-
-      - name: Check pushed whitespace
-        if: github.event_name == 'push'
-        run: git diff --check "${{ github.event.before }}...${{ github.sha }}"
+          name: reference-for-zotero-${{ github.sha }}
+          path: build/*.xpi
+          if-no-files-found: error
+          retention-days: 14

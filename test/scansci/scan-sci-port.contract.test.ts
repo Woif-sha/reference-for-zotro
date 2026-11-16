@@ -85,6 +85,7 @@ function createProductionAdapterAtSystemBoundaries(): ScanSciPort {
   const requestID = "288837e4-303e-4c72-bda5-ea1c58096f24";
   const runtime: PythonScanSciRuntime = {
     async ensureModuleAssets() {},
+    reportError() {},
     async runProcess(request) {
       if (request.arguments.includes("-0p")) {
         return {

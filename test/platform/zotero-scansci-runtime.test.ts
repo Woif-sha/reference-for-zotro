@@ -17,6 +17,36 @@ import {
   nativeWindowsAttributes,
 } from "./windows-file-fixture";
 
+test("Zotero ScanSci runtime reports operation errors to Zotero's error log", (t) => {
+  const previousZotero = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  t.after(() => {
+    if (previousZotero) {
+      Object.defineProperty(globalThis, "Zotero", previousZotero);
+    } else {
+      Reflect.deleteProperty(globalThis, "Zotero");
+    }
+  });
+  const reported: Error[] = [];
+  Object.assign(globalThis, {
+    Zotero: {
+      logError(error: Error) {
+        reported.push(error);
+      },
+    },
+  });
+  const runtime = createZoteroScanSciRuntime({
+    packagedRootURI: "resource://reference-for-zotero/",
+    moduleRoot: "C:\\profile\\module",
+  });
+  const error = new Error(
+    "ScanSci sidecar exited without a completion message",
+  );
+
+  runtime.reportError(error);
+
+  assert.deepEqual(reported, [error]);
+});
+
 test("Zotero subprocess streams complete JSONL lines and applies bounded environment removal", async () => {
   const stdin = new FakePipe([]);
   const stdout = new FakePipe(['{"first":1}\n{"sec', 'ond":2}\r\n']);

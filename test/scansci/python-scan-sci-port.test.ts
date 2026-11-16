@@ -559,6 +559,102 @@ test("an invalid canonical target fails only that paper while the remaining sele
   );
 });
 
+for (const fault of [
+  "nonzero-exit",
+  "missing-completion",
+  "invalid-completion",
+] as const) {
+  test(`batch ${fault} is reported without losing committed downloads`, async () => {
+    const reported: Error[] = [];
+    const committed: string[] = [];
+    const runtime = {
+      ...runtimeWith(async (request) => {
+        if (request.arguments.includes("-0p")) {
+          return processResult("-V:3.12 C:\\Python312\\python.exe\n");
+        }
+        const input = protocolInput(request);
+        if (input.operation === "probe") {
+          return sidecarComplete(
+            input,
+            probePayload("C:\\Python312\\python.exe", "3.12.10"),
+          );
+        }
+        for (const index of [1, 2]) {
+          await request.onStdoutLine?.(
+            JSON.stringify(
+              sidecarProgress(
+                input,
+                index,
+                2,
+                `item-${index}`,
+                downloadedResult(`2101.0000${index}`, `paper-${index}.pdf`),
+              ),
+            ),
+          );
+        }
+        if (fault === "invalid-completion") {
+          await request.onStdoutLine?.(
+            JSON.stringify(
+              sidecarCompletion(input, {
+                total: 2,
+                downloaded: 0,
+                failed: 0,
+                results: [],
+              }),
+            ),
+          );
+        }
+        return {
+          ...processResult(""),
+          exitCode: fault === "nonzero-exit" ? 1 : 0,
+          stderr: "Authorization: Bearer private-token",
+        };
+      }),
+      reportError(error: Error) {
+        reported.push(error);
+      },
+    };
+    runtime.files.commitExclusiveContained = async (
+      _sourceRoot,
+      _source,
+      _destinationRoot,
+      target,
+    ) => {
+      committed.push(target);
+    };
+    const port = createPythonScanSciPort(runtime, adapterOptions());
+
+    const results = await port.downloadPapers({
+      items: [1, 2].map((index) => ({
+        itemID: `paper-${index}`,
+        paper: { title: `Paper ${index}`, arxivID: `2101.0000${index}` },
+        canonicalFinalTarget: `E:\\paper\\Paper ${index}.pdf`,
+      })),
+      downloadDestination: "E:\\paper",
+      cacheDirectory: "E:\\cache",
+    });
+
+    assert.deepEqual(committed, [
+      "E:\\paper\\Paper 1.pdf",
+      "E:\\paper\\Paper 2.pdf",
+    ]);
+    assert.deepEqual(
+      results.map(({ result }) => result),
+      committed.map((savedPath) => ({ status: "downloaded", savedPath })),
+    );
+    assert.equal(reported.length, 1);
+    assert.match(
+      reported[0]!.message,
+      fault === "nonzero-exit"
+        ? /exit code 1/u
+        : fault === "missing-completion"
+          ? /without a completion message/u
+          : /completion is invalid/u,
+    );
+    assert.doesNotMatch(reported[0]!.message, /private-token/u);
+  });
+}
+
 test("prohibited source evidence never reaches the exclusive final commit", async () => {
   let committed = false;
   const ids = [
@@ -867,6 +963,7 @@ function runtimeWith(
 ): PythonScanSciRuntime {
   return {
     async ensureModuleAssets() {},
+    reportError() {},
     runProcess,
     files: {
       async pathExists() {

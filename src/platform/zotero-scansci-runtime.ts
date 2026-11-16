@@ -91,6 +91,9 @@ export function createZoteroScanSciRuntime(
     ensureModuleAssets() {
       return materializeModuleAssets(options);
     },
+    reportError(error) {
+      Zotero.logError(error);
+    },
     files: {
       pathExists(path) {
         return IOUtils.exists(path);

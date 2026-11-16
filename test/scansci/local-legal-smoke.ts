@@ -32,6 +32,9 @@ const moduleRoot = path.resolve(
 );
 const runtime: PythonScanSciRuntime = {
   async ensureModuleAssets() {},
+  reportError(error) {
+    process.stderr.write(`${error.message}\n`);
+  },
   runProcess,
   files: {
     async pathExists(value) {

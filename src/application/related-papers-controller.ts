@@ -725,10 +725,10 @@ export class RelatedPapersController implements ReaderSectionController {
       if (!this.sessions.canCommit(context.token)) return;
       assertStablePrefix(this.state.citingPapers, citingPapers);
       this.invalidateRecommendation();
-      const cumulativePapers =
-        citingPapers.length >= this.state.citingPapers.length
-          ? citingPapers
-          : this.state.citingPapers;
+      const cumulativePapers = [
+        ...this.state.citingPapers,
+        ...citingPapers.slice(this.state.citingPapers.length),
+      ];
       this.update({
         citingPapers: [...cumulativePapers],
         citingPapersLoaded: Math.max(this.state.citingPapersLoaded, limit),

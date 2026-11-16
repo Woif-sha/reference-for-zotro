@@ -1357,6 +1357,54 @@ test("opening a Current paper silently loads Citations and deduplicated Abstract
   assert.equal(controller.getState().references[0]?.abstractLoading, false);
 });
 
+test("expanding Citations retains enriched papers in the Reader and persisted results", async () => {
+  const abstractLoads: string[] = [];
+  const persistedAbstracts: (string | undefined)[] = [];
+  const controller = new RelatedPapersController(42, {
+    loadPaper: async () => loadedPaper,
+    resolveReferences: async () => [],
+    loadCitingPapers: async (limit) =>
+      papers(limit).map((paper, index) => ({
+        ...paper,
+        ...(index === 0 ? { doi: "10.1000/enriched" } : {}),
+      })),
+    async loadAbstract(paper) {
+      abstractLoads.push(paper.doi ?? "");
+      if (abstractLoads.length > 1) throw new Error("Provider unavailable");
+      return {
+        text: "An already loaded Abstract",
+        source: "openalex",
+        sourceRecordID: "https://openalex.org/W1",
+      };
+    },
+    async writeCachedResults(_paper, results) {
+      persistedAbstracts.push(results.citingPapers[0]?.abstract);
+    },
+    openURL() {},
+  });
+  await controller.refreshAsync();
+  await waitFor(
+    () => controller.getState().citingPapers[0]?.abstract !== undefined,
+  );
+  const enriched = controller.getState().citingPapers[0];
+  persistedAbstracts.length = 0;
+
+  controller.setCitationLimit(30);
+  await waitFor(() => controller.getState().citingPapersLoaded === 30);
+  await tick();
+
+  assert.deepEqual(controller.getState().citingPapers[0], enriched);
+  assert.equal(controller.getState().citingPapers.length, 30);
+  assert.deepEqual(abstractLoads, ["10.1000/enriched"]);
+  assert.ok(persistedAbstracts.length > 0);
+  assert.ok(
+    persistedAbstracts.every(
+      (abstract) => abstract === "An already loaded Abstract",
+    ),
+  );
+  controller.dispose();
+});
+
 for (const bypassCache of [false, true]) {
   test(`refresh reloads the selected Citations limit with bypassCache=${bypassCache}`, async () => {
     const requestedLimits: number[] = [];

@@ -31,7 +31,7 @@ const identity: RecommendationCacheIdentity = {
     attachmentKey: "ABCDEFGH",
     parentItemKey: "PARENT01",
     sourceFingerprint: "source-fingerprint",
-    fullMdSha256: "full-md-sha256",
+    fullMdSha256: "a".repeat(64),
   },
   visibleCandidates: [
     {
@@ -39,6 +39,15 @@ const identity: RecommendationCacheIdentity = {
       paperID: "reference:0",
       title: "Paper",
       sources: ["reference"],
+      status: "resolved",
+      authors: null,
+      venue: null,
+      year: null,
+      doi: "10.1000/paper",
+      arxivID: null,
+      pmcid: null,
+      citationCount: null,
+      referenceCount: null,
     },
   ],
   analyzedCandidates: [
@@ -50,7 +59,6 @@ const identity: RecommendationCacheIdentity = {
   model: {
     authMode: "codex_auth",
     providerId: "provider-codex",
-    providerName: "Legacy Codex",
     modelId: "model-codex",
     model: "gpt-5.4",
     apiBase: "https://chatgpt.com/backend-api/codex/responses",
@@ -109,9 +117,51 @@ test("an unknown recommendation schema is an explicit cache read error", async (
     string,
     unknown
   >;
-  storage.values.set(key, JSON.stringify({ ...stored, schemaVersion: 2 }));
+  storage.values.set(key, JSON.stringify({ ...stored, schemaVersion: 99 }));
 
   await assert.rejects(repository.read(identity), /schema/i);
+});
+
+test("a malformed body SHA-256 is a cache read error and preserves the file", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  await repository.write(identity, result);
+  const key = "3-ABCDEFGH/recommendation.json";
+  const file = JSON.parse(storage.values.get(key)!);
+  file.currentPaper.fullMdSha256 = "INVALID";
+  const damaged = JSON.stringify(file);
+  storage.values.set(key, damaged);
+
+  await assert.rejects(repository.read(identity), /Current paper identity/iu);
+  assert.equal(storage.values.get(key), damaged);
+});
+
+test("valid schema 1 recommendations miss without rewriting their file", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  await repository.write(identity, result);
+  const key = "3-ABCDEFGH/recommendation.json";
+  const file = JSON.parse(storage.values.get(key)!);
+  file.schemaVersion = 1;
+  file.visibleCandidates = [
+    {
+      candidateKey: "doi:10.1000/paper",
+      paperID: "reference:0",
+      title: "Paper",
+      sources: ["reference"],
+    },
+  ];
+  const legacy = JSON.stringify(file);
+  storage.values.set(key, legacy);
+
+  assert.equal(await repository.read(identity), undefined);
+  assert.equal(storage.values.get(key), legacy);
+
+  file.currentPaper.fullMdSha256 = "INVALID";
+  const damaged = JSON.stringify(file);
+  storage.values.set(key, damaged);
+  await assert.rejects(repository.read(identity), /Current paper identity/iu);
+  assert.equal(storage.values.get(key), damaged);
 });
 
 test("illegal fields and damaged result sets are explicit cache read errors", async () => {
@@ -147,6 +197,65 @@ test("illegal fields and damaged result sets are explicit cache read errors", as
           file.priority = [];
         },
       ],
+      [
+        "non-string status",
+        (file) => {
+          const candidates = file.visibleCandidates as Record<
+            string,
+            unknown
+          >[];
+          candidates[0]!.status = ["resolved"];
+        },
+      ],
+      [
+        "unknown status",
+        (file) => {
+          const candidates = file.visibleCandidates as Record<
+            string,
+            unknown
+          >[];
+          candidates[0]!.status = "unknown";
+        },
+      ],
+      [
+        "wrong metadata type",
+        (file) => {
+          const candidates = file.visibleCandidates as Record<
+            string,
+            unknown
+          >[];
+          candidates[0]!.authors = ["Author"];
+        },
+      ],
+      [
+        "wrong count type",
+        (file) => {
+          const candidates = file.visibleCandidates as Record<
+            string,
+            unknown
+          >[];
+          candidates[0]!.citationCount = "5";
+        },
+      ],
+      ...[
+        ["doi", "https://doi.org/10.1000/paper"],
+        ["arxivID", "ARXIV:2001.00001"],
+        ["pmcid", "PMC123456"],
+      ].map(
+        ([field, identifier]): [
+          string,
+          (file: Record<string, unknown>) => void,
+        ] => [
+          `non-normalized ${field}`,
+          (file) => {
+            const candidates = file.visibleCandidates as Record<
+              string,
+              unknown
+            >[];
+            candidates[0]![field!] = identifier;
+          },
+        ],
+      ),
     ];
 
   for (const [name, mutate] of invalidFiles) {
@@ -193,7 +302,7 @@ test("every recommendation identity field invalidates while secrets, generation 
         ...identity,
         currentPaper: {
           ...identity.currentPaper,
-          fullMdSha256: "changed-body",
+          fullMdSha256: "b".repeat(64),
         },
       },
     ],
@@ -234,13 +343,6 @@ test("every recommendation identity field invalidates while secrets, generation 
       "active model",
       { ...identity, model: { ...identity.model, model: "gpt-next" } },
     ],
-    [
-      "provider name",
-      {
-        ...identity,
-        model: { ...identity.model, providerName: "Renamed provider" },
-      },
-    ],
     ["effort", { ...identity, model: { ...identity.model, effort: "high" } }],
     ["prompt version", { ...identity, promptVersion: 2 }],
   ];
@@ -258,6 +360,35 @@ test("every recommendation identity field invalidates while secrets, generation 
   storage.values.set(key, JSON.stringify(file));
   assert.deepEqual(await repository.read(identity), result);
   assert.doesNotMatch(storage.values.get(key) ?? "", /apiKey|expiresAt/u);
+});
+
+test("existing recommendation caches ignore their legacy provider display name", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  await repository.write(identity, result);
+  const key = "3-ABCDEFGH/recommendation.json";
+  const file = JSON.parse(storage.values.get(key) ?? "{}");
+  file.model.providerName = "Old provider display name";
+  storage.values.set(key, JSON.stringify(file));
+
+  assert.deepEqual(await repository.read(identity), result);
+});
+
+test("new recommendation cache files contain only model runtime identity fields", async () => {
+  const storage = new MemoryStorage();
+  const repository = new RecommendationCacheRepository(storage);
+  const modelWithDisplayName = {
+    ...identity.model,
+    providerName: "Display only",
+  };
+
+  await repository.write({ ...identity, model: modelWithDisplayName }, result);
+
+  assert.doesNotMatch(
+    storage.values.get("3-ABCDEFGH/recommendation.json") ?? "",
+    /providerName/u,
+  );
+  assert.deepEqual(await repository.read(identity), result);
 });
 
 test("recommendations are isolated by validated library and attachment keys", async () => {

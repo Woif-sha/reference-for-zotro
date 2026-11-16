@@ -36,6 +36,7 @@ export async function testOpenAlexConnection(
     throw new Error("无法连接 OpenAlex API");
   }
 
+  if (!response.ok) await response.body?.cancel();
   if (response.status === 401 || response.status === 403) {
     throw new Error("API Key 无效或无权查询额度");
   }

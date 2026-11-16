@@ -32,6 +32,7 @@ import { createZoteroLocalPaperNameSettings } from "./platform/zotero-local-pape
 import type { LocalPaperNameSettingsController } from "./application/local-paper-name-settings";
 
 const basicTool = new BasicTool();
+const PENDING_PREFERENCES_REGISTRATION_KEY = `${config.addonInstance}PendingPreferencesRegistration`;
 const zotero = basicTool.getGlobal("Zotero") as typeof Zotero & {
   [key: string]: unknown;
 };
@@ -46,6 +47,8 @@ if (!zotero[config.addonInstance]) {
     "fetch",
     "IOUtils",
     "PathUtils",
+    "ReadableStream",
+    "Response",
     "Services",
     "TextDecoder",
     "TextEncoder",
@@ -69,6 +72,7 @@ function defineRuntimeGlobal(name: string): void {
 }
 
 function createRuntime() {
+  let active = true;
   let handle: ReferenceForZoteroHandle | undefined;
   let preferences: ReferenceForZoteroPreferencesHandle | undefined;
   let modelSubsystem: ZoteroModelSubsystem | undefined;
@@ -99,9 +103,13 @@ function createRuntime() {
           Zotero.unlockPromise,
           Zotero.uiReadyPromise,
         ]);
+        if (!active) return;
+        await zotero[PENDING_PREFERENCES_REGISTRATION_KEY];
+        if (!active) return;
         await Promise.all(
           Zotero.getMainWindows().map((window) => onMainWindowLoad(window)),
         );
+        if (!active) return;
         const packagedRootURI = resolvePackagedRootURI();
         const scanSci = createZoteroScanSciPort({
           packagedRootURI,
@@ -119,18 +127,41 @@ function createRuntime() {
         localPaperNameSync = manageZoteroLocalPaperNameSync(
           localPaperNameSettings,
         );
-        preferences = await registerReferenceForZoteroPreferences({
-          manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
-          pluginID: config.addonID,
-          rootURI: packagedRootURI,
-          settings: downloadSetup,
-          openAlexSettings,
-          testOpenAlexConnection: (apiKey, signal) =>
-            testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
-          openExternalURL: (url) => Zotero.launchURL(url),
-          modelSettings: modelSubsystem.settings,
-          localPaperNameSettings,
+        let finishPreferencesRegistration!: () => void;
+        const registrationFinished = new Promise<void>((resolve) => {
+          finishPreferencesRegistration = resolve;
         });
+        // Keep fixed-ID registration and late cleanup ordered across bundle reloads.
+        zotero[PENDING_PREFERENCES_REGISTRATION_KEY] = registrationFinished;
+        try {
+          const registeredPreferences =
+            await registerReferenceForZoteroPreferences({
+              manager: Zotero.PreferencePanes as unknown as PreferencePanesPort,
+              pluginID: config.addonID,
+              rootURI: packagedRootURI,
+              settings: downloadSetup,
+              openAlexSettings,
+              testOpenAlexConnection: (apiKey, signal) =>
+                testOpenAlexConnection(apiKey, openAlexConnectionPorts, signal),
+              openExternalURL: (url) => Zotero.launchURL(url),
+              modelSettings: modelSubsystem.settings,
+              localPaperNameSettings,
+            });
+          if (!active) {
+            registeredPreferences.unregister();
+            downloadSetup.dispose();
+            return;
+          }
+          preferences = registeredPreferences;
+        } finally {
+          if (
+            zotero[PENDING_PREFERENCES_REGISTRATION_KEY] ===
+            registrationFinished
+          ) {
+            delete zotero[PENDING_PREFERENCES_REGISTRATION_KEY];
+          }
+          finishPreferencesRegistration();
+        }
         handle = startReferenceForZotero({
           factory: createReaderControllerFactory({
             downloadPapers: createScanSciDownloadPapers({
@@ -149,6 +180,8 @@ function createRuntime() {
         preferences?.mount(root);
       },
       onShutdown(): void {
+        if (!active) return;
+        active = false;
         preferences?.unregister();
         preferences = undefined;
         handle?.shutdown();

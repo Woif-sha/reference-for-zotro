@@ -1,5 +1,10 @@
 import type { RecommendationModelIdentity } from "../model/configured-recommendation-model";
 import type { PaperIdentity } from "../domain/literature";
+import {
+  normalizeScholarlyIdentifier,
+  type ScholarlyIdentifierScheme,
+} from "../literature/identifiers";
+import type { PaperStatus } from "../reader/mountReaderSection";
 import type {
   RecommendationItem,
   RecommendationSource,
@@ -17,6 +22,15 @@ export type RecommendationCacheIdentity = Readonly<{
     paperID: string;
     title: string;
     sources: readonly RecommendationSource[];
+    status: PaperStatus;
+    authors: string | null;
+    venue: string | null;
+    year: string | null;
+    doi: string | null;
+    arxivID: string | null;
+    pmcid: string | null;
+    citationCount: number | null;
+    referenceCount: number | null;
   }>[];
   analyzedCandidates: readonly Readonly<{
     candidateKey: string;
@@ -38,9 +52,22 @@ export interface RecommendationCacheStorage {
 
 type RecommendationCacheFile = RecommendationCacheIdentity &
   RecommendationCacheResult & {
-    schemaVersion: 1;
+    schemaVersion: 2;
     generatedAt: string;
   };
+
+type LegacyVisibleCandidate = Pick<
+  RecommendationCacheIdentity["visibleCandidates"][number],
+  "candidateKey" | "paperID" | "title" | "sources"
+>;
+
+type LegacyRecommendationCacheFile = Omit<
+  RecommendationCacheFile,
+  "schemaVersion" | "visibleCandidates"
+> & {
+  schemaVersion: 1;
+  visibleCandidates: readonly LegacyVisibleCandidate[];
+};
 
 export class RecommendationCacheRepository {
   constructor(private readonly storage: RecommendationCacheStorage) {}
@@ -53,6 +80,8 @@ export class RecommendationCacheRepository {
     );
     if (raw === undefined) return undefined;
     const file = parseCacheFile(JSON.parse(raw));
+    // Schema 1 lacks the metadata needed to prove the current snapshot matches.
+    if (file.schemaVersion === 1) return undefined;
     if (!matchesIdentity(cacheIdentity(file), identity)) {
       return undefined;
     }
@@ -66,9 +95,10 @@ export class RecommendationCacheRepository {
   ): Promise<void> {
     throwIfAborted(signal);
     const file: RecommendationCacheFile = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
       ...identity,
+      model: runtimeModelIdentity(identity.model),
       ...result,
     };
     parseCacheFile(file);
@@ -102,7 +132,8 @@ function matchesIdentity(
       JSON.stringify(current.currentPaper) &&
     JSON.stringify(cached.visibleCandidates) ===
       JSON.stringify(current.visibleCandidates) &&
-    JSON.stringify(cached.model) === JSON.stringify(current.model) &&
+    JSON.stringify(runtimeModelIdentity(cached.model)) ===
+      JSON.stringify(runtimeModelIdentity(current.model)) &&
     cached.promptVersion === current.promptVersion &&
     current.analyzedCandidates.every((candidate) =>
       cached.analyzedCandidates.some(
@@ -112,6 +143,19 @@ function matchesIdentity(
       ),
     )
   );
+}
+
+function runtimeModelIdentity(
+  model: RecommendationModelIdentity,
+): RecommendationModelIdentity {
+  return {
+    authMode: model.authMode,
+    providerId: model.providerId,
+    modelId: model.modelId,
+    model: model.model,
+    apiBase: model.apiBase,
+    effort: model.effort,
+  };
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
@@ -124,8 +168,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseCacheFile(value: unknown): RecommendationCacheFile {
-  if (!isRecord(value) || value.schemaVersion !== 1) {
+function parseCacheFile(
+  value: unknown,
+): RecommendationCacheFile | LegacyRecommendationCacheFile {
+  if (
+    !isRecord(value) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2)
+  ) {
     return invalidCache("schema is invalid");
   }
   if (
@@ -153,8 +202,8 @@ function parseCacheFile(value: unknown): RecommendationCacheFile {
   }
   validateCurrentPaper(value.currentPaper);
   validateModel(value.model);
-  const visibleCandidates = value.visibleCandidates.map(
-    validateVisibleCandidate,
+  const visibleCandidates = value.visibleCandidates.map((candidate) =>
+    validateVisibleCandidate(candidate, value.schemaVersion),
   );
   const visibleByKey = uniqueByCandidateKey(
     visibleCandidates,
@@ -218,7 +267,7 @@ function parseCacheFile(value: unknown): RecommendationCacheFile {
   ) {
     return invalidCache("result set is damaged");
   }
-  return value as RecommendationCacheFile;
+  return value as RecommendationCacheFile | LegacyRecommendationCacheFile;
 }
 
 function validateCurrentPaper(value: unknown): void {
@@ -239,41 +288,62 @@ function validateCurrentPaper(value: unknown): void {
     !isItemKey(value.attachmentKey) ||
     !isItemKey(value.parentItemKey) ||
     !isNonEmptyString(value.sourceFingerprint) ||
-    !isNonEmptyString(value.fullMdSha256)
+    typeof value.fullMdSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/iu.test(value.fullMdSha256)
   ) {
     invalidCache("Current paper identity is invalid");
   }
 }
 
 function validateModel(value: unknown): void {
+  // Schema 1 previously persisted this display field; it is not runtime identity.
+  const model = isRecord(value) ? { ...value } : value;
+  if (isRecord(model) && "providerName" in model) {
+    if (!isNonEmptyString(model.providerName)) {
+      return invalidCache("model display name is invalid");
+    }
+    delete model.providerName;
+  }
   if (
-    !isRecord(value) ||
-    !hasExactKeys(value, [
+    !isRecord(model) ||
+    !hasExactKeys(model, [
       "authMode",
       "providerId",
-      "providerName",
       "modelId",
       "model",
       "apiBase",
       "effort",
     ]) ||
-    (value.authMode !== "codex_auth" &&
-      value.authMode !== "openai_compatible") ||
-    !isNonEmptyString(value.providerId) ||
-    !isNonEmptyString(value.providerName) ||
-    !isNonEmptyString(value.modelId) ||
-    !isNonEmptyString(value.model) ||
-    !isNonEmptyString(value.apiBase) ||
-    typeof value.effort !== "string"
+    (model.authMode !== "codex_auth" &&
+      model.authMode !== "openai_compatible") ||
+    !isNonEmptyString(model.providerId) ||
+    !isNonEmptyString(model.modelId) ||
+    !isNonEmptyString(model.model) ||
+    !isNonEmptyString(model.apiBase) ||
+    typeof model.effort !== "string"
   ) {
     invalidCache("model identity is invalid");
   }
 }
 
-function validateVisibleCandidate(value: unknown) {
+function validateVisibleCandidate(value: unknown, schemaVersion: unknown) {
+  const keys = ["candidateKey", "paperID", "title", "sources"];
+  if (schemaVersion === 2) {
+    keys.push(
+      "status",
+      "authors",
+      "venue",
+      "year",
+      "doi",
+      "arxivID",
+      "pmcid",
+      "citationCount",
+      "referenceCount",
+    );
+  }
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["candidateKey", "paperID", "title", "sources"]) ||
+    !hasExactKeys(value, keys) ||
     !isNonEmptyString(value.candidateKey) ||
     !isNonEmptyString(value.paperID) ||
     !isNonEmptyString(value.title) ||
@@ -281,7 +351,49 @@ function validateVisibleCandidate(value: unknown) {
   ) {
     return invalidCache("visible candidate is invalid");
   }
-  return value as RecommendationCacheIdentity["visibleCandidates"][number];
+  if (
+    schemaVersion === 2 &&
+    (typeof value.status !== "string" ||
+      ![
+        "matching",
+        "resolved",
+        "unresolved",
+        "ambiguous",
+        "invalid-identifier",
+        "unreachable",
+        "failed",
+      ].includes(value.status) ||
+      ["authors", "venue", "year", "doi", "arxivID", "pmcid"].some(
+        (field) => value[field] !== null && !isNonEmptyString(value[field]),
+      ) ||
+      ["citationCount", "referenceCount"].some(
+        (field) =>
+          value[field] !== null &&
+          (!Number.isInteger(value[field]) || Number(value[field]) < 0),
+      ))
+  ) {
+    return invalidCache("visible candidate metadata is invalid");
+  }
+  if (
+    schemaVersion === 2 &&
+    (!isNormalizedIdentifier(value.doi, "doi") ||
+      !isNormalizedIdentifier(value.arxivID, "arxiv") ||
+      !isNormalizedIdentifier(value.pmcid, "pmcid"))
+  ) {
+    return invalidCache("visible candidate identifiers are invalid");
+  }
+  return value as LegacyVisibleCandidate;
+}
+
+function isNormalizedIdentifier(
+  value: unknown,
+  scheme: ScholarlyIdentifierScheme,
+): boolean {
+  return (
+    value === null ||
+    (typeof value === "string" &&
+      normalizeScholarlyIdentifier(scheme, value) === value)
+  );
 }
 
 function validateAnalyzedCandidate(value: unknown) {

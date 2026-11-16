@@ -285,7 +285,7 @@ function validateRequest(request: OpenAICompatibleRequest): void {
   }
 }
 
-function redactError(error: unknown, secret: string): unknown {
+export function redactError(error: unknown, secret: string): unknown {
   const redact = (value: string): string => {
     const normalized = secret.trim();
     return normalized

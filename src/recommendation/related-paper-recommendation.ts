@@ -335,12 +335,28 @@ function cacheIdentity(
       sourceFingerprint: request.currentPaper.sourceFingerprint,
       fullMdSha256: request.currentPaper.fullMdSha256,
     },
-    visibleCandidates: candidates.map((candidate) => ({
-      candidateKey: candidate.candidateKey,
-      paperID: candidate.paper.id,
-      title: candidate.paper.title,
-      sources: candidate.sources,
-    })),
+    visibleCandidates: candidates
+      .map((candidate) => ({
+        candidateKey: candidate.candidateKey,
+        paperID: candidate.paper.id,
+        title: candidate.paper.title,
+        sources: candidate.sources,
+        status: candidate.paper.status,
+        authors: candidate.paper.authors?.trim() || null,
+        venue: candidate.paper.venue?.trim() || null,
+        year: candidate.paper.year?.trim() || null,
+        doi: normalizeScholarlyIdentifier("doi", candidate.paper.doi) ?? null,
+        arxivID:
+          normalizeScholarlyIdentifier("arxiv", candidate.paper.arxivID) ??
+          null,
+        pmcid:
+          normalizeScholarlyIdentifier("pmcid", candidate.paper.pmcid) ?? null,
+        citationCount: candidate.paper.citationCount ?? null,
+        referenceCount: candidate.paper.referenceCount ?? null,
+      }))
+      .sort((left, right) =>
+        left.candidateKey.localeCompare(right.candidateKey),
+      ),
     analyzedCandidates: candidates.flatMap((candidate) =>
       candidate.abstract
         ? [

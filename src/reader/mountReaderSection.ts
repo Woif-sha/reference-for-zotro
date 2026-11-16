@@ -201,6 +201,7 @@ export function mountReaderSection(options: {
   let translationRequest = 0;
   let detailWasOpenAtPointerDown = false;
   let jumpHighlightTimer: number | undefined;
+  let renderedTab: ReaderTab | undefined;
   const externalInteractionDocuments = new Set<Document>();
 
   const dismissSelectedPaper = (): void => {
@@ -303,6 +304,10 @@ export function mountReaderSection(options: {
   };
 
   function render(state: ReaderSectionState): void {
+    const scrollTop =
+      renderedTab === state.activeTab
+        ? (root.querySelector<HTMLElement>(".rfz-content")?.scrollTop ?? 0)
+        : 0;
     const rootTranslation =
       root.querySelector<HTMLElement>("[data-translation]");
     const overlayTranslation =
@@ -375,6 +380,8 @@ export function mountReaderSection(options: {
       ].find((element) => element.dataset.focusKey === focusKey);
       replacement?.focus();
     }
+    root.querySelector<HTMLElement>(".rfz-content")!.scrollTop = scrollTop;
+    renderedTab = state.activeTab;
     const detailCard = renderDetailCard(state, detailPapers);
     overlay.innerHTML = detailCard;
     overlay.classList.toggle("is-open", detailCard.length > 0);
@@ -463,6 +470,7 @@ export function mountReaderSection(options: {
     if (body.ownerDocument.defaultView?.getSelection()?.toString().trim()) {
       return;
     }
+    detailWasOpenAtPointerDown = false;
     controller.selectPaper(paperID);
   };
 
@@ -827,15 +835,14 @@ function renderContent(
     return `<section class="rfz-status" role="status"><strong>正在查找引用论文…</strong><p>正在使用当前论文的 DOI 等标识查询 OpenCitations。</p></section>`;
   }
 
-  if (
+  const citationError =
     state.activeTab === "citations" &&
-    state.citingPapersStatus.status === "error" &&
-    papers.length === 0
-  ) {
-    return `<section class="rfz-status" role="alert"><strong>引用论文查询失败</strong><p>${escapeHTML(
-      state.citingPapersStatus.message,
-    )}</p></section>`;
-  }
+    state.citingPapersStatus.status === "error"
+      ? `<section class="rfz-status" role="alert"><strong>引用论文查询失败</strong><p>${escapeHTML(
+          state.citingPapersStatus.message,
+        )}</p></section>`
+      : "";
+  if (citationError && papers.length === 0) return citationError;
 
   if (
     state.activeTab === "citations" &&
@@ -851,7 +858,7 @@ function renderContent(
     )}</p></section>`;
   }
 
-  return `<ol class="rfz-paper-list">
+  return `${citationError}<ol class="rfz-paper-list">
     ${papers
       .map((paper) => {
         const status =

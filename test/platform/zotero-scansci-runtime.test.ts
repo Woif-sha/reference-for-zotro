@@ -1,6 +1,51 @@
 import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { mkdtemp, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createZoteroScanSciRuntime } from "../../src/platform/zotero-scansci-runtime";
+import {
+  geckoWindowsFile,
+  installNativeWindowsAttributes,
+  nativeWindowsAttributes,
+} from "./windows-file-fixture";
+
+test("Zotero ScanSci runtime reports operation errors to Zotero's error log", (t) => {
+  const previousZotero = Object.getOwnPropertyDescriptor(globalThis, "Zotero");
+  t.after(() => {
+    if (previousZotero) {
+      Object.defineProperty(globalThis, "Zotero", previousZotero);
+    } else {
+      Reflect.deleteProperty(globalThis, "Zotero");
+    }
+  });
+  const reported: Error[] = [];
+  Object.assign(globalThis, {
+    Zotero: {
+      logError(error: Error) {
+        reported.push(error);
+      },
+    },
+  });
+  const runtime = createZoteroScanSciRuntime({
+    packagedRootURI: "resource://reference-for-zotero/",
+    moduleRoot: "C:\\profile\\module",
+  });
+  const error = new Error(
+    "ScanSci sidecar exited without a completion message",
+  );
+
+  runtime.reportError(error);
+
+  assert.deepEqual(reported, [error]);
+});
 
 test("Zotero subprocess streams complete JSONL lines and applies bounded environment removal", async () => {
   const stdin = new FakePipe([]);
@@ -160,6 +205,80 @@ test("Zotero subprocess reports timeout and explicit output truncation", async (
   assert.equal(result.stderrTruncated, true);
 });
 
+for (const stage of ["write", "close"] as const) {
+  for (const interruption of ["timeout", "abort"] as const) {
+    test(`Zotero subprocess handles ${interruption} while stdin ${stage} is blocked`, async () => {
+      const completion = deferred<{ exitCode: number }>();
+      const blocked = deferred<void>();
+      const started = deferred<void>();
+      const stdin = new FakePipe([]);
+      stdin[stage] = async () => {
+        started.resolve();
+        await blocked.promise;
+      };
+      let killed = 0;
+      const handle = processHandle(
+        stdin,
+        new FakePipe([]),
+        new FakePipe([]),
+        completion.promise,
+        () => {
+          killed += 1;
+          completion.resolve({ exitCode: -1 });
+        },
+      );
+      installSubprocess(handle, []);
+      const runtime = createZoteroScanSciRuntime({
+        packagedRootURI: "resource://reference-for-zotero/",
+        moduleRoot: "C:\\profile\\module",
+      });
+      const controller = new AbortController();
+      const running = runtime.runProcess({
+        command: "C:\\Python\\python.exe",
+        arguments: ["sidecar.py"],
+        stdin: "{}\n",
+        timeoutMilliseconds: interruption === "timeout" ? 1 : 10_000,
+        removeEnvironment: [],
+        signal: controller.signal,
+      });
+      const observed = running.then(
+        (result) => ({ kind: "result" as const, result }),
+        (error: unknown) => ({ kind: "error" as const, error }),
+      );
+      await started.promise;
+      if (interruption === "abort") controller.abort();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const outcome = await Promise.race([
+          observed,
+          new Promise<{ kind: "stalled" }>((resolve) => {
+            timer = setTimeout(() => resolve({ kind: "stalled" }), 100);
+          }),
+        ]);
+        assert.notEqual(outcome.kind, "stalled");
+        assert.equal(killed, 1);
+        if (interruption === "timeout") {
+          assert.equal(outcome.kind, "result");
+          if (outcome.kind === "result") {
+            assert.equal(outcome.result.timedOut, true);
+          }
+        } else {
+          assert.equal(outcome.kind, "error");
+          if (outcome.kind === "error") {
+            assert.equal((outcome.error as Error).name, "AbortError");
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+        blocked.reject(new Error("stdin closed after process interruption"));
+        completion.resolve({ exitCode: -1 });
+        await observed;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    });
+  }
+}
+
 test("Zotero final commit moves one regular non-link file exclusively into the destination root", async () => {
   const moved: unknown[] = [];
   installFileSystem(
@@ -240,6 +359,120 @@ test("Zotero final commit rejects directories, links, and reparse traversal", as
     );
   }
 });
+
+test(
+  "Windows final commit rejects a selected destination junction and a junction ancestor",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    for (const beneathJunction of [false, true]) {
+      await t.test(
+        beneathJunction ? "junction ancestor" : "destination junction",
+        async () => {
+          await withWindowsCommitFiles(
+            async ({ root, sourceRoot, source, outside }) => {
+              const junction = path.join(root, "selected");
+              symlinkSync(outside, junction, "junction");
+              const selected = beneathJunction
+                ? path.join(junction, "papers")
+                : junction;
+              if (beneathJunction) mkdirSync(path.join(outside, "papers"));
+              const target = path.join(selected, "Canonical.pdf");
+              const native = nativeWindowsAttributes([source, selected]);
+              assert.equal(native[junction] & 0x400, 0x400);
+              const harness = installNativeCommitFiles(native);
+
+              await assert.rejects(
+                harness.runtime.files.commitExclusiveContained(
+                  sourceRoot,
+                  source,
+                  selected,
+                  target,
+                ),
+                /cannot traverse a symbolic link or junction/u,
+              );
+
+              assert.deepEqual(harness.moves, []);
+              assert.equal(existsSync(source), true);
+              assert.equal(existsSync(target), false);
+            },
+          );
+        },
+      );
+    }
+  },
+);
+
+test(
+  "Windows final commit moves a regular file after checking native ancestor attributes",
+  { skip: process.platform !== "win32" },
+  async () => {
+    await withWindowsCommitFiles(async ({ sourceRoot, source, outside }) => {
+      const target = path.join(outside, "Canonical.pdf");
+      const native = nativeWindowsAttributes([source, outside]);
+      const harness = installNativeCommitFiles(native);
+
+      await harness.runtime.files.commitExclusiveContained(
+        sourceRoot,
+        source,
+        outside,
+        target,
+      );
+
+      assert.deepEqual(harness.moves, [
+        [source, target, { noOverwrite: true }],
+      ]);
+      assert.equal(existsSync(source), false);
+      assert.equal(readFileSync(target, "utf8"), "%PDF-1.7\nrequest output");
+      assert.ok(harness.nativeCalls.includes(source));
+      assert.ok(harness.nativeCalls.includes(outside));
+      assert.ok(harness.nativeCalls.includes(path.parse(outside).root));
+    });
+  },
+);
+
+async function withWindowsCommitFiles(
+  run: (files: {
+    root: string;
+    sourceRoot: string;
+    source: string;
+    outside: string;
+  }) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(path.join(tmpdir(), "rfz-scansci-commit-"));
+  const sourceRoot = path.join(root, "request");
+  const source = path.join(sourceRoot, "paper.pdf");
+  const outside = path.join(root, "outside");
+  mkdirSync(sourceRoot);
+  mkdirSync(outside);
+  writeFileSync(source, "%PDF-1.7\nrequest output");
+  try {
+    await run({ root, sourceRoot, source, outside });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+function installNativeCommitFiles(attributes: Record<string, number>) {
+  const nativeCalls = installNativeWindowsAttributes(attributes);
+  const moves: unknown[] = [];
+  Object.assign(globalThis, {
+    Zotero: { File: { pathToFile: geckoWindowsFile } },
+    IOUtils: {
+      async move(source: string, target: string, options: unknown) {
+        moves.push([source, target, options]);
+        await rename(source, target);
+      },
+    },
+  });
+  return {
+    nativeCalls,
+    moves,
+    runtime: createZoteroScanSciRuntime({
+      packagedRootURI: "resource://reference-for-zotero/",
+      moduleRoot: "C:\\profile\\module",
+    }),
+  };
+}
 
 class FakePipe {
   written = "";
@@ -359,6 +592,9 @@ function installFileSystem(
   files: Readonly<Record<string, FakeFile>>,
   moved: unknown[],
 ): void {
+  installNativeWindowsAttributes(
+    Object.fromEntries(Object.values(files).map((file) => [file.path, 0])),
+  );
   Object.assign(globalThis, {
     Zotero: {
       File: {
@@ -379,8 +615,10 @@ function installFileSystem(
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((next) => {
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }

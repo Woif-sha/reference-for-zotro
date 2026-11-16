@@ -68,6 +68,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
           tag="v$VERSION"
           mapfile -t xpis < <(find build -maxdepth 1 -type f -name '*.xpi' -print)
           mapfile -t updates < <(find build -maxdepth 1 -type f -name 'update.json' -print)
@@ -82,12 +83,12 @@ jobs:
             exit 1
           fi
           if git rev-parse "$tag" >/dev/null 2>&1; then
-            if [ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]; then
+            if [ "$(git rev-list -n 1 "$tag")" != "$SOURCE_COMMIT" ]; then
               echo "Existing tag $tag does not point to the release commit." >&2
               exit 1
             fi
           else
-            git tag "$tag" "$GITHUB_SHA"
+            git tag "$tag" "$SOURCE_COMMIT"
             git push origin "$tag"
           fi
 

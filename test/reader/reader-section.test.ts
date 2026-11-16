@@ -448,6 +448,54 @@ function downloadControllerStubs(): Pick<
   };
 }
 
+test("a failed Citations expansion keeps loaded papers and displays the provider error", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state: ReaderSectionState = {
+    ...readyState(),
+    activeTab: "citations",
+    citingPapers: [readyState().references[0]!],
+  };
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {};
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  state = {
+    ...state,
+    citingPaperLimit: 30,
+    citingPapersStatus: {
+      status: "error",
+      message:
+        "OpenCitations 查询失败：source-unavailable (opencitations-meta)",
+    },
+  };
+  listener?.(state);
+
+  assert.match(
+    dom.window.document.querySelector("[role=alert]")?.textContent ?? "",
+    /OpenCitations 查询失败：source-unavailable/,
+  );
+  assert.equal(
+    dom.window.document.querySelector("[data-paper-title]")?.textContent,
+    "First reference",
+  );
+  mounted.destroy();
+});
+
 test("Reader section renders supported text for LaTeX-formatted Abstracts", () => {
   const dom = new JSDOM("<!doctype html><body></body>");
   const state: ReaderSectionState = {
@@ -1770,6 +1818,65 @@ test("Reader context actions stay on the original list title after details open"
   mounted.destroy();
 });
 
+test("clicking another paper title replaces the open detail card", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        state = {
+          ...state,
+          selectedPaperID:
+            state.selectedPaperID === paperID ? undefined : paperID,
+        };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+  const clickTitle = (paperID: string): void => {
+    const title = dom.window.document.querySelector(
+      `[data-paper-id="${paperID}"] [data-paper-title]`,
+    );
+    assert.ok(title);
+    title.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+    title.dispatchEvent(
+      new dom.window.MouseEvent("click", { bubbles: true, button: 0 }),
+    );
+  };
+
+  clickTitle("ref-1");
+  assert.equal(state.selectedPaperID, "ref-1");
+  clickTitle("ref-2");
+  assert.equal(state.selectedPaperID, "ref-2");
+  assert.equal(
+    dom.window.document
+      .querySelector("[data-detail-card]")
+      ?.getAttribute("data-paper-id"),
+    "ref-2",
+  );
+  clickTitle("ref-2");
+  assert.equal(state.selectedPaperID, undefined);
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  mounted.destroy();
+});
+
 test("Reader section closes an open detail card when clicking the paper view", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
@@ -2303,6 +2410,60 @@ test("translation stays open after the selection gesture and closes on the next 
   resolveTranslation?.("late translation");
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(dom.window.document.querySelector("[data-translation]"), null);
+  mounted.destroy();
+});
+
+test("same-tab Abstract, status, and recommendation updates preserve list scrolling", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const document: Document = dom.window.document;
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {};
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper() {},
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+
+  for (const tab of ["references", "citations", "ai-recommendation"] as const) {
+    state = { ...state, activeTab: tab };
+    listener?.(state);
+    const content = document.querySelector<HTMLElement>(".rfz-content");
+    assert.ok(content);
+    content.scrollTop = 240;
+    state = {
+      ...state,
+      references: state.references.map((paper) => ({
+        ...paper,
+        abstract: "Newly retrieved Abstract",
+      })),
+      citingPapersStatus: { status: "loading" },
+      recommendation: {
+        status: "analyzing",
+        totalCandidates: 2,
+        priority: [],
+        optional: [],
+      },
+    };
+    listener?.(state);
+
+    assert.equal(
+      document.querySelector<HTMLElement>(".rfz-content")?.scrollTop,
+      240,
+      `${tab} keeps the reader's position during background updates`,
+    );
+  }
   mounted.destroy();
 });
 

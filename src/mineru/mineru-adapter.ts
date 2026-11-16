@@ -45,7 +45,9 @@ export type MinerUPorts = Readonly<{
     join(...segments: string[]): string;
     exists(path: string): Promise<boolean>;
     readUtf8(path: string): Promise<MinerUReadResult>;
-    writeUtf8(path: string, text: string): Promise<void>;
+    writeUtf8Batch(
+      files: readonly Readonly<{ path: string; text: string }>[],
+    ): Promise<void>;
   }>;
   sha256(text: string): Promise<string>;
 }>;
@@ -59,6 +61,8 @@ export type LoadedMinerUReferences = Readonly<{
   entries: readonly ReferenceEntry[];
 }>;
 
+const cacheLoads = new Map<string, Promise<LoadedMinerUReferences>>();
+
 export async function loadMineruReferences(
   attachmentID: number,
   ports: MinerUPorts,
@@ -69,13 +73,21 @@ export async function loadMineruReferences(
     CACHE_ROOT_NAME,
     String(identity.attachmentID),
   );
-  try {
-    return await loadMineruReferencesFromCache(
-      attachmentID,
-      identity,
-      cacheDirectory,
-      ports,
+  // Readers sharing a cache must not inspect another Reader's normalization.
+  const previous = cacheLoads.get(cacheDirectory) ?? Promise.resolve();
+  const loading = previous
+    .catch(() => undefined)
+    .then(() =>
+      loadMineruReferencesFromCache(
+        attachmentID,
+        identity,
+        cacheDirectory,
+        ports,
+      ),
     );
+  cacheLoads.set(cacheDirectory, loading);
+  try {
+    return await loading;
   } catch (error) {
     if (error instanceof MinerUContractError) {
       throw new MinerUContractError(
@@ -83,9 +95,14 @@ export async function loadMineruReferences(
         error.message,
         error.filenames,
         cacheDirectory,
+        { cause: error.cause },
       );
     }
     throw error;
+  } finally {
+    if (cacheLoads.get(cacheDirectory) === loading) {
+      cacheLoads.delete(cacheDirectory);
+    }
   }
 }
 
@@ -243,10 +260,8 @@ function mapNormalizedOffset(
   let delta = 0;
   for (const edit of edits) {
     const editEnd = edit.position + edit.removedLength;
-    if (
-      offset < edit.position ||
-      (offset === edit.position && edge === "start")
-    ) {
+    // Half-open sections ending at an edit start do not include its replacement.
+    if (offset <= edit.position) {
       return offset + delta;
     }
     if (offset > editEnd || (offset === editEnd && edge === "start")) {
@@ -264,14 +279,20 @@ async function persistNormalization(
   normalized: readonly MinerUReadResult[],
   ports: MinerUPorts,
 ): Promise<void> {
-  const writeOrder = [1, 2, 3] as const;
+  const writeOrder = [1, 3, 2] as const;
+  const changes = writeOrder.flatMap((index) =>
+    original[index]!.text === normalized[index]!.text
+      ? []
+      : [{ path: paths[index]!, text: normalized[index]!.text }],
+  );
+  if (changes.length === 0) return;
   try {
-    for (const index of writeOrder) {
-      if (original[index]!.text === normalized[index]!.text) continue;
-      await ports.files.writeUtf8(paths[index]!, normalized[index]!.text);
-    }
-  } catch {
-    throw invalidCache("The MinerU Reference cache could not be normalized");
+    await ports.files.writeUtf8Batch(changes);
+  } catch (error) {
+    throw invalidCache(
+      "The MinerU Reference cache could not be normalized",
+      error,
+    );
   }
 }
 
@@ -404,6 +425,8 @@ function unsupportedReaderItem(): MinerUContractError {
   );
 }
 
-function invalidCache(message: string): MinerUContractError {
-  return new MinerUContractError("md-cache-invalid", message);
+function invalidCache(message: string, cause?: unknown): MinerUContractError {
+  return new MinerUContractError("md-cache-invalid", message, [], undefined, {
+    cause,
+  });
 }

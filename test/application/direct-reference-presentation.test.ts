@@ -14,7 +14,7 @@ test("unique Reader row identities invalidate the old cached provider projection
 });
 
 test("Reader reference projection changes invalidate previous cached results", () => {
-  assert.equal(PROVIDER_QUERY_VERSION, 20);
+  assert.equal(PROVIDER_QUERY_VERSION, 21);
 });
 
 test("MinerU mixed-name references reach the gateway and Reader with the paper title", async () => {

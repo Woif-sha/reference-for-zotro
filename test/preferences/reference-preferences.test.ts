@@ -113,6 +113,9 @@ function unusedModelSettingsController(): ModelPreferencesController {
     async testDraftModel() {
       throw new Error("not used");
     },
+    async loadModels() {
+      throw new Error("not used");
+    },
     cancelConnectionTests() {},
   };
 }

@@ -46,7 +46,7 @@ import { RelatedPaperRecommendationService } from "./recommendation/related-pape
 
 const PLUGIN_ID = "referenceforzotero@woif-sha.github.io";
 export const PROVIDER_SCHEMA_VERSION = 4;
-export const PROVIDER_QUERY_VERSION = 20;
+export const PROVIDER_QUERY_VERSION = 21;
 const GATEWAY_CACHE_PROVIDER = "related-literature-gateway";
 const GATEWAY_REQUEST_KEY = "reader-related-papers";
 
@@ -110,6 +110,7 @@ export function createReaderControllerFactory(
             sourceFingerprint: loaded.sourceFingerprint,
             fullMarkdown: loaded.fullMarkdown,
             fullMdSha256: loaded.fullMdSha256,
+            citingPaperIdentifiers: currentPaperIdentifiers(loaded.identity),
             mineruDirectory: loaded.cacheDirectory,
             entries: loaded.entries,
           };
@@ -132,7 +133,7 @@ export function createReaderControllerFactory(
           return resolved;
         },
         async loadCitingPapers(limit, context) {
-          const identifiers = currentPaperIdentifiers(context);
+          const identifiers = context.paper.citingPaperIdentifiers ?? {};
           const result = await gatewayFor(context).getCitingPapers(
             {
               identifiers,
@@ -327,13 +328,13 @@ export async function resolveReferenceEntry(
   return present(resolutionToReaderPaper(ordinal, displayTitle, resolution));
 }
 
-function currentPaperIdentifiers(context: ResolutionContext): {
+function currentPaperIdentifiers(identity: LoadedPaper["identity"]): {
   doi?: string;
   pmid?: string;
 } {
   const parent = Zotero.Items.getByLibraryAndKey(
-    context.paper.identity.libraryID,
-    context.paper.identity.parentItemKey,
+    identity.libraryID,
+    identity.parentItemKey,
   );
   const doi = String((parent && parent.getField("DOI")) || "")
     .trim()
@@ -365,7 +366,11 @@ function cacheIdentity(paper: LoadedPaper) {
     providerSchemaVersion: PROVIDER_SCHEMA_VERSION,
     provider: GATEWAY_CACHE_PROVIDER,
     providerQueryVersion: PROVIDER_QUERY_VERSION,
-    normalizedRequestKey: GATEWAY_REQUEST_KEY,
+    normalizedRequestKey: JSON.stringify([
+      GATEWAY_REQUEST_KEY,
+      paper.citingPaperIdentifiers?.doi ?? null,
+      paper.citingPaperIdentifiers?.pmid ?? null,
+    ]),
   };
 }
 
@@ -398,8 +403,9 @@ async function loadDirectLandingPage(
 ): Promise<
   Readonly<{ url: string; metadata: TrustedLandingMetadata }> | undefined
 > {
+  let response: Response | undefined;
   try {
-    const response = await fetchPort(url, {
+    response = await fetchPort(url, {
       method: "GET",
       redirect: "follow",
       headers: { Accept: "text/html,application/xhtml+xml" },
@@ -426,6 +432,8 @@ async function loadDirectLandingPage(
       }`,
       { cause: error },
     );
+  } finally {
+    if (response && !response.bodyUsed) await response.body?.cancel();
   }
 }
 

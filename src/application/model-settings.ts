@@ -7,6 +7,7 @@ import {
   type RuntimeModel,
 } from "../model/model-configuration";
 import { ModelConnectionTester } from "../model/model-connection-tester";
+import type { DiscoveredModel } from "../model/model-catalog";
 import {
   saveProviderConfiguration,
   selectActiveModel,
@@ -23,6 +24,10 @@ export interface ModelPreferencesController {
     provider: ModelProvider,
     model: ProviderModel,
   ): Promise<string>;
+  loadModels(
+    provider: ModelProvider,
+    signal: AbortSignal,
+  ): Promise<DiscoveredModel[]>;
   cancelConnectionTests(): void;
 }
 
@@ -31,6 +36,10 @@ export class RecommendationModelSettingsCoordinator implements ModelPreferencesC
     private readonly store: ModelSettingsStore,
     private readonly connectionTester: ModelConnectionTester,
     private readonly cancelModelTasks: () => void,
+    private readonly loadProviderModels: (
+      provider: ModelProvider,
+      signal: AbortSignal,
+    ) => Promise<DiscoveredModel[]>,
   ) {}
 
   getConfiguration(): ModelProviderConfiguration {
@@ -54,7 +63,7 @@ export class RecommendationModelSettingsCoordinator implements ModelPreferencesC
     return selectActiveModel(modelId, this.selectionDependencies());
   }
 
-  testDraftModel(
+  async testDraftModel(
     provider: ModelProvider,
     model: ProviderModel,
   ): Promise<string> {
@@ -63,6 +72,13 @@ export class RecommendationModelSettingsCoordinator implements ModelPreferencesC
 
   cancelConnectionTests(): void {
     this.connectionTester.cancelActiveTests();
+  }
+
+  loadModels(
+    provider: ModelProvider,
+    signal: AbortSignal,
+  ): Promise<DiscoveredModel[]> {
+    return this.loadProviderModels(provider, signal);
   }
 
   dispose(): void {

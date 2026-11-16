@@ -102,6 +102,7 @@ export interface PythonScanSciFileSystem {
 export interface PythonScanSciRuntime {
   runProcess(request: PythonProcessRequest): Promise<PythonProcessResult>;
   ensureModuleAssets(): Promise<void>;
+  reportError(error: Error): void;
   files: PythonScanSciFileSystem;
   nextRequestID(): string;
 }
@@ -376,6 +377,9 @@ class PythonScanSciPort implements ScanSciPort {
       }
     } catch (error) {
       if (isAbortError(error)) throw error;
+      this.runtime.reportError(
+        new Error(sanitizeDiagnostic(originalError(error))),
+      );
       if (error instanceof SidecarOperationError) completedNormally = true;
       const failed = { status: "failed", error: originalError(error) } as const;
       for (const item of request.items) {
@@ -529,6 +533,8 @@ class PythonScanSciPort implements ScanSciPort {
       arguments: [
         "-E",
         "-s",
+        "-X",
+        "utf8",
         joinWindows(this.options.moduleRoot, "sidecar.py"),
       ],
       stdin: `${JSON.stringify(request)}\n`,

@@ -29,6 +29,7 @@ export type LoadedPaper = {
   sourceFingerprint: string;
   fullMarkdown: string;
   fullMdSha256: string;
+  citingPaperIdentifiers?: Readonly<{ doi?: string; pmid?: string }>;
   mineruDirectory?: string;
   entries: readonly ReferenceEntry[];
 };
@@ -37,18 +38,26 @@ export type ResolutionContext = {
   paper: LoadedPaper;
   token: SessionToken;
   signal: AbortSignal;
+  literatureRetrievedAt?: string;
 };
 
 export type CachedRelatedPapers = {
   references: readonly ReaderPaper[];
   citingPapers: readonly ReaderPaper[];
   citingPapersLoaded: number;
+  retrievedAt?: string;
 };
 
 export type CachedRecommendation = Extract<
   RecommendationResult,
   { status: "completed" }
 >;
+
+type RecommendationRun = {
+  controller: AbortController;
+  analyze: boolean;
+  completion: Promise<void>;
+};
 
 export type SinglePaperDownloadResult =
   | Readonly<{ status: "downloaded"; savedPath: string }>
@@ -131,14 +140,10 @@ export class RelatedPapersController implements ReaderSectionController {
   private loadController?: AbortController;
   private persistController?: AbortController;
   private downloadRun?: { invalidated: boolean; controller: AbortController };
-  private recommendationRun?: {
-    generation: number;
-    controller: AbortController;
-  };
+  private recommendationRun?: RecommendationRun;
   private readonly abstractLoads = new Set<string>();
   private loadGeneration = 0;
   private citingRequestGeneration = 0;
-  private recommendationGeneration = 0;
   private context?: ResolutionContext;
   private readonly unsubscribeRecommendationIdentityChange?: () => void;
   private disposed = false;
@@ -156,7 +161,7 @@ export class RelatedPapersController implements ReaderSectionController {
         if (this.disposed) return;
         this.invalidateRecommendation();
         if (this.context) {
-          void this.restoreCachedRecommendation(this.context);
+          void this.runRecommendation(this.context);
         }
       });
   }
@@ -199,11 +204,7 @@ export class RelatedPapersController implements ReaderSectionController {
   async generateRecommendations(): Promise<void> {
     this.assertActive();
     const context = this.context;
-    if (
-      !context ||
-      this.recommendationRun ||
-      this.state.recommendation.status === "completed"
-    ) {
+    if (!context || this.state.recommendation.status === "completed") {
       return;
     }
     if (!this.ports.recommendPapers) {
@@ -215,19 +216,43 @@ export class RelatedPapersController implements ReaderSectionController {
       });
       return;
     }
-    const run = {
-      generation: ++this.recommendationGeneration,
+    await this.runRecommendation(context, true);
+  }
+
+  private async runRecommendation(
+    context: ResolutionContext,
+    analyze = false,
+  ): Promise<void> {
+    if (
+      !this.sessions.canCommit(context.token) ||
+      this.state.recommendation.status === "completed" ||
+      (!analyze && !this.ports.readCachedRecommendation)
+    ) {
+      return;
+    }
+    const existingRun = this.recommendationRun;
+    if (existingRun && !analyze) return;
+    let finishRun!: () => void;
+    const run = existingRun ?? {
       controller: new AbortController(),
+      analyze: false,
+      completion: new Promise<void>((resolve) => {
+        finishRun = resolve;
+      }),
     };
     this.recommendationRun = run;
-    this.update({
-      recommendation: {
-        status: "analyzing",
-        totalCandidates: 0,
-        priority: [],
-        optional: [],
-      },
-    });
+    if (analyze && !run.analyze) {
+      run.analyze = true;
+      this.update({
+        recommendation: {
+          status: "analyzing",
+          totalCandidates: 0,
+          priority: [],
+          optional: [],
+        },
+      });
+    }
+    if (existingRun) return run.completion;
     try {
       const request = this.recommendationRequest(
         context,
@@ -238,14 +263,22 @@ export class RelatedPapersController implements ReaderSectionController {
         },
       );
       if (this.ports.readCachedRecommendation) {
-        const cacheResult = await this.tryRestoreCachedRecommendation(
-          request,
-          run,
-          context.token,
-        );
-        if (cacheResult !== "miss") return;
+        const cached = await this.ports.readCachedRecommendation(request);
+        if (!this.recommendationIsCurrent(run, context.token)) return;
+        if (cached) {
+          this.update({
+            recommendation: {
+              status: "completed",
+              priority: cached.priority,
+              optional: cached.optional,
+              restoredFromCache: true,
+            },
+          });
+          return;
+        }
       }
-      const result = await this.ports.recommendPapers(request);
+      if (!run.analyze) return;
+      const result = await this.ports.recommendPapers!(request);
       if (!this.recommendationIsCurrent(run, context.token)) return;
       this.update({
         recommendation:
@@ -280,6 +313,7 @@ export class RelatedPapersController implements ReaderSectionController {
       });
     } finally {
       if (this.recommendationRun === run) this.recommendationRun = undefined;
+      finishRun();
     }
   }
 
@@ -501,6 +535,7 @@ export class RelatedPapersController implements ReaderSectionController {
       paper,
       token: active.token,
       signal: active.signal,
+      literatureRetrievedAt: new Date().toISOString(),
     };
     this.context = context;
     this.update({
@@ -527,6 +562,8 @@ export class RelatedPapersController implements ReaderSectionController {
         const cached = await this.ports.readCachedResults(paper);
         if (!this.sessions.canCommit(context.token)) return;
         if (cached) {
+          context.literatureRetrievedAt =
+            cached.retrievedAt ?? context.literatureRetrievedAt;
           this.update({
             references: [...cached.references],
             citingPapers: [...cached.citingPapers],
@@ -535,7 +572,7 @@ export class RelatedPapersController implements ReaderSectionController {
               status: cached.citingPapersLoaded > 0 ? "ready" : "idle",
             },
           });
-          await this.restoreCachedRecommendation(context);
+          await this.runRecommendation(context);
           this.startBackgroundEnrichment(context);
           return;
         }
@@ -565,7 +602,7 @@ export class RelatedPapersController implements ReaderSectionController {
       this.invalidateRecommendation();
       this.update({ references: [...references] });
       await this.persistResults(context);
-      await this.restoreCachedRecommendation(context);
+      await this.runRecommendation(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
       this.invalidateRecommendation();
@@ -581,53 +618,9 @@ export class RelatedPapersController implements ReaderSectionController {
         ),
       });
       await this.persistResults(context);
-      await this.restoreCachedRecommendation(context);
+      await this.runRecommendation(context);
     }
     this.startBackgroundEnrichment(context);
-  }
-
-  private async restoreCachedRecommendation(
-    context: ResolutionContext,
-  ): Promise<void> {
-    if (!this.ports.readCachedRecommendation) return;
-    const run = {
-      generation: ++this.recommendationGeneration,
-      controller: new AbortController(),
-    };
-    this.recommendationRun = run;
-    try {
-      await this.tryRestoreCachedRecommendation(
-        this.recommendationRequest(context, run.controller.signal),
-        run,
-        context.token,
-      );
-    } catch (error) {
-      if (!this.recommendationIsCurrent(run, context.token)) return;
-      this.update({
-        recommendation: { status: "failed", message: conciseError(error) },
-      });
-    } finally {
-      if (this.recommendationRun === run) this.recommendationRun = undefined;
-    }
-  }
-
-  private async tryRestoreCachedRecommendation(
-    request: RecommendationRequest,
-    run: { generation: number; controller: AbortController },
-    token: SessionToken,
-  ): Promise<"miss" | "restored" | "stale"> {
-    const cached = await this.ports.readCachedRecommendation!(request);
-    if (!this.recommendationIsCurrent(run, token)) return "stale";
-    if (!cached) return "miss";
-    this.update({
-      recommendation: {
-        status: "completed",
-        priority: cached.priority,
-        optional: cached.optional,
-        restoredFromCache: true,
-      },
-    });
-    return "restored";
   }
 
   private recommendationRequest(
@@ -732,10 +725,10 @@ export class RelatedPapersController implements ReaderSectionController {
       if (!this.sessions.canCommit(context.token)) return;
       assertStablePrefix(this.state.citingPapers, citingPapers);
       this.invalidateRecommendation();
-      const cumulativePapers =
-        citingPapers.length >= this.state.citingPapers.length
-          ? citingPapers
-          : this.state.citingPapers;
+      const cumulativePapers = [
+        ...this.state.citingPapers,
+        ...citingPapers.slice(this.state.citingPapers.length),
+      ];
       this.update({
         citingPapers: [...cumulativePapers],
         citingPapersLoaded: Math.max(this.state.citingPapersLoaded, limit),
@@ -744,7 +737,7 @@ export class RelatedPapersController implements ReaderSectionController {
           : {}),
       });
       await this.persistResults(context);
-      await this.restoreCachedRecommendation(context);
+      await this.runRecommendation(context);
       if (prefetchAbstracts) {
         await this.prefetchMissingAbstracts(context, cumulativePapers);
       }
@@ -797,7 +790,7 @@ export class RelatedPapersController implements ReaderSectionController {
         abstractError: undefined,
       });
       await this.persistResults(context);
-      await this.restoreCachedRecommendation(context);
+      await this.runRecommendation(context);
     } catch (error) {
       if (!this.sessions.canCommit(context.token)) return;
       this.replacePapersByDoi(doi, {
@@ -817,10 +810,11 @@ export class RelatedPapersController implements ReaderSectionController {
   private async enrichRelatedPapers(context: ResolutionContext): Promise<void> {
     if (!this.sessions.canCommit(context.token)) return;
     if (
-      this.state.citingPapersLoaded < 10 &&
-      this.state.citingPapersStatus.status === "idle"
+      this.state.citingPapersLoaded < this.state.citingPaperLimit &&
+      (this.state.citingPapersStatus.status === "idle" ||
+        this.state.citingPapersStatus.status === "ready")
     ) {
-      await this.loadCitingPapers(10, false);
+      await this.loadCitingPapers(this.state.citingPaperLimit, false);
     }
     if (!this.sessions.canCommit(context.token)) return;
     await this.prefetchMissingAbstracts(context, [
@@ -900,6 +894,7 @@ export class RelatedPapersController implements ReaderSectionController {
           references: this.state.references,
           citingPapers: this.state.citingPapers,
           citingPapersLoaded: this.state.citingPapersLoaded,
+          retrievedAt: context.literatureRetrievedAt,
         },
         { ...context, signal: writeController.signal },
       );
@@ -977,20 +972,18 @@ export class RelatedPapersController implements ReaderSectionController {
   }
 
   private recommendationIsCurrent(
-    run: { generation: number; controller: AbortController },
+    run: RecommendationRun,
     token: SessionToken,
   ): boolean {
     return (
       !this.disposed &&
       this.recommendationRun === run &&
-      run.generation === this.recommendationGeneration &&
       !run.controller.signal.aborted &&
       this.sessions.canCommit(token)
     );
   }
 
   private cancelRecommendation(): void {
-    this.recommendationGeneration += 1;
     this.recommendationRun?.controller.abort();
     this.recommendationRun = undefined;
   }

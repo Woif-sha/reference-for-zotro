@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CodexLoginRequiredError,
+  LEGACY_CODEX_MODELS_ENDPOINT,
   LegacyCodexTransport,
   buildLegacyCodexPayload,
   resolveCodexAuthPath,
@@ -388,6 +389,159 @@ test("Legacy recommendation responses tolerate large non-text events and stop af
     }),
     { text: "OK" },
   );
+});
+
+test("Codex catalog uses the fixed official GET, redirect rejection and available account header", async () => {
+  const harness = transportHarness();
+  harness.document.tokens!.account_id = "catalog-account";
+  harness.fetch = async (input, init) => {
+    assert.equal(String(input), LEGACY_CODEX_MODELS_ENDPOINT);
+    assert.equal(init?.method, "GET");
+    assert.equal(init?.redirect, "error");
+    assert.equal(init?.body, undefined);
+    assert.deepEqual(init?.headers, {
+      Accept: "application/json",
+      Authorization: "Bearer access-old",
+      "ChatGPT-Account-ID": "catalog-account",
+    });
+    return jsonResponse({ models: [] });
+  };
+  assert.equal((await harness.transport.fetchModels()).ok, true);
+  assert.equal(harness.writes.length, 0);
+});
+
+test("catalog and generation share one refresh after explicit HTTP 401", async () => {
+  const harness = transportHarness();
+  const refresh = deferred<Response>();
+  const authorizations: string[] = [];
+  let refreshCalls = 0;
+  harness.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("oauth/token")) {
+      refreshCalls += 1;
+      return refresh.promise;
+    }
+    const authorization = (init?.headers as Record<string, string>)
+      .Authorization;
+    authorizations.push(authorization);
+    if (authorization === "Bearer access-old")
+      return new Response("unauthorized", { status: 401 });
+    return url === LEGACY_CODEX_MODELS_ENDPOINT
+      ? jsonResponse({ models: [] })
+      : completedResponse("OK");
+  };
+  const catalog = harness.transport.fetchModels();
+  const generation = harness.transport.run(request());
+  await until(() => authorizations.length === 2 && refreshCalls === 1);
+  refresh.resolve(
+    jsonResponse({ access_token: "access-new", refresh_token: "refresh-new" }),
+  );
+  const [response, result] = await Promise.all([catalog, generation]);
+  assert.equal(response.ok, true);
+  assert.deepEqual(result, { text: "OK" });
+  assert.equal(refreshCalls, 1);
+  assert.equal(harness.writes.length, 1);
+  assert.deepEqual(authorizations, [
+    "Bearer access-old",
+    "Bearer access-old",
+    "Bearer access-new",
+    "Bearer access-new",
+  ]);
+});
+
+test("catalog refreshes missing access once and stops after a repeated HTTP 401", async () => {
+  const harness = transportHarness();
+  harness.document = authDocument("", "refresh-old");
+  harness.fetchResponses.push(
+    jsonResponse({ access_token: "access-first" }),
+    new Response("unauthorized", { status: 401 }),
+    jsonResponse({ access_token: "access-second" }),
+    new Response("still unauthorized", { status: 401 }),
+  );
+  await assert.rejects(
+    harness.transport.fetchModels(),
+    CodexLoginRequiredError,
+  );
+  assert.deepEqual(
+    harness.fetchCalls.map((call) => call.url),
+    [
+      "https://auth.openai.com/oauth/token",
+      LEGACY_CODEX_MODELS_ENDPOINT,
+      "https://auth.openai.com/oauth/token",
+      LEGACY_CODEX_MODELS_ENDPOINT,
+    ],
+  );
+});
+
+test("catalog does not refresh on HTTP 403 and never exposes authentication or transport details", async () => {
+  const harness = transportHarness();
+  harness.fetchResponses.push(
+    new Response("access-old refresh-old", { status: 403 }),
+  );
+  assert.equal((await harness.transport.fetchModels()).status, 403);
+  assert.deepEqual(
+    harness.fetchCalls.map((call) => call.url),
+    [LEGACY_CODEX_MODELS_ENDPOINT],
+  );
+  harness.fetch = async () => {
+    throw new Error("access-old refresh-old catalog-account");
+  };
+  await assert.rejects(harness.transport.fetchModels(), (error: Error) => {
+    assert.doesNotMatch(
+      error.message,
+      /access-old|refresh-old|catalog-account/u,
+    );
+    assert.equal(error.cause, undefined);
+    return true;
+  });
+});
+
+test("pre-cancelled catalog does not read auth or send credentials", async () => {
+  const controller = new AbortController();
+  controller.abort(new Error("cancelled"));
+  const transport = new LegacyCodexTransport({
+    ...runtime({ CODEX_HOME: "C:\\Codex" }),
+    io: {
+      read: async () => assert.fail("cancelled catalog must not read auth"),
+      write: async () => assert.fail("cancelled catalog must not write auth"),
+    },
+    fetch: async () => assert.fail("cancelled catalog must not fetch"),
+  });
+  await assert.rejects(transport.fetchModels(controller.signal), /aborted/u);
+});
+
+test("cancelling a catalog wait leaves the shared generation refresh running", async () => {
+  const harness = transportHarness();
+  const refresh = deferred<Response>();
+  const controller = new AbortController();
+  let refreshCalls = 0;
+  let initialCalls = 0;
+  let refreshSignal: AbortSignal | undefined;
+  harness.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("oauth/token")) {
+      refreshCalls += 1;
+      refreshSignal = init?.signal as AbortSignal;
+      return refresh.promise;
+    }
+    if (
+      (init?.headers as Record<string, string>).Authorization ===
+      "Bearer access-old"
+    ) {
+      initialCalls += 1;
+      return new Response("unauthorized", { status: 401 });
+    }
+    return completedResponse("OK");
+  };
+  const catalog = harness.transport.fetchModels(controller.signal);
+  const generation = harness.transport.run(request());
+  await until(() => initialCalls === 2 && refreshCalls === 1);
+  controller.abort(new Error("stop catalog"));
+  await assert.rejects(catalog, /aborted/u);
+  assert.equal(refreshSignal?.aborted, false);
+  refresh.resolve(jsonResponse({ access_token: "access-new" }));
+  assert.deepEqual(await generation, { text: "OK" });
+  assert.equal(harness.writes.length, 1);
 });
 
 function request() {

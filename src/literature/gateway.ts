@@ -191,6 +191,9 @@ export function createRelatedLiteratureGateway(
         ? { status: "failed", outcomes }
         : { status: "unresolved", reason: "no-candidate", outcomes };
     }
+    if (match.status === "ambiguous") {
+      return { status: "ambiguous", candidates: match.candidates, outcomes };
+    }
 
     const matchedCandidates = match.candidates;
     const reachableCandidates = await Promise.all(
@@ -232,7 +235,7 @@ export function createRelatedLiteratureGateway(
       status: "resolved",
       primaryResult: verifiedPrimaryResult,
       candidates: reachableCandidates.map(({ candidate }) => candidate),
-      matchedBy: match.status === "confirmed" ? match.matchedBy : "metadata",
+      matchedBy: match.matchedBy,
       outcomes,
     };
   }

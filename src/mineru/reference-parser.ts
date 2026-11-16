@@ -87,6 +87,7 @@ export function normalizeReferenceEntries(
         Number(current.marker.sourceLabel)
       : 0;
     if (nextMarked?.marker && sequenceGap === 2) {
+      if (located[index + 1] !== nextMarked) unsupportedMarker();
       groups.push({
         marker: { sourceLabel: String(Number(current.marker.sourceLabel) + 1) },
         members: [block],
@@ -97,21 +98,30 @@ export function normalizeReferenceEntries(
     current.members.push(block);
   }
 
-  const replacements = groups.map((group) => {
-    const first = group.members[0]!;
-    const last = group.members.at(-1)!;
+  const normalizedGroups = groups.map((group) => {
     const body = group.members
       .map((member) => removeMarker(member.text))
       .join(" ");
     const text = `[${group.marker.sourceLabel}] ${normalizeReferenceText(body)}`;
-    return {
-      group,
-      text,
-      position: first.charStart,
-      removedLength: last.charEnd - first.charStart,
-      insertedLength: text.length,
-    };
+    return { group, text };
   });
+  const replacements = normalizedGroups.flatMap(({ group, text }) =>
+    group.members.map((member, index) => {
+      const previous = group.members[index - 1];
+      // Keep intervening page content outside the Reference text edits.
+      const gap = previous
+        ? fullMarkdown.slice(previous.charEnd, member.charStart)
+        : "";
+      const position = member.charStart - gap.match(/\s*$/u)![0].length;
+      const replacementText = index === 0 ? text : "";
+      return {
+        text: replacementText,
+        position,
+        removedLength: member.charEnd - position,
+        insertedLength: replacementText.length,
+      };
+    }),
+  );
 
   let normalizedMarkdown = fullMarkdown;
   for (const replacement of [...replacements].reverse()) {
@@ -119,14 +129,14 @@ export function normalizeReferenceEntries(
   }
 
   const firstBlockByIndex = new Map(
-    replacements.map((replacement) => [
-      replacement.group.members[0]!.blockIndex,
-      replacement.text,
+    normalizedGroups.map(({ group, text }) => [
+      group.members[0]!.blockIndex,
+      text,
     ]),
   );
   const continuationIndexes = new Set(
-    replacements.flatMap((replacement) =>
-      replacement.group.members.slice(1).map((member) => member.blockIndex),
+    groups.flatMap((group) =>
+      group.members.slice(1).map((member) => member.blockIndex),
     ),
   );
   const normalizedBlocks = parsed.blocks.flatMap((block, blockIndex) => {

@@ -29,6 +29,8 @@ The optional OpenAlex API Key is available for free from OpenAlex and is stored 
 
 Recommendation model configuration is stored only in this plugin's Zotero preferences and is independent of Paper Translate. Codex Auth reads the existing local Codex authentication file when a request starts. OpenAI Compatible stores the API Base, API Key and model selection in the plugin preference. The plugin does not copy credentials into `recommendation.json`, model runtime identity, diagnostics or user-visible errors.
 
+In Preferences, a provider with complete connection fields automatically loads its available-model catalog. Refreshing or opening the model picker also requests that catalog when needed. Codex Auth uses the authenticated Codex `/models` endpoint; OpenAI Compatible uses the configured API Base's `/models` endpoint with its API Key. Catalog requests contain no paper text. Returned model lists are cached only in the current Preferences window and are not read from or written to Paper Translate.
+
 The selected model provider receives the recommendation input described above and applies its own retention and privacy policy. The plugin does not automatically switch providers after a failure, and it does not use web search or tools while constructing the recommendation request.
 
 ## Download setup

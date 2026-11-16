@@ -8,6 +8,7 @@ import type { LocalPaperNameSettingsController } from "../application/local-pape
 import {
   assertExistingRegularDirectory,
   assertExistingRegularFile,
+  assertNoWindowsReparsePoints,
   assertUnchangedNormalizedPath,
 } from "./zotero-windows-file-safety";
 
@@ -183,21 +184,24 @@ async function listPdfsRecursively(root: string): Promise<readonly LocalPdf[]> {
     root,
     "Local paper root cannot traverse a symbolic link or junction",
   );
+  const traversalMessage =
+    "Local paper root cannot contain a symbolic link or junction";
+  assertNoWindowsReparsePoints(rootDirectory, traversalMessage);
 
   const pdfs: LocalPdf[] = [];
   const pending = [root];
   while (pending.length > 0) {
     const directory = pending.pop();
     if (!directory) continue;
+    assertNoWindowsReparsePoints(
+      Zotero.File.pathToFile(directory),
+      traversalMessage,
+    );
     for (const path of await IOUtils.getChildren(directory, {
       ignoreAbsent: true,
     })) {
       const file = Zotero.File.pathToFile(path);
-      if (file.isSymlink()) {
-        throw new Error(
-          `Local paper root cannot contain a symbolic link or junction: ${path}`,
-        );
-      }
+      assertNoWindowsReparsePoints(file, traversalMessage);
       const info = await IOUtils.stat(path);
       if (info.type === "directory") {
         pending.push(path);
@@ -234,6 +238,9 @@ function assertSafeLocalRename(
 
   const traversalMessage =
     "Local PDF path cannot traverse a symbolic link or junction";
+  assertNoWindowsReparsePoints(root, traversalMessage);
+  assertNoWindowsReparsePoints(source, traversalMessage);
+  assertNoWindowsReparsePoints(destinationParent, traversalMessage);
   assertUnchangedNormalizedPath(root, rootPath, traversalMessage);
   assertUnchangedNormalizedPath(source, sourcePath, traversalMessage);
   assertUnchangedNormalizedPath(

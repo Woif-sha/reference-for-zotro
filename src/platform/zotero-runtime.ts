@@ -5,6 +5,7 @@ import type {
   LiteratureCacheFileName,
 } from "../cache/cache-repository";
 import type { RecommendationCacheStorage } from "../cache/recommendation-cache-repository";
+import { config } from "../../package.json";
 import {
   PaperTranslateBridge,
   type PaperTranslateGlobal,
@@ -62,10 +63,8 @@ export function createZoteroMinerUPorts(): MinerUPorts {
         const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
         return { text, revision: `${bytes.byteLength}:${await sha256(text)}` };
       },
-      async writeUtf8(path, text): Promise<void> {
-        await io.write(path, new TextEncoder().encode(text), {
-          tmpPath: `${path}.rfz-normalizing-${nextMinerUWriteID++}`,
-        });
+      async writeUtf8Batch(changes): Promise<void> {
+        await replaceUtf8Files(io, changes);
       },
     },
     sha256,
@@ -88,15 +87,31 @@ export function createProviderPorts(): ProviderPorts {
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryWriteQueue();
+  const queue = createDirectoryQueue(root);
   return {
-    async read(directory, file) {
-      await queue.wait(directory);
-      const path = joinPath(root, directory, file);
-      if (!(await io.exists(path))) return undefined;
-      const raw = await io.read(path);
-      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    read(directory) {
+      return queue.enqueue(directory, async () => {
+        const readFile = async (file: LiteratureCacheFileName) => {
+          const path = joinPath(root, directory, file);
+          if (!(await io.exists(path))) return undefined;
+          const raw = await io.read(path);
+          const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+          return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+        };
+        const manifest = await readFile("manifest.json");
+        if (manifest === undefined) return {};
+        const [references, citations, abstracts] = await Promise.all([
+          readFile("references.json"),
+          readFile("citations.json"),
+          readFile("abstract.json"),
+        ]);
+        return {
+          "manifest.json": manifest,
+          "references.json": references,
+          "citations.json": citations,
+          "abstract.json": abstracts,
+        };
+      });
     },
     write(directory, files, signal) {
       return queue.enqueue(directory, async () => {
@@ -106,38 +121,20 @@ export function createZoteroCacheStorage(): CacheStorage {
           createAncestors: true,
           ignoreExisting: true,
         });
-        const writeID = nextCacheWriteID++;
         const commitOrder: readonly LiteratureCacheFileName[] = [
           "references.json",
           "citations.json",
           "abstract.json",
           "manifest.json",
         ];
-        const stagedPaths = new Map<LiteratureCacheFileName, string>();
-        try {
-          for (const file of commitOrder) {
-            const path = joinPath(paperDirectory, file);
-            const stagedPath = `${path}.pending-${writeID}`;
-            stagedPaths.set(file, stagedPath);
-            await io.write(stagedPath, new TextEncoder().encode(files[file]), {
-              tmpPath: `${stagedPath}.tmp`,
-            });
-          }
-          if (signal?.aborted) throw abortError();
-          for (const file of commitOrder) {
-            await io.move(
-              stagedPaths.get(file)!,
-              joinPath(paperDirectory, file),
-              { noOverwrite: false },
-            );
-          }
-        } finally {
-          await Promise.all(
-            [...stagedPaths.values()].map((path) =>
-              io.remove(path, { ignoreAbsent: true }),
-            ),
-          );
-        }
+        await replaceUtf8Files(
+          io,
+          commitOrder.map((file) => ({
+            path: joinPath(paperDirectory, file),
+            text: files[file],
+          })),
+          signal,
+        );
       });
     },
   };
@@ -146,15 +143,16 @@ export function createZoteroCacheStorage(): CacheStorage {
 export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryWriteQueue();
+  const queue = createDirectoryQueue(root);
   return {
-    async read(directory) {
-      await queue.wait(directory);
-      const path = joinPath(root, directory, "recommendation.json");
-      if (!(await io.exists(path))) return undefined;
-      const raw = await io.read(path);
-      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    read(directory) {
+      return queue.enqueue(directory, async () => {
+        const path = joinPath(root, directory, "recommendation.json");
+        if (!(await io.exists(path))) return undefined;
+        const raw = await io.read(path);
+        const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      });
     },
     write(directory, value, signal) {
       return queue.enqueue(directory, async () => {
@@ -165,43 +163,114 @@ export function createZoteroRecommendationCacheStorage(): RecommendationCacheSto
           ignoreExisting: true,
         });
         const path = joinPath(paperDirectory, "recommendation.json");
-        const writeID = nextRecommendationCacheWriteID++;
-        const stagedPath = `${path}.pending-${writeID}`;
-        const previousPath = `${path}.previous-${writeID}`;
-        let previousExists: boolean;
-        try {
-          await io.write(stagedPath, new TextEncoder().encode(value), {
-            tmpPath: `${stagedPath}.tmp`,
-          });
-          if (signal?.aborted) throw abortError();
-          previousExists = await io.exists(path);
-          if (previousExists) {
-            await io.copy(path, previousPath, { noOverwrite: false });
-          }
-          if (signal?.aborted) throw abortError();
-          await io.move(stagedPath, path, { noOverwrite: false });
-          if (signal?.aborted) {
-            if (previousExists) {
-              await io.move(previousPath, path, { noOverwrite: false });
-            } else {
-              await io.remove(path, { ignoreAbsent: true });
-            }
-            throw abortError();
-          }
-        } finally {
-          await Promise.all([
-            io.remove(stagedPath, { ignoreAbsent: true }),
-            io.remove(previousPath, { ignoreAbsent: true }),
-          ]);
-        }
+        await replaceUtf8Files(io, [{ path, text: value }], signal);
       });
     },
   };
 }
 
-let nextCacheWriteID = 1;
-let nextRecommendationCacheWriteID = 1;
-let nextMinerUWriteID = 1;
+async function replaceUtf8Files(
+  io: IOUtilsLike,
+  files: readonly Readonly<{ path: string; text: string }>[],
+  signal?: AbortSignal,
+): Promise<void> {
+  const writeID = crypto.randomUUID();
+  const replacements = files.map(({ path, text }) => ({
+    path,
+    text,
+    stagedPath: `${path}.pending-${writeID}`,
+    previousPath: `${path}.previous-${writeID}`,
+    previousExists: false,
+    stagedOwned: false,
+    backupOwned: false,
+  }));
+  const attempted: (typeof replacements)[number][] = [];
+  let preserveBackups = false;
+  let failed = false;
+  let failure: unknown;
+  try {
+    for (const replacement of replacements) {
+      if (signal?.aborted) throw abortError();
+      if (await io.exists(replacement.stagedPath)) {
+        throw new Error(`File already exists: ${replacement.stagedPath}`);
+      }
+      replacement.stagedOwned = true;
+      await io.write(
+        replacement.stagedPath,
+        new TextEncoder().encode(replacement.text),
+        { tmpPath: `${replacement.stagedPath}.tmp` },
+      );
+      if (signal?.aborted) throw abortError();
+      replacement.previousExists = await io.exists(replacement.path);
+      if (replacement.previousExists) {
+        await io.copy(replacement.path, replacement.previousPath, {
+          noOverwrite: true,
+        });
+        replacement.backupOwned = true;
+      }
+    }
+    for (const replacement of replacements) {
+      if (signal?.aborted) throw abortError();
+      // A failed move can have changed its destination; include it in rollback.
+      attempted.push(replacement);
+      await io.move(replacement.stagedPath, replacement.path, {
+        noOverwrite: false,
+      });
+      if (signal?.aborted) throw abortError();
+    }
+  } catch (error) {
+    failed = true;
+    failure = error;
+    const rollbackErrors: unknown[] = [];
+    for (const replacement of attempted.reverse()) {
+      try {
+        if (replacement.previousExists) {
+          await io.copy(replacement.previousPath, replacement.path, {
+            noOverwrite: false,
+          });
+        } else {
+          await io.remove(replacement.path, { ignoreAbsent: true });
+        }
+      } catch (rollbackError) {
+        rollbackErrors.push(rollbackError);
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      preserveBackups = true;
+      failure = new AggregateError(
+        [error, ...rollbackErrors],
+        "File replacement and rollback failed; previous files were retained beside their destinations",
+        { cause: error },
+      );
+    }
+  }
+  const cleanup = await Promise.allSettled(
+    replacements.flatMap(
+      ({ stagedPath, previousPath, stagedOwned, backupOwned }) => [
+        ...(stagedOwned
+          ? [
+              io.remove(stagedPath, { ignoreAbsent: true }),
+              io.remove(`${stagedPath}.tmp`, { ignoreAbsent: true }),
+            ]
+          : []),
+        ...(!preserveBackups && backupOwned
+          ? [io.remove(previousPath, { ignoreAbsent: true })]
+          : []),
+      ],
+    ),
+  );
+  const cleanupErrors = cleanup.flatMap((result) =>
+    result.status === "rejected" ? [result.reason] : [],
+  );
+  if (cleanupErrors.length > 0) {
+    throw new AggregateError(
+      [...(failed ? [failure] : []), ...cleanupErrors],
+      "File replacement cleanup failed",
+      failed ? { cause: failure } : undefined,
+    );
+  }
+  if (failed) throw failure;
+}
 
 export function createPaperTranslateBridge(): PaperTranslateBridge {
   return new PaperTranslateBridge(
@@ -237,19 +306,21 @@ function paperCacheRoot(): string {
   );
 }
 
-function createDirectoryWriteQueue(): Readonly<{
-  wait(key: string): Promise<void> | undefined;
-  enqueue(key: string, task: () => Promise<void>): Promise<void>;
+function createDirectoryQueue(root: string): Readonly<{
+  enqueue<T>(key: string, task: () => Promise<T>): Promise<T>;
 }> {
-  const writes = new Map<string, Promise<void>>();
+  // Transactions and rollback must finish before a reloaded bundle uses the directory.
+  const host = Zotero as typeof Zotero & { [key: string]: unknown };
+  const operations = (host[`${config.addonInstance}CacheOperations`] ??=
+    new Map<string, Promise<unknown>>()) as Map<string, Promise<unknown>>;
   return {
-    wait: (key) => writes.get(key),
-    enqueue(key, task) {
-      const previous = writes.get(key) ?? Promise.resolve();
+    enqueue(directory, task) {
+      const key = joinPath(root, directory);
+      const previous = operations.get(key) ?? Promise.resolve();
       const operation = previous.catch(() => undefined).then(task);
-      writes.set(key, operation);
+      operations.set(key, operation);
       return operation.finally(() => {
-        if (writes.get(key) === operation) writes.delete(key);
+        if (operations.get(key) === operation) operations.delete(key);
       });
     },
   };
@@ -373,12 +444,57 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const controller = new AbortController();
   const abort = () => controller.abort();
-  init?.signal?.addEventListener("abort", abort, { once: true });
+  if (init?.signal?.aborted) abort();
+  else init?.signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(abort, timeoutMilliseconds);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
+  const cleanup = () => {
     clearTimeout(timer);
     init?.signal?.removeEventListener("abort", abort);
+  };
+  controller.signal.addEventListener("abort", cleanup, { once: true });
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    if (!response.body) {
+      cleanup();
+      return response;
+    }
+    const reader = response.body.getReader();
+    const body = new ReadableStream<Uint8Array>({
+      async pull(stream) {
+        try {
+          const { done, value } = await reader.read();
+          if (done) {
+            cleanup();
+            stream.close();
+          } else {
+            stream.enqueue(value);
+          }
+        } catch (error) {
+          cleanup();
+          stream.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason);
+        } finally {
+          cleanup();
+        }
+      },
+    });
+    const result = new Response(body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers,
+    });
+    Object.defineProperties(result, {
+      url: { value: response.url },
+      redirected: { value: response.redirected },
+      type: { value: response.type },
+    });
+    return result;
+  } catch (error) {
+    cleanup();
+    throw error;
   }
 }

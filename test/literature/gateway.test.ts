@@ -247,7 +247,7 @@ test("traditional literature falls back to DataCite only after Crossref has no c
   assert.ok(seen[1]?.includes("api.datacite.org"));
 });
 
-test("competing exact records automatically select the strongest IEEE or ACM result", async () => {
+test("competing exact records remain ambiguous before publisher authority is compared", async () => {
   const title =
     "Cell Library Characterization for Composite Current Source Models Based on Gaussian Process Regression and Active Learning";
   const gateway = createRelatedLiteratureGateway(
@@ -323,8 +323,51 @@ test("competing exact records automatically select the strongest IEEE or ACM res
     channel: "conference",
   });
 
+  assert.equal(result.status, "ambiguous");
+  assert.equal(result.candidates.length, 2);
+});
+
+test("confirmed records for one DOI still select the most complete registrar result", async () => {
+  const gateway = createRelatedLiteratureGateway(
+    ports(async (input) => {
+      const url = String(input);
+      if (url.includes("api.crossref.org")) {
+        return Response.json({
+          message: { DOI: "10.1000/shared", title: ["Shared Paper"] },
+        });
+      }
+      if (url.includes("api.datacite.org")) {
+        return Response.json({
+          data: {
+            id: "10.1000/shared",
+            attributes: {
+              doi: "10.1000/shared",
+              titles: [{ title: "Shared Paper" }],
+              creators: [{ familyName: "Smith" }],
+              publicationYear: 2024,
+              publisher: "Example Publisher",
+            },
+          },
+        });
+      }
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "https://publisher.example/shared" },
+      });
+    }),
+  );
+
+  const result = await gateway.resolveReference({
+    identifiers: { doi: "10.1000/shared" },
+    title: "Shared Paper",
+    authors: ["Smith"],
+    year: 2024,
+    channel: "journal",
+  });
+
   assert.equal(result.status, "resolved");
-  assert.equal(result.primaryResult.identifiers.doi, "10.1145/3670474.3685965");
+  assert.equal(result.primaryResult.source, "datacite");
+  assert.equal(result.matchedBy, "doi");
   assert.equal(result.candidates.length, 2);
 });
 

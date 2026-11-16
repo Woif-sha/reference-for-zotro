@@ -33,12 +33,14 @@ export async function getJson(
       continue;
     }
 
+    if (!response.ok) await response.body?.cancel();
     if (response.ok) {
       const declaredLength = Number(response.headers.get("Content-Length"));
       if (
         Number.isFinite(declaredLength) &&
         declaredLength > MAX_RESPONSE_BYTES
       ) {
+        await response.body?.cancel();
         throw new ProviderError(
           source,
           "provider-response-too-large",
@@ -59,6 +61,15 @@ export async function getJson(
         return JSON.parse(text) as unknown;
       } catch (error) {
         if (error instanceof ProviderError) throw error;
+        if (signal?.aborted) throw signal.reason;
+        if (error instanceof Error && error.name === "AbortError") {
+          throw new ProviderError(
+            source,
+            "source-unavailable",
+            `${source} response body timed out`,
+            response.status,
+          );
+        }
         throw new ProviderError(
           source,
           "provider-contract-error",

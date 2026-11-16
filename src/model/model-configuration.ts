@@ -205,7 +205,7 @@ export function resolveRuntimeModel(
 }
 
 export function normalizeChatCompletionsEndpoint(apiBase: string): string {
-  const value = apiBase.trim().replace(/\/+$/u, "");
+  const value = apiBase.trim();
   let parsed: URL;
   try {
     parsed = new URL(value);
@@ -220,9 +220,11 @@ export function normalizeChatCompletionsEndpoint(apiBase: string): string {
   if (parsed.protocol !== "https:") {
     throw new Error("OpenAI Compatible API Base 必须使用 HTTPS");
   }
-  return /\/chat\/completions$/iu.test(parsed.pathname)
-    ? value
-    : `${value}/chat/completions`;
+  const pathname = parsed.pathname.replace(/\/+$/u, "");
+  parsed.pathname = /\/chat\/completions$/iu.test(pathname)
+    ? pathname
+    : `${pathname}/chat/completions`;
+  return parsed.href;
 }
 
 function validateProvider(provider: ModelProvider): ModelProvider {

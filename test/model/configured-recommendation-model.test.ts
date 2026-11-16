@@ -10,6 +10,11 @@ import {
   type ModelProviderConfiguration,
 } from "../../src/model/model-configuration";
 import { saveProviderConfiguration } from "../../src/model/model-selection";
+import { fetchProviderModels } from "../../src/model/model-catalog";
+import {
+  runOpenAICompatibleRequest,
+  testOpenAICompatibleConnection,
+} from "../../src/model/openai-compatible-transport";
 import { RelatedPapersController } from "../../src/application/related-papers-controller";
 import { RelatedPaperRecommendationService } from "../../src/recommendation/related-paper-recommendation";
 
@@ -167,6 +172,105 @@ test("recommendation model routes once to the selected provider and returns a se
     JSON.stringify(result.identity),
     /private-key|access_token|refresh_token|auth\.json/u,
   );
+});
+
+test("saved API Bases preserve their URL structure for catalogs, connection tests and recommendations", async (t) => {
+  const gatewayEndpoint =
+    "https://example.test/gateway/v1/chat/completions?api-version=2026&region=cn";
+  const gatewayCatalog =
+    "https://example.test/gateway/v1/models?api-version=2026&region=cn";
+  for (const [apiBase, endpoint, catalog] of [
+    [
+      "https://example.test",
+      "https://example.test/chat/completions",
+      "https://example.test/models",
+    ],
+    [
+      "https://example.test/",
+      "https://example.test/chat/completions",
+      "https://example.test/models",
+    ],
+    [
+      "https://example.test?api-version=2026",
+      "https://example.test/chat/completions?api-version=2026",
+      "https://example.test/models?api-version=2026",
+    ],
+    [
+      "https://example.test/gateway/v1?api-version=2026&region=cn",
+      gatewayEndpoint,
+      gatewayCatalog,
+    ],
+    [
+      "https://example.test/gateway/v1/?api-version=2026&region=cn",
+      gatewayEndpoint,
+      gatewayCatalog,
+    ],
+    [
+      "https://example.test/gateway/v1/chat/completions/?api-version=2026&region=cn",
+      gatewayEndpoint,
+      gatewayCatalog,
+    ],
+    [gatewayEndpoint, gatewayEndpoint, gatewayCatalog],
+  ]) {
+    await t.test(apiBase, async () => {
+      let stored: string | undefined;
+      const preferences = {
+        get: () => stored,
+        set(_key: string, value: string) {
+          stored = value;
+        },
+      };
+      const draft = configuration("model-api");
+      draft.providers[1].apiBase = apiBase;
+      new ModelSettingsStore(preferences).saveConfiguration(draft);
+      const store = new ModelSettingsStore(preferences);
+      const provider = store.getConfiguration().providers[1];
+      const requests: string[] = [];
+      const fetch: typeof globalThis.fetch = async (url, init) => {
+        requests.push(String(url));
+        if (init?.method === "GET") {
+          assert.equal(String(url), catalog);
+          return new Response(
+            JSON.stringify({ data: [{ id: "example-model" }] }),
+          );
+        }
+        assert.equal(String(url), endpoint);
+        const body = JSON.parse(String(init?.body));
+        const content = body.response_format ? "{}" : "OK";
+        return new Response(
+          `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\ndata: [DONE]\n\n`,
+        );
+      };
+      assert.deepEqual(await fetchProviderModels(provider, { fetch }), [
+        { id: "example-model", name: "" },
+      ]);
+      assert.equal(
+        await testOpenAICompatibleConnection({
+          endpoint: provider.apiBase,
+          apiKey: provider.apiKey,
+          model: provider.models[0].model,
+          fetch,
+        }),
+        "OK",
+      );
+      const model = new ConfiguredRecommendationModel(
+        () => store.getConfiguration(),
+        {
+          legacy: async () =>
+            assert.fail("only the configured provider is used"),
+          openAICompatible: (request) =>
+            runOpenAICompatibleRequest({ ...request, fetch }),
+        },
+      );
+      const result = await model.generate({
+        instructions: "Rank papers",
+        prompt: "{}",
+      });
+      assert.equal(result.text, "{}");
+      assert.equal(result.identity.apiBase, endpoint);
+      assert.deepEqual(requests, [catalog, endpoint, endpoint]);
+    });
+  }
 });
 
 test("provider display name and credentials do not change the recommendation runtime identity", () => {

@@ -5,6 +5,7 @@ import type {
   LiteratureCacheFileName,
 } from "../cache/cache-repository";
 import type { RecommendationCacheStorage } from "../cache/recommendation-cache-repository";
+import { config } from "../../package.json";
 import {
   PaperTranslateBridge,
   type PaperTranslateGlobal,
@@ -86,7 +87,7 @@ export function createProviderPorts(): ProviderPorts {
 export function createZoteroCacheStorage(): CacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryQueue();
+  const queue = createDirectoryQueue(root);
   return {
     read(directory) {
       return queue.enqueue(directory, async () => {
@@ -142,15 +143,16 @@ export function createZoteroCacheStorage(): CacheStorage {
 export function createZoteroRecommendationCacheStorage(): RecommendationCacheStorage {
   const io = getIOUtils();
   const root = paperCacheRoot();
-  const queue = createDirectoryQueue();
+  const queue = createDirectoryQueue(root);
   return {
-    async read(directory) {
-      await queue.wait(directory);
-      const path = joinPath(root, directory, "recommendation.json");
-      if (!(await io.exists(path))) return undefined;
-      const raw = await io.read(path);
-      const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
-      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    read(directory) {
+      return queue.enqueue(directory, async () => {
+        const path = joinPath(root, directory, "recommendation.json");
+        if (!(await io.exists(path))) return undefined;
+        const raw = await io.read(path);
+        const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+        return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+      });
     },
     write(directory, value, signal) {
       return queue.enqueue(directory, async () => {
@@ -304,14 +306,16 @@ function paperCacheRoot(): string {
   );
 }
 
-function createDirectoryQueue(): Readonly<{
-  wait(key: string): Promise<unknown> | undefined;
+function createDirectoryQueue(root: string): Readonly<{
   enqueue<T>(key: string, task: () => Promise<T>): Promise<T>;
 }> {
-  const operations = new Map<string, Promise<unknown>>();
+  // Transactions and rollback must finish before a reloaded bundle uses the directory.
+  const host = Zotero as typeof Zotero & { [key: string]: unknown };
+  const operations = (host[`${config.addonInstance}CacheOperations`] ??=
+    new Map<string, Promise<unknown>>()) as Map<string, Promise<unknown>>;
   return {
-    wait: (key) => operations.get(key),
-    enqueue(key, task) {
+    enqueue(directory, task) {
+      const key = joinPath(root, directory);
       const previous = operations.get(key) ?? Promise.resolve();
       const operation = previous.catch(() => undefined).then(task);
       operations.set(key, operation);

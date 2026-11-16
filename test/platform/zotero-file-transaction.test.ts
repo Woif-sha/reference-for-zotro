@@ -17,6 +17,98 @@ const CACHE_FILENAMES = [
   "manifest.json",
 ] as const;
 
+for (const cache of ["literature", "recommendation"] as const) {
+  test(`a reloaded runtime waits for the cancelled ${cache} transaction before writing`, async (t) => {
+    const files = cacheFiles("previous");
+    const recommendationPath = `${PAPER_DIRECTORY}\\recommendation.json`;
+    files.set(recommendationPath, encode("previous"));
+    const io = installRuntime(t, files);
+    const move = io.move;
+    let pauseMove = true;
+    let notifyMove!: () => void;
+    let releaseMove!: () => void;
+    const moveStarted = new Promise<void>((resolve) => {
+      notifyMove = resolve;
+    });
+    const moveReleased = new Promise<void>((resolve) => {
+      releaseMove = resolve;
+    });
+    io.move = async (source, destination) => {
+      if (pauseMove && source.includes(".pending-")) {
+        pauseMove = false;
+        notifyMove();
+        await moveReleased;
+      }
+      await move(source, destination);
+    };
+    const oldRuntime = await import("../../src/platform/zotero-runtime");
+    const write = (
+      runtime: typeof oldRuntime,
+      value: string,
+      signal?: AbortSignal,
+    ) =>
+      cache === "recommendation"
+        ? runtime
+            .createZoteroRecommendationCacheStorage()
+            .write("1-ABCD1234", value, signal)
+        : runtime.createZoteroCacheStorage().write(
+            "1-ABCD1234",
+            {
+              "references.json": value,
+              "citations.json": value,
+              "abstract.json": value,
+              "manifest.json": value,
+            },
+            signal,
+          );
+    const controller = new AbortController();
+    const cancelledWrite = assert.rejects(
+      write(oldRuntime, "obsolete", controller.signal),
+      { name: "AbortError" },
+    );
+    await moveStarted;
+    controller.abort();
+    const newRuntime: typeof oldRuntime = await import(
+      new URL(
+        `../../src/platform/zotero-runtime.ts?cache-reload=${cache}`,
+        import.meta.url,
+      ).href
+    );
+    const reading =
+      cache === "recommendation"
+        ? newRuntime.createZoteroRecommendationCacheStorage().read("1-ABCD1234")
+        : newRuntime
+            .createZoteroCacheStorage()
+            .read("1-ABCD1234")
+            .then((snapshot) => snapshot["references.json"]);
+    const currentWrite = write(newRuntime, "current");
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    } finally {
+      releaseMove();
+    }
+    const [snapshot] = await Promise.all([
+      reading,
+      cancelledWrite,
+      currentWrite,
+    ]);
+    assert.equal(snapshot, "previous");
+
+    const names =
+      cache === "recommendation" ? ["recommendation.json"] : CACHE_FILENAMES;
+    for (const name of names) {
+      assert.equal(
+        new TextDecoder().decode(files.get(`${PAPER_DIRECTORY}\\${name}`)),
+        "current",
+      );
+    }
+    assert.equal(
+      [...files.keys()].some((path) => /\.(?:pending|previous)-/u.test(path)),
+      false,
+    );
+  });
+}
+
 test("cancellation during literature commit restores the entire previous revision", async (t) => {
   const files = cacheFiles("previous");
   const original = new Map(files);

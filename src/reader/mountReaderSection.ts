@@ -470,6 +470,7 @@ export function mountReaderSection(options: {
     if (body.ownerDocument.defaultView?.getSelection()?.toString().trim()) {
       return;
     }
+    detailWasOpenAtPointerDown = false;
     controller.selectPaper(paperID);
   };
 

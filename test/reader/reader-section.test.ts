@@ -1818,6 +1818,65 @@ test("Reader context actions stay on the original list title after details open"
   mounted.destroy();
 });
 
+test("clicking another paper title replaces the open detail card", () => {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  let state = readyState();
+  let listener: ((next: ReaderSectionState) => void) | undefined;
+  const mounted = mountReaderSection({
+    body: dom.window.document.body,
+    controller: {
+      ...downloadControllerStubs(),
+      getState: () => state,
+      subscribe(next) {
+        listener = next;
+        return () => {
+          listener = undefined;
+        };
+      },
+      selectTab() {},
+      setCitationLimit() {},
+      selectPaper(paperID) {
+        state = {
+          ...state,
+          selectedPaperID:
+            state.selectedPaperID === paperID ? undefined : paperID,
+        };
+        listener?.(state);
+      },
+      refresh() {},
+      openPaper() {},
+      performPaperAction() {},
+    },
+  });
+  const clickTitle = (paperID: string): void => {
+    const title = dom.window.document.querySelector(
+      `[data-paper-id="${paperID}"] [data-paper-title]`,
+    );
+    assert.ok(title);
+    title.dispatchEvent(
+      new dom.window.MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
+    title.dispatchEvent(
+      new dom.window.MouseEvent("click", { bubbles: true, button: 0 }),
+    );
+  };
+
+  clickTitle("ref-1");
+  assert.equal(state.selectedPaperID, "ref-1");
+  clickTitle("ref-2");
+  assert.equal(state.selectedPaperID, "ref-2");
+  assert.equal(
+    dom.window.document
+      .querySelector("[data-detail-card]")
+      ?.getAttribute("data-paper-id"),
+    "ref-2",
+  );
+  clickTitle("ref-2");
+  assert.equal(state.selectedPaperID, undefined);
+  assert.equal(dom.window.document.querySelector("[data-detail-card]"), null);
+  mounted.destroy();
+});
+
 test("Reader section closes an open detail card when clicking the paper view", () => {
   const dom = new JSDOM(
     '<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"><html:section xmlns:html="http://www.w3.org/1999/xhtml"/></window>',
